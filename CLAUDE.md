@@ -9,9 +9,9 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M3 complete.** Plain text, text-layer PDF and `docx` end to end,
-with checksum, NER and value-propagation detection over it/de/fr/en. No `xlsx` or
-`pptx` yet, no OCR — those are M4 onwards, and the code says so where it matters.
+**Current state: M4 complete.** Plain text, text-layer PDF, `docx` and `xlsx` end
+to end, with checksum, NER and value-propagation detection over it/de/fr/en. No
+`pptx` yet, no OCR — those are M5 onwards, and the code says so where it matters.
 
 ## Commands
 
@@ -21,7 +21,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (227 tests, ~26s with the model)
+uv run pytest -q                       # full suite (288 tests, ~34s with the model)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -195,10 +195,32 @@ that were both parsed *and* marked dirty. Everything else is copied through as
 the bytes it arrived as, which cannot lose what it never parsed.
 `test_docx_real.py` asserts `styles.xml` and `theme1.xml` come back byte-identical.
 
-`python-docx` *is* a dev dependency, used only in tests: it produces a realistic
-package to validate against, so the suite is not just checking our own hand-built
-XML back at us, and it reads the output to confirm the file still opens. Both
-leaks below were found that way and by nothing else.
+`python-docx` and `openpyxl` *are* dev dependencies, used only in tests: they
+produce realistic packages to validate against, so the suite is not just checking
+our own hand-built XML back at us, and they read the output to confirm the file
+still opens. Several of the findings below were surfaced that way and by nothing
+else. They also disagree with Excel — openpyxl writes inline strings where Excel
+writes a shared string table — which is why both paths are handled and both are
+covered by a fixture.
+
+**Excel keeps copies of its own data.** `xlsx.py` anchors the pivot cache, chart
+caches and external-link caches so they are *redacted in place*: dropping a pivot
+cache leaves the pivot blank until refreshed, and editing the values keeps the
+workbook working. Sheet names live in `xl/workbook.xml` *and* `docProps/app.xml`
+`TitlesOfParts`; redacting one is a leak.
+
+**Redacting an Excel name renames the thing.** Formulas refer to sheets and
+tables by name, so this breaks references. It is done anyway — leaving
+identifying names would fail the leak check — and `XlsxHandler.write_back()`
+warns with the list of what was renamed. `AttributeLocator.sanitise` exists
+because `[` and `]` are illegal in a sheet name and `[PERSONA_1]` contains both:
+without it the output was a workbook Excel refused to open.
+
+**Numeric cells are anchored only at `MIN_NUMERIC_LENGTH` digits or more.** A
+sheet is mostly numbers and the 11-digit partita IVA checksum passes on about one
+in ten arbitrary numbers of that length. Do not lower this without measuring the
+over-redaction cost. A `t="s"` cell's `<v>` is an index into the string table, not
+text — editing it repoints the cell at an unrelated string.
 
 **Dropping a part means dropping what points at it.** `OoxmlPackage.drop()`
 removes the part, any relationship resolving to it, and its

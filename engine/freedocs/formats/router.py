@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .base import FormatHandler
 from .ooxml.docx import DocxHandler
+from .ooxml.xlsx import XlsxHandler
 from .pdf_text import PdfTextHandler
 from .plaintext import PlainTextHandler
 
@@ -24,6 +25,7 @@ from .plaintext import PlainTextHandler
 #: misleading one.
 HANDLERS: list[type[FormatHandler]] = [
     DocxHandler,
+    XlsxHandler,
     PdfTextHandler,
     PlainTextHandler,
 ]

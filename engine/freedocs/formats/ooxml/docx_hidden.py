@@ -25,7 +25,13 @@ leaks live.
 from __future__ import annotations
 
 from ..base import HiddenItem
-from .zip_part import NS, OoxmlPackage, qn
+from .docprops import (
+    drop_custom_xml,
+    drop_thumbnail,
+    scrub_app_properties,
+    scrub_core_properties,
+)
+from .zip_part import OoxmlPackage, qn
 
 #: Dropped whole. Comment bodies, the commenter directory, and custom properties
 #: that applications use as a scratchpad.
@@ -82,31 +88,6 @@ RSID_ATTRIBUTES = (
     "w:rsidSect",
 )
 
-#: Core properties worth blanking, by local name. ``dcterms:created`` and
-#: ``modified`` are left: a document with no dates at all is conspicuous, and the
-#: timestamps alone identify nobody.
-CORE_FIELDS = (
-    ("dc:creator", "author"),
-    ("cp:lastModifiedBy", "last editor"),
-    ("cp:revision", "revision count"),
-    ("cp:lastPrinted", "last printed"),
-    ("dc:title", "title"),
-    ("dc:subject", "subject"),
-    ("dc:description", "description"),
-    ("cp:keywords", "keywords"),
-    ("cp:category", "category"),
-    ("cp:contentStatus", "content status"),
-)
-
-#: Extended properties, in the ``ep`` namespace.
-APP_FIELDS = (
-    ("ep:Company", "company"),
-    ("ep:Manager", "manager"),
-    ("ep:TotalTime", "total editing time"),
-    ("ep:Template", "template path"),
-    ("ep:LastAuthor", "last author"),
-)
-
 
 def _drop_element(element: object) -> None:
     parent = element.getparent()  # type: ignore[attr-defined]
@@ -145,58 +126,16 @@ def scrub_docx_hidden(package: OoxmlPackage) -> list[HiddenItem]:
         if package.drop(name):
             removed.append(HiddenItem(part=name, kind=kind, detail="part removed"))
 
-    removed.extend(_drop_thumbnail(package))
-    removed.extend(_drop_custom_xml(package))
-    removed.extend(_scrub_core_properties(package))
-    removed.extend(_scrub_app_properties(package))
+    removed.extend(drop_thumbnail(package))
+    removed.extend(drop_custom_xml(package))
+    removed.extend(scrub_core_properties(package))
+    removed.extend(scrub_app_properties(package))
 
     for part in _xml_body_parts(package):
         removed.extend(_scrub_revisions(package, part))
 
     removed.extend(_scrub_settings(package))
     return removed
-
-
-def _drop_thumbnail(package: OoxmlPackage) -> list[HiddenItem]:
-    """Remove the document preview image.
-
-    Word stores a rendered picture of the first page in ``docProps/thumbnail.*``.
-    Scrubbing every character of text and leaving that behind ships a screenshot
-    of the unredacted document inside the redacted file. The extension varies by
-    producer, so match on the stem rather than a fixed name.
-    """
-    out: list[HiddenItem] = []
-    for name in [n for n in package.names() if n.startswith("docProps/thumbnail.")]:
-        if package.drop(name):
-            out.append(
-                HiddenItem(
-                    part=name,
-                    kind="page-thumbnail",
-                    detail="rendered preview of the unredacted first page",
-                )
-            )
-    return out
-
-
-def _drop_custom_xml(package: OoxmlPackage) -> list[HiddenItem]:
-    """Remove the custom XML data store.
-
-    ``customXml/`` is where data-bound content controls keep their source, so it
-    routinely holds a structured copy of the very fields shown in the document —
-    a record with the client's details in it, sitting outside the body text.
-    """
-    parts = sorted(n for n in package.names() if n.startswith("customXml/"))
-    out: list[HiddenItem] = []
-    for name in parts:
-        if package.drop(name):
-            out.append(
-                HiddenItem(
-                    part=name,
-                    kind="custom-xml-store",
-                    detail="data store behind content controls",
-                )
-            )
-    return out
 
 
 def _xml_body_parts(package: OoxmlPackage) -> list[str]:
@@ -288,32 +227,6 @@ def _scrub_revisions(package: OoxmlPackage, part: str) -> list[HiddenItem]:
     return out
 
 
-def _blank_fields(
-    package: OoxmlPackage, part: str, fields: tuple[tuple[str, str], ...], kind: str
-) -> list[HiddenItem]:
-    if not package.has(part):
-        return []
-    tree = package.tree(part)
-    populated: list[str] = []
-    for tag, label in fields:
-        for element in tree.iter(qn(tag)):  # type: ignore[attr-defined]
-            if element.text:
-                populated.append(label)
-                element.text = None
-    if not populated:
-        return []
-    package.mark_dirty(part)
-    return [HiddenItem(part=part, kind=kind, detail=", ".join(sorted(set(populated))))]
-
-
-def _scrub_core_properties(package: OoxmlPackage) -> list[HiddenItem]:
-    return _blank_fields(package, "docProps/core.xml", CORE_FIELDS, "metadata")
-
-
-def _scrub_app_properties(package: OoxmlPackage) -> list[HiddenItem]:
-    return _blank_fields(package, "docProps/app.xml", APP_FIELDS, "extended-metadata")
-
-
 def _scrub_settings(package: OoxmlPackage) -> list[HiddenItem]:
     """Remove the session id table from ``settings.xml``.
 
@@ -337,9 +250,3 @@ def _scrub_settings(package: OoxmlPackage) -> list[HiddenItem]:
             )
         )
     return out
-
-
-#: Relationship targets are read by the docx handler rather than scrubbed here,
-#: because the right thing to do with them is to run the normal detectors over
-#: them. See ``DocxHandler.extract``.
-RELATIONSHIP_TAG = f"{{{NS['rel']}}}Relationship"

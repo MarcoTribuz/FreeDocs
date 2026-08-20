@@ -32,11 +32,13 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "ruff>=0.6",
-    # Test-only, and never used by the engine: it produces a realistic OOXML
-    # package to validate the handler against, so the tests are not only checking
-    # our own hand-built XML back at us. It is also the reader used to confirm
-    # the scrubbed file still opens.
+    # Test-only, and never used by the engine: these produce realistic OOXML
+    # packages to validate the handlers against, so the tests are not only
+    # checking our own hand-built XML back at us, and they are the readers used
+    # to confirm a scrubbed file still opens. Neither is fit for write-back —
+    # that is the whole reason zip_part.py exists.
     "python-docx>=1.1",
+    "openpyxl>=3.1",
 ]
 
 [project.scripts]

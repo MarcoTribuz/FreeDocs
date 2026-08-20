@@ -22,7 +22,8 @@ from lxml import etree
 
 from freedocs.core.findings import Span
 from freedocs.core.stream import Edit
-from freedocs.formats.ooxml.docx import DOCUMENT, AttributeLocator, DocxHandler
+from freedocs.formats.ooxml.common import AttributeLocator
+from freedocs.formats.ooxml.docx import DOCUMENT, DocxHandler
 from freedocs.formats.router import handler_for
 
 from .conftest import CANARIES, l1_scrubber

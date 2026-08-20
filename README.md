@@ -7,10 +7,10 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M3.** The pipeline works end to end on plain text, text-layer PDF and
-Word documents, with checksum-backed and model-backed detection across Italian,
-German, French and English. Excel, PowerPoint and scans are still to come. See
-[Roadmap](#roadmap).
+**Status: M4.** The pipeline works end to end on plain text, text-layer PDF, Word
+documents and Excel workbooks, with checksum-backed and model-backed detection
+across Italian, German, French and English. PowerPoint and scans are still to
+come. See [Roadmap](#roadmap).
 
 ## Why another one of these
 
@@ -136,6 +136,40 @@ Removing a part means also removing what points at it. A dangling relationship o
 an orphaned `[Content_Types].xml` override makes Word offer to repair the file, so
 `OoxmlPackage.drop()` does all three together.
 
+## What an Excel file duplicates
+
+A workbook keeps more copies of its own content than any other format, and each
+one survives redacting every cell on every sheet:
+
+- **The pivot cache** stores its own copy of the source rows. A pivot over a
+  staff table contains the staff table. It is *redacted in place* rather than
+  deleted, so the pivot keeps working.
+- **Chart caches** hold the category labels, which are usually the names.
+- **External links** cache the last-seen values of the workbook they point at,
+  and their relationship target is a UNC path containing a username.
+- **Sheet names appear twice**, in `xl/workbook.xml` and again in
+  `docProps/app.xml` as `TitlesOfParts`. Redacting one leaves the other.
+- **`veryHidden` sheets** are not in the sheet-tab menu at all — unhiding one
+  needs the VBA editor — so they are where the raw extract behind a report ends
+  up and gets forgotten.
+- **Connection strings and Power Query scripts** carry server names, file paths
+  and occasionally credentials.
+- **The macro project** is opaque binary that cannot be redacted, only removed.
+
+Hidden sheets, rows and columns are reported but kept: their text is redacted
+like everything else, and deleting a sheet breaks every formula referencing it.
+
+Two consequences worth knowing before using it on a workbook full of formulas:
+
+- **Redacting a name renames things.** Excel refers to sheets and tables *by
+  name* in formulas, so a redacted sheet name breaks the references to it. The
+  alternative was leaving identifying names in the file, which the leak check
+  would reject. The rename is reported as a warning, naming what changed.
+- **Numbers are only anchored at nine digits or more.** A sheet is mostly
+  numbers, and an eleven-digit partita IVA checksum passes on roughly one in ten
+  arbitrary numbers of that length, so anchoring every amount would turn the
+  ledger into placeholders.
+
 ## Anonymisation, not pseudonymisation
 
 Values are replaced with typed placeholders — `[PERSONA_1]`, `[IBAN_2]` — that
@@ -177,8 +211,8 @@ because it gets sent.
 | M1 | PDF text: true content-stream redaction, hidden-content scrub | done |
 | M2 | L2 NER integrated, labelled corpus, measured coverage | done |
 | M3 | `docx` with run-aware write-back and hidden-content scrub | done |
-| M4 | `xlsx`, including pivot caches and `veryHidden` sheets | next |
-| M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | |
+| M4 | `xlsx`, including pivot caches and `veryHidden` sheets | done |
+| M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | next |
 | M6 | Scanned PDF: OCR plus redaction on word bounding boxes | |
 | M7 | Tauri desktop app | |
 | M8 | L3 Ollama review, opt-in | |

@@ -22,13 +22,13 @@ Two details that are easy to get wrong and expensive to notice later:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
-from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder, apply_anchor_edits
+from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from ..base import FormatHandler, HiddenItem
-from .hidden import RELATIONSHIP_TAG, scrub_docx_hidden
-from .zip_part import NS, OoxmlPackage, qn
+from .common import add_relationship_targets, apply_ooxml_edits
+from .docx_hidden import scrub_docx_hidden
+from .zip_part import OoxmlPackage, qn
 
 #: The part holding the document body.
 DOCUMENT = "word/document.xml"
@@ -51,24 +51,6 @@ TEXT_TAGS = frozenset({qn("w:t"), qn("w:instrText")})
 PARAGRAPH_TAG = qn("w:p")
 TAB_TAG = qn("w:tab")
 BREAK_TAGS = frozenset({qn("w:br"), qn("w:cr")})
-
-XML_SPACE = f"{{{NS['xml']}}}space"
-
-
-@dataclass(frozen=True)
-class AttributeLocator:
-    """An anchor that points at an XML attribute rather than element text.
-
-    Used for external relationship targets. A hyperlink's address lives in
-    ``document.xml.rels``, not in the body, so redacting the visible link text
-    leaves ``mailto:mario.rossi@example.com`` sitting in the file. Making the
-    target an ordinary anchor means the normal detectors and the normal policy
-    apply to it, instead of this module needing its own idea of what an email
-    looks like.
-    """
-
-    element: object
-    name: str
 
 
 class DocxHandler(FormatHandler):
@@ -128,27 +110,10 @@ class DocxHandler(FormatHandler):
                     builder.add_filler("\n")
             builder.add_filler("\n")
 
-        self._add_relationship_targets(builder)
+        # Hyperlink addresses live in the rels parts, not in the body: redacting
+        # the visible link text would leave mailto:someone@example.com behind.
+        add_relationship_targets(self.package, builder, "word/_rels")
         return builder.build()
-
-    def _add_relationship_targets(self, builder: TextStreamBuilder) -> None:
-        """Expose external hyperlink targets to the detectors.
-
-        Internal targets are skipped: they point at other parts of the same
-        document and hold no addresses.
-        """
-        for part in self.package.matching("word/_rels", ".rels"):
-            tree = self.package.tree(part)
-            for relationship in tree.iter(RELATIONSHIP_TAG):
-                if relationship.get("TargetMode") != "External":
-                    continue
-                target = relationship.get("Target") or ""
-                if not target:
-                    continue
-                builder.add(target, part=part, locator=AttributeLocator(relationship, "Target"))
-                # Filler between targets, so two adjacent URLs are never read as
-                # one string by the detectors.
-                builder.add_filler("\n")
 
     # -- hidden content --------------------------------------------------------
 
@@ -158,43 +123,5 @@ class DocxHandler(FormatHandler):
     # -- write-back ------------------------------------------------------------
 
     def write_back(self, edits: list[AnchorEdit]) -> bytes:
-        by_element: dict[int, list[AnchorEdit]] = {}
-        for edit in edits:
-            by_element.setdefault(id(edit.anchor.locator), []).append(edit)
-
-        for element_edits in by_element.values():
-            locator = element_edits[0].anchor.locator
-            if isinstance(locator, AttributeLocator):
-                self._edit_attribute(locator, element_edits)
-            else:
-                self._edit_text(locator, element_edits)
-
+        apply_ooxml_edits(self.package, edits)
         return self.package.to_bytes()
-
-    def _edit_text(self, element: object, edits: list[AnchorEdit]) -> None:
-        original = element.text or ""  # type: ignore[attr-defined]
-        replaced = apply_anchor_edits(original, edits)
-        if replaced == original:
-            return
-        element.text = replaced  # type: ignore[attr-defined]
-        _preserve_space(element, replaced)
-        self.package.mark_dirty(edits[0].part)
-
-    def _edit_attribute(self, locator: AttributeLocator, edits: list[AnchorEdit]) -> None:
-        original = locator.element.get(locator.name) or ""  # type: ignore[attr-defined]
-        replaced = apply_anchor_edits(original, edits)
-        if replaced == original:
-            return
-        locator.element.set(locator.name, replaced)  # type: ignore[attr-defined]
-        self.package.mark_dirty(edits[0].part)
-
-
-def _preserve_space(element: object, text: str) -> None:
-    """Keep leading and trailing whitespace from being stripped by Word.
-
-    Without ``xml:space="preserve"`` a ``<w:t> paga.</w:t>`` loses its leading
-    space and the previous word runs into this one. Only ever added, never
-    removed: a document that already declared it meant it.
-    """
-    if text != text.strip() and element.get(XML_SPACE) != "preserve":  # type: ignore[attr-defined]
-        element.set(XML_SPACE, "preserve")  # type: ignore[attr-defined]
