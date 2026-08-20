@@ -11,6 +11,28 @@ from __future__ import annotations
 
 import pytest
 
+from freedocs.pipeline import Scrubber, build_registry
+
+
+def l1_scrubber(**kwargs) -> Scrubber:
+    """A scrubber pinned to the checksum layer.
+
+    Format tests use this rather than the default stack on purpose. They are
+    about write-back — does the right byte range change, does the file still
+    open — and a model in the loop would make them slow, network-dependent and
+    sensitive to a threshold nobody changed. Detection *quality* is measured by
+    ``freedocs benchmark`` against the labelled corpus, which is the right tool
+    for it; asserting it in a unit test would encode one model's behaviour as a
+    requirement.
+    """
+    return Scrubber(registry=build_registry("l1"), **kwargs)
+
+
+@pytest.fixture
+def scrubber() -> Scrubber:
+    return l1_scrubber()
+
+
 #: (entity name, literal as it appears in a document)
 CANARIES: dict[str, str] = {
     "IT_CODICE_FISCALE": "RSSMRA85T10A562S",

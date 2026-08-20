@@ -23,9 +23,8 @@ from freedocs.formats.pdf_text import (  # noqa: E402
     ScannedPdfNotSupported,
 )
 from freedocs.formats.router import handler_for  # noqa: E402
-from freedocs.pipeline import Scrubber  # noqa: E402
 
-from .conftest import CANARIES  # noqa: E402
+from .conftest import CANARIES, l1_scrubber  # noqa: E402
 
 LINES = [
     "Scheda cliente - RISERVATA",
@@ -39,9 +38,9 @@ LINES = [
     "Note: contratto annuale, rinnovo automatico",
 ]
 
-#: Canaries the L1 layer is expected to find in the fixture above. Names are
-#: absent on purpose: there is no NER layer yet, and a test asserting otherwise
-#: would be asserting a feature that does not exist.
+#: What the L1 layer finds in the fixture above. "Mario Rossi" is deliberately
+#: absent: these tests pin the registry to L1 so they measure PDF write-back
+#: rather than model behaviour. Name detection is covered by the benchmark.
 EXPECTED = [
     CANARIES["IT_CODICE_FISCALE"],
     CANARIES["IT_PARTITA_IVA"],
@@ -188,26 +187,26 @@ def test_a_pdf_without_a_text_layer_is_refused(tmp_path: Path):
 @pytest.mark.parametrize("value", EXPECTED)
 def test_canary_does_not_survive_anywhere_in_the_output(source: Path, value: str):
     """The real test: not merely invisible, but absent from every stream."""
-    result = Scrubber().scrub_file(source)
+    result = l1_scrubber().scrub_file(source)
     assert not survives_anywhere(result.output, value)
 
 
 @pytest.mark.leak
 def test_verification_passes(source: Path):
-    result = Scrubber().scrub_file(source)
+    result = l1_scrubber().scrub_file(source)
     assert result.verify.ok, result.verify.summary()
     assert result.verify.checked_values == len(EXPECTED)
 
 
 def test_placeholders_are_written_into_the_page(source: Path):
-    text = text_of(Scrubber().scrub_file(source).output)
+    text = text_of(l1_scrubber().scrub_file(source).output)
     for placeholder in ("[CF_1]", "[PIVA_1]", "[IBAN_1]", "[AVS_1]", "[UID_1]", "[EMAIL_1]"):
         assert placeholder in text
 
 
 def test_surrounding_text_is_left_alone(source: Path):
     """Character-level boxes exist so that neighbouring text is never touched."""
-    text = text_of(Scrubber().scrub_file(source).output)
+    text = text_of(l1_scrubber().scrub_file(source).output)
     assert "Scheda cliente - RISERVATA" in text
     assert "Note: contratto annuale, rinnovo automatico" in text
     assert "Codice fiscale:" in text
@@ -215,7 +214,7 @@ def test_surrounding_text_is_left_alone(source: Path):
 
 
 def test_output_is_a_readable_pdf(source: Path):
-    result = Scrubber().scrub_file(source)
+    result = l1_scrubber().scrub_file(source)
     doc = pymupdf.open(stream=result.output, filetype="pdf")
     assert doc.page_count == 1
     assert not doc.is_repaired
@@ -223,7 +222,7 @@ def test_output_is_a_readable_pdf(source: Path):
 
 def test_a_clean_pdf_keeps_all_of_its_text(tmp_path: Path):
     lines = ["Verbale di riunione", "Approvato il preventivo per il progetto."]
-    result = Scrubber().scrub_file(make_pdf(tmp_path / "pulito.pdf", lines))
+    result = l1_scrubber().scrub_file(make_pdf(tmp_path / "pulito.pdf", lines))
     text = text_of(result.output)
     assert not result.removed
     for line in lines:
@@ -251,7 +250,7 @@ def loaded(tmp_path: Path) -> Path:
 
 
 def test_hidden_content_is_inventoried(loaded: Path):
-    kinds = {item.kind for item in Scrubber().scrub_file(loaded).hidden_removed}
+    kinds = {item.kind for item in l1_scrubber().scrub_file(loaded).hidden_removed}
     assert kinds == {
         "metadata",
         "xmp-metadata",
@@ -262,7 +261,7 @@ def test_hidden_content_is_inventoried(loaded: Path):
 
 
 def test_metadata_and_xmp_are_gone(loaded: Path):
-    doc = pymupdf.open(stream=Scrubber().scrub_file(loaded).output, filetype="pdf")
+    doc = pymupdf.open(stream=l1_scrubber().scrub_file(loaded).output, filetype="pdf")
     populated = {key: value for key, value in (doc.metadata or {}).items() if value}
     # "format" describes the file version, not its author.
     assert set(populated) <= {"format"}
@@ -270,7 +269,7 @@ def test_metadata_and_xmp_are_gone(loaded: Path):
 
 
 def test_outline_attachments_and_annotations_are_gone(loaded: Path):
-    doc = pymupdf.open(stream=Scrubber().scrub_file(loaded).output, filetype="pdf")
+    doc = pymupdf.open(stream=l1_scrubber().scrub_file(loaded).output, filetype="pdf")
     assert doc.get_toc() == []
     assert doc.embfile_names() == []
     assert [annot for page in doc for annot in page.annots()] == []
@@ -283,20 +282,20 @@ def test_annotation_text_does_not_survive(loaded: Path):
     This regressed once: the report claimed the annotation had been removed while
     the note was still sitting in the file.
     """
-    output = Scrubber().scrub_file(loaded).output
+    output = l1_scrubber().scrub_file(loaded).output
     assert not survives_anywhere(output, "cliente moroso")
 
 
 @pytest.mark.leak
 def test_metadata_values_do_not_survive(loaded: Path):
-    output = Scrubber().scrub_file(loaded).output
+    output = l1_scrubber().scrub_file(loaded).output
     for value in ("Marco Tribuzio", "Riservato", CANARIES["EMAIL"]):
         assert not survives_anywhere(output, value)
 
 
 @pytest.mark.leak
 def test_attachment_contents_do_not_survive(loaded: Path):
-    output = Scrubber().scrub_file(loaded).output
+    output = l1_scrubber().scrub_file(loaded).output
     assert not survives_anywhere(output, CANARIES["IBAN"])
     assert not survives_anywhere(output, "allegato.txt")
 
@@ -352,10 +351,10 @@ def test_placeholder_that_cannot_fit_is_dropped_but_reported(tmp_path: Path):
 
 def test_warnings_reach_the_scrub_result(source: Path):
     """The channel has to be wired end to end or a degradation goes unnoticed."""
-    result = Scrubber().scrub_file(source)
+    result = l1_scrubber().scrub_file(source)
     assert any("reading-order sorting" in warning for warning in result.warnings)
 
 
 def test_a_document_with_nothing_to_redact_warns_about_nothing(tmp_path: Path):
     path = make_pdf(tmp_path / "pulito.pdf", FILLER_LINES)
-    assert Scrubber().scrub_file(path).warnings == []
+    assert l1_scrubber().scrub_file(path).warnings == []

@@ -9,9 +9,9 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M1 complete.** Plain text and text-layer PDF end to end with
-checksum-backed detection. No Office formats, no OCR, no NER — those are M2
-onwards, and the code says so where it matters.
+**Current state: M2 complete.** Plain text and text-layer PDF end to end, with
+checksum, NER and value-propagation detection over it/de/fr/en. No Office
+formats, no OCR — those are M3 onwards, and the code says so where it matters.
 
 ## Commands
 
@@ -19,9 +19,10 @@ All Python work happens in `engine/`.
 
 ```bash
 cd engine
-uv sync --extra dev --extra pdf        # Python 3.12 (pinned in .python-version)
+uv sync --extra dev --extra pdf --extra ner   # Python 3.12, pinned in .python-version
 
-uv run pytest -q                       # full suite (110 tests)
+uv run pytest -q                       # full suite (181 tests, ~20s with the model)
+uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
 uv run pytest -q -k plan_edits         # one test by name
@@ -30,7 +31,13 @@ uv run ruff check . && uv run ruff format --check .
 uv run freedocs inspect FILE           # report findings, write nothing
 uv run freedocs scrub FILE -o out/     # write a scrubbed copy
 uv run freedocs entities               # list supported entity types
+uv run freedocs benchmark              # score detectors against corpus/
+uv run freedocs benchmark --detectors "l1,all:gliner2,all:presidio"
 ```
+
+`--extra ner` fetches ~1.2 GB of model weights to the Hugging Face cache on first
+use. CI deliberately omits it: the `slow`-marked tests skip themselves, and
+detection quality is measured by `benchmark`, not asserted in CI.
 
 CI (`.github/workflows/engine.yml`) runs lint, format, the suite and the leak
 checks on Python 3.10 and 3.12. Keep both green: 3.10 is the declared floor in
@@ -79,9 +86,24 @@ same characters.
   codice fiscale CIN, partita IVA, AHV EAN-13, Swiss UID, IBAN mod-97, Luhn, all
   via `python-stdnum`. Add identifiers here as a `Rule`, and always pair the
   pattern with a real validator rather than tightening the regex.
-- **L2** (M2): NER encoder for names, addresses, organisations.
+- **L2** (`detect/ner.py` + `detect/backends/`, shipped): GLiNER2 for names,
+  organisations, locations, addresses, job titles. One `mdeberta-v3-base` model
+  covers it/de/fr/en with no language hint. Backends are swappable so the choice
+  rests on `benchmark` output; `presidio_backend.py` is the measured alternative,
+  kept installable so the comparison stays reproducible.
+- **L2.5** (`detect/propagate.py`, shipped): copies each confirmed value to its
+  other occurrences. Runs after overlap resolution, then resolves again.
 - **L3** (M8): opt-in Ollama pass over the *already anonymised* text, flagging
   leftovers and quasi-identifiers. Advisory only.
+
+Do not add a language-detection step to make Presidio viable. It was measured:
+running all four languages and merging is what pushes its PERSON precision to
+0.28 and its over-redaction to 21%, and a detector guessing the language is one
+more thing that fails silently on short or mixed text.
+
+`NerDetector.min_score` defaults to 0.5 because a threshold sweep on the corpus
+was flat from 0.2 to 0.6 and degraded above it — not because 0.5 looked sensible.
+Re-run the sweep before changing it.
 
 Two mechanisms in `Rule` exist because of specific bugs, not as decoration:
 
@@ -116,7 +138,21 @@ gets sent.
 is rejected by the validator, so nothing is detected, nothing leaks, and the leak
 test passes while proving nothing. `tests/conftest.py` holds verified values;
 when adding one, compute the checksum rather than inventing it. Two of the four
-codice fiscale values tried during M0 were invalid.
+codice fiscale values tried during M0 were invalid. The same applies to the
+corpus: `test_corpus.py` asserts that every annotated identifier is actually
+accepted by L1, so a bad value cannot make a detector look worse than it is.
+
+**Quality is measured, not asserted.** Format tests pin the registry to L1 via
+`tests/conftest.l1_scrubber()`, because they are about write-back and a model in
+the loop makes them slow and threshold-sensitive. Detection quality lives in
+`freedocs benchmark` against `corpus/`. Do not encode one model version's spans
+in a unit test: the next model would "fail" while being better.
+
+**Gold offsets are derived, never hand-written.** `corpus/*.txt` uses inline
+`[LABEL:text]` markup. Hand-maintained offsets rot silently — insert a word and
+every number after it is wrong — and then the benchmark measures the annotation
+instead of the model. An unknown label is an error, not a skip: a dropped
+annotation gets scored as a detector hallucination.
 
 **Redaction removes, it does not cover.** `formats/pdf_text.py` uses PyMuPDF
 `apply_redactions()` and always a full rewrite (`garbage=4, clean=True,

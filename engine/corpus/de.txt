@@ -1,0 +1,29 @@
+Besprechungsprotokoll - vertraulich
+
+Teilnehmer: [PERSON:Andreas Meier] ([JOB_TITLE:Leiter Vertrieb]), [PERSON:Sabine Hofmann]
+und [PERSON:Thomas Brunner] von [ORGANISATION:Realise Consulting AG].
+
+Die Kundin [ORGANISATION:Nordwind Logistik GmbH] mit Sitz in
+[ADDRESS:Hauptstrasse 87, 8004 Zuerich] hat die Vertragsverlaengerung bestaetigt.
+Ansprechpartnerin ist [PERSON:Claudia Vogt], erreichbar unter
+[EMAIL:c.vogt@nordwind-logistik.example] oder [PHONE:+41 44 512 33 77].
+
+Administrative Angaben:
+UID der Gesellschaft: [CH_UID:CHE-116.281.710]
+AHV-Nummer des entsandten Mitarbeiters: [CH_AHV:756.1234.5678.97]
+Konto fuer Zahlungen: [IBAN:CH93 0076 2011 6238 5295 7]
+
+Die Niederlassung in [LOCATION:Basel] uebernimmt das Projekt ab Maerz. Der
+[JOB_TITLE:technische Leiter] [PERSON:Peter Schneider] wechselt fuer sechs Monate nach
+[LOCATION:Bern]. Spesen gehen auf [IBAN:DE89 3704 0044 0532 0130 00].
+
+[PERSON:Sabine Hofmann] hat darauf hingewiesen, dass die Rechnungsadresse
+[ADDRESS:Bahnhofplatz 3, 3011 Bern] im System veraltet ist.
+
+Die Gegenpartei [ORGANISATION:Kanzlei Wagner und Partner] aus
+[LOCATION:Muenchen] uebernimmt die Vertragspruefung. Kontakt:
+[EMAIL:sekretariat@kanzlei-wagner.example], Telefon [PHONE:+49 89 4711 2200].
+
+Der Testserver bleibt bis zur Abnahme unter [IP_ADDRESS:10.42.7.19] erreichbar.
+Bestellung 90210 vom 03.03.2024, 250 Stueck, Lieferung im April.
+Das Angebot wurde ohne Aenderungen genehmigt.

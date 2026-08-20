@@ -15,11 +15,17 @@ from .pipeline import ScrubResult
 
 #: Stated in every report. Users who believe a tool is perfect stop checking, and
 #: this one has a known, bounded scope.
+#:
+#: The measured figures come from ``freedocs benchmark`` over the labelled corpus
+#: in ``corpus/``: 103 gold entities across four languages. Quoting a number the
+#: tool can reproduce on demand is the point; quoting a number nobody measured is
+#: how a caveat becomes marketing.
 CAVEATS = [
     "Direct identifiers are removed; re-identification from combinations of "
     "remaining details (role, dates, locations) is still possible.",
-    "Detection in this build is checksum-based only: structured identifiers are "
-    "found reliably, names and addresses are not detected at all.",
+    "Detection is not exhaustive. On the project's own labelled corpus the full "
+    "layer stack covers 99% of confidential entities, which still means some are "
+    "missed, and a real document is harder than a test one.",
     "Review the output before sending it anywhere.",
 ]
 

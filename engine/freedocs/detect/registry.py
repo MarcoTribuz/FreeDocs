@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from ..core.findings import Finding
+from .propagate import propagate_known_values
 
 
 class Detector(Protocol):
@@ -58,6 +59,14 @@ class DetectorRegistry:
     """Runs every configured detector and returns one coherent finding list."""
 
     detectors: list[Detector] = field(default_factory=list)
+    #: Copy each confirmed value to its other occurrences in the document. On by
+    #: default because every residual miss measured on the corpus was a repeat
+    #: mention the model scored differently the second time.
+    propagate: bool = True
+    #: Limitations of this particular configuration, in plain language. Carried
+    #: into the report so that a registry assembled without a layer cannot look
+    #: like a registry that simply found nothing.
+    notes: list[str] = field(default_factory=list)
 
     def add(self, detector: Detector) -> DetectorRegistry:
         self.detectors.append(detector)
@@ -67,7 +76,13 @@ class DetectorRegistry:
         raw: list[Finding] = []
         for detector in self.detectors:
             raw.extend(detector.detect(text))
-        return resolve_overlaps(raw)
+        resolved = resolve_overlaps(raw)
+        if not self.propagate:
+            return resolved
+        # Propagate after resolution, so a value that lost an overlap contest is
+        # not spread across the document under the wrong label. Resolve again
+        # afterwards: a propagated span can still collide with a longer finding.
+        return resolve_overlaps(propagate_known_values(text, resolved))
 
 
 def summarise(findings: Sequence[Finding]) -> dict[str, int]:

@@ -1,0 +1,119 @@
+"""Value propagation: the pass that took corpus coverage from 94% to 99%."""
+
+from __future__ import annotations
+
+from freedocs.core.findings import EntityType, Finding, Layer, Span
+from freedocs.detect.propagate import (
+    DETECTOR_SUFFIX,
+    MIN_PROPAGATION_LENGTH,
+    propagate_known_values,
+)
+
+
+def found(
+    text: str, start: int, entity: EntityType = EntityType.PERSON, score: float = 0.9
+) -> Finding:
+    return Finding(
+        span=Span(start, start + len(text)),
+        entity=entity,
+        text=text,
+        layer=Layer.NER,
+        detector="stub:person",
+        confidence=score,
+    )
+
+
+def texts(findings: list[Finding]) -> list[tuple[int, str]]:
+    return [(f.span.start, f.text) for f in findings]
+
+
+def test_a_second_mention_is_added():
+    """The exact failure measured on the corpus: found once, missed later."""
+    text = "Anna Bianchi apre. Poi Anna Bianchi chiude."
+    result = propagate_known_values(text, [found("Anna Bianchi", 0)])
+    assert texts(result) == [(0, "Anna Bianchi"), (23, "Anna Bianchi")]
+
+
+def test_the_copy_keeps_the_original_label_and_confidence():
+    text = "Acme Group paga. Acme Group fattura."
+    template = found("Acme Group", 0, EntityType.ORGANISATION, score=0.72)
+    copy = propagate_known_values(text, [template])[1]
+    assert copy.entity is EntityType.ORGANISATION
+    assert copy.confidence == 0.72
+    assert copy.detector.endswith(DETECTOR_SUFFIX)
+
+
+def test_propagation_is_case_insensitive_but_reports_the_real_text():
+    text = "Anna Bianchi firma. ANNA BIANCHI in maiuscolo."
+    result = propagate_known_values(text, [found("Anna Bianchi", 0)])
+    assert texts(result) == [(0, "Anna Bianchi"), (20, "ANNA BIANCHI")]
+
+
+def test_word_boundaries_are_respected():
+    """Without boundaries "Conti" would redact "Continua" and "raccontino"."""
+    text = "Giuseppe Conti parla. Continua la riunione. Il racconti-no."
+    result = propagate_known_values(text, [found("Conti", 9)], min_length=5)
+    assert texts(result) == [(9, "Conti")]
+
+
+def test_short_values_are_not_propagated():
+    """Two- and three-letter strings appear inside half the words on the page."""
+    text = "Acme SA paga. Beta SA incassa. Gamma SA fattura."
+    result = propagate_known_values(text, [found("SA", 5, EntityType.ORGANISATION)])
+    assert len(result) == 1
+
+
+def test_the_minimum_length_is_above_common_company_suffixes():
+    assert len("GmbH") < MIN_PROPAGATION_LENGTH
+
+
+def test_an_existing_finding_is_not_duplicated():
+    text = "Anna Bianchi e Anna Bianchi."
+    result = propagate_known_values(text, [found("Anna Bianchi", 0), found("Anna Bianchi", 15)])
+    assert len(result) == 2
+
+
+def test_propagation_never_overlaps_an_existing_finding():
+    """A copy landing inside another finding would produce two edits on one range."""
+    text = "Studio Rossi e Rossi insieme."
+    findings = [found("Studio Rossi", 0, EntityType.ORGANISATION), found("Rossi", 15)]
+    result = propagate_known_values(text, findings, min_length=5)
+    spans = sorted((f.span.start, f.span.end) for f in result)
+    for index in range(1, len(spans)):
+        previous, current = spans[index - 1], spans[index]
+        assert previous[1] <= current[0], f"overlap between {previous} and {current}"
+
+
+def test_the_most_confident_sighting_becomes_the_template():
+    text = "Mario Rossi qui. Mario Rossi la. Mario Rossi altrove."
+    findings = [found("Mario Rossi", 0, score=0.4), found("Mario Rossi", 17, score=0.95)]
+    result = propagate_known_values(text, findings)
+    new = [f for f in result if DETECTOR_SUFFIX in f.detector]
+    assert [f.confidence for f in new] == [0.95]
+
+
+def test_no_findings_means_no_work():
+    assert propagate_known_values("qualsiasi testo", []) == []
+
+
+def test_output_is_ordered_by_position():
+    text = "Zeta Uno e Zeta Uno e Zeta Uno"
+    result = propagate_known_values(text, [found("Zeta Uno", 11)])
+    starts = [f.span.start for f in result]
+    assert starts == sorted(starts)
+
+
+def test_result_is_deterministic():
+    text = "Anna Bianchi, Marco Deluca, Anna Bianchi, Marco Deluca"
+    findings = [found("Anna Bianchi", 0), found("Marco Deluca", 14)]
+    first = texts(propagate_known_values(text, findings))
+    second = texts(propagate_known_values(text, list(reversed(findings))))
+    assert first == second
+
+
+def test_regex_metacharacters_in_a_value_are_escaped():
+    """A detected value is data, not a pattern."""
+    text = "Codice A.B(1) e ancora A.B(1) qui."
+    second = text.index("A.B(1)", 10)
+    result = propagate_known_values(text, [found("A.B(1)", 7)], min_length=5)
+    assert texts(result) == [(7, "A.B(1)"), (second, "A.B(1)")]

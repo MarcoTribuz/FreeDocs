@@ -1,0 +1,30 @@
+Meeting minutes - confidential
+
+Present: [PERSON:Michael Turner] ([JOB_TITLE:head of sales]), [PERSON:Rachel Owens] and
+[PERSON:David Whitfield] for [ORGANISATION:Realise Consulting AG].
+
+The client [ORGANISATION:Northgate Freight Ltd], registered at
+[ADDRESS:14 Kingsway, London WC2B 6LH], has confirmed the contract renewal. The
+main contact is [PERSON:Helen Marsh], reachable at
+[EMAIL:h.marsh@northgate-freight.example] or on [PHONE:+44 20 7946 0321].
+
+Administrative details:
+Company UID: [CH_UID:CHE-116.281.710]
+AHV number of the seconded employee: [CH_AHV:756.1234.5678.97]
+Account for payments: [IBAN:CH93 0076 2011 6238 5295 7]
+
+The [LOCATION:Zurich] branch will take over the project from March.
+[JOB_TITLE:Technical lead] [PERSON:Simon Clarke] will be seconded to
+[LOCATION:Vienna] for six months, with expenses paid to
+[IBAN:AT61 1904 3002 3457 3201].
+
+[PERSON:Rachel Owens] noted that the billing address
+[ADDRESS:Bahnhofstrasse 12, 8001 Zurich] is out of date in the system.
+
+Opposing counsel [ORGANISATION:Hartley and Vance LLP] of [LOCATION:Manchester]
+will handle the contract review. Contact:
+[EMAIL:reception@hartleyvance.example], phone [PHONE:+44 161 236 4488].
+
+The test server stays reachable at [IP_ADDRESS:10.42.7.19] until sign-off.
+Order 90210 dated 03.03.2024, 250 units, delivery in April.
+The quotation was approved without changes.

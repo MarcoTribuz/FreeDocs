@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .core.errors import MissingDependency
 from .core.findings import Finding
 from .core.policy import Action, Policy, SurrogateAllocator
 from .core.stream import Edit
@@ -58,14 +59,61 @@ class ScrubResult:
 _REWRITING_ACTIONS = frozenset({Action.REDACT, Action.SURROGATE})
 
 
-def default_registry() -> DetectorRegistry:
-    """The detector set for M0: checksum-backed validators only.
+#: Layer combinations addressable by name, for the CLI and the benchmark.
+LAYER_SPECS = ("l1", "ner", "all")
 
-    L2 (NER) and L3 (LLM review) register themselves here in their milestones.
-    Shipping L1 alone is honest rather than half-finished: it finds every
-    structured identifier it claims to, and finds no names at all.
+
+def build_registry(spec: str = "l1") -> DetectorRegistry:
+    """Assemble a registry from a layer name, optionally naming a NER backend.
+
+    Accepts ``l1``, ``ner``, ``all``, and a ``ner:<backend>`` suffix form such as
+    ``all:presidio``. Named combinations exist so the benchmark can measure one
+    layer in isolation: a number for "L1 alone" is what makes a number for
+    "L1 plus NER" mean anything, and measuring only the combination hides which
+    layer regressed.
     """
-    return DetectorRegistry([ValidatorDetector()])
+    layer, _, backend = spec.partition(":")
+    if layer == "l1":
+        if backend:
+            raise ValueError("the l1 layer has no backend to choose")
+        return DetectorRegistry([ValidatorDetector()])
+    if layer not in {"ner", "all"}:
+        raise ValueError(
+            f"unknown detector spec {spec!r}; expected one of {', '.join(LAYER_SPECS)}"
+        )
+
+    # Imported here, not at module scope: the NER backends pull in torch, and a
+    # plain text scrub must not pay that import cost or fail without it.
+    from .detect.ner import NerDetector
+
+    ner = NerDetector(backend_name=backend) if backend else NerDetector()
+    return DetectorRegistry([ValidatorDetector(), ner] if layer == "all" else [ner])
+
+
+#: What the user loses when the NER layer is unavailable. Measured on the corpus:
+#: L1 alone covers 36.9% of gold entities, L1 with GLiNER2 covers 99.0%.
+NO_NER_NOTE = (
+    "the NER layer is not installed, so names, organisations, locations, "
+    "addresses and job titles are NOT being detected - install the 'ner' extra; "
+    "measured coverage falls from 99% to 37% without it"
+)
+
+
+def default_registry() -> DetectorRegistry:
+    """Every available layer, with any absence stated rather than hidden.
+
+    ``all`` is the default because the measured difference is not marginal:
+    checksums alone leave roughly two thirds of the confidential entities in a
+    business document untouched. When the NER extra is missing the registry falls
+    back to L1 and carries :data:`NO_NER_NOTE`, which reaches the report and the
+    CLI. Degrading quietly would be the one outcome worse than refusing.
+    """
+    try:
+        return build_registry("all")
+    except MissingDependency:
+        registry = build_registry("l1")
+        registry.notes.append(NO_NER_NOTE)
+        return registry
 
 
 @dataclass
@@ -108,7 +156,9 @@ class Scrubber:
             hidden_removed=hidden,
             verify=verify,
             source_chars=len(stream.text),
-            warnings=list(handler.warnings),
+            # Handler compromises and detector-configuration gaps land in the
+            # same place: both are things the output does not show on its own.
+            warnings=list(handler.warnings) + list(self.registry.notes),
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)

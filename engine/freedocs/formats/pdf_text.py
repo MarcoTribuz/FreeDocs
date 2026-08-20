@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from ..core.errors import MissingDependency
 from ..core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from .base import FormatHandler, HiddenItem
 
@@ -51,10 +52,6 @@ MIN_CHARS_PER_PAGE = 8
 #: Reported by PyMuPDF alongside real metadata but describing the file rather
 #: than its author, so listing them as removed confidential content is noise.
 NON_SENSITIVE_METADATA_KEYS = frozenset({"format", "encryption"})
-
-
-class MissingDependency(RuntimeError):
-    """PyMuPDF is not installed."""
 
 
 class ScannedPdfNotSupported(RuntimeError):

@@ -12,11 +12,12 @@ import json
 import sys
 from pathlib import Path
 
+from .core.errors import MissingDependency
 from .core.findings import EntityType
 from .core.policy import Action, Policy
-from .formats.pdf_text import MissingDependency, ScannedPdfNotSupported
+from .formats.pdf_text import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat, handler_for
-from .pipeline import Scrubber
+from .pipeline import Scrubber, build_registry, default_registry
 from .report import build_report, format_console
 from .verify import LeakDetected
 
@@ -61,15 +62,41 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="write the output even if verification finds surviving values",
     )
+    scrub.add_argument(
+        "--detectors",
+        default=None,
+        help="layers to use: l1, ner, all, or all:presidio (default: every available layer)",
+    )
 
     inspect = sub.add_parser(
         "inspect", help="report what would be removed, without writing anything"
     )
     inspect.add_argument("files", nargs="+", type=Path)
     inspect.add_argument("--min-confidence", type=float, default=0.5)
+    inspect.add_argument("--detectors", default=None)
 
     entities = sub.add_parser("entities", help="list the entity types this build detects")
     entities.set_defaults(files=[])
+
+    benchmark = sub.add_parser(
+        "benchmark", help="measure detector quality against the labelled corpus"
+    )
+    benchmark.add_argument(
+        "--corpus", type=Path, default=None, help="directory of annotated corpus files"
+    )
+    benchmark.add_argument(
+        "--detectors",
+        default=None,
+        help=(
+            "comma-separated configurations to measure, e.g. 'l1,all:gliner2'. "
+            "Defaults to the stack a scrub actually uses, so the number means "
+            "something about real behaviour."
+        ),
+    )
+    benchmark.add_argument(
+        "--language", action="append", default=[], help="restrict to this language; repeatable"
+    )
+    benchmark.set_defaults(files=[])
 
     return parser
 
@@ -84,9 +111,19 @@ def _policy(args: argparse.Namespace) -> Policy:
     return Policy(overrides=overrides, min_confidence=args.min_confidence)
 
 
+def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
+    spec = getattr(args, "detectors", None)
+    registry = build_registry(spec) if spec else default_registry()
+    return Scrubber(policy=_policy(args), registry=registry, strict=strict)
+
+
 def _cmd_scrub(args: argparse.Namespace) -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    scrubber = Scrubber(policy=_policy(args), strict=not args.allow_leaks)
+    try:
+        scrubber = _scrubber(args, strict=not args.allow_leaks)
+    except (ValueError, MissingDependency) as exc:
+        print(f"detectors: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     reports = []
     status = EXIT_OK
 
@@ -118,7 +155,11 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
-    scrubber = Scrubber(policy=_policy(args), strict=False)
+    try:
+        scrubber = _scrubber(args, strict=False)
+    except (ValueError, MissingDependency) as exc:
+        print(f"detectors: {exc}", file=sys.stderr)
+        return EXIT_USAGE
     for path in args.files:
         try:
             handler = handler_for(path)
@@ -146,10 +187,56 @@ def _cmd_entities(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_benchmark(args: argparse.Namespace) -> int:
+    from .evaluation.corpus import CorpusError, load_corpus
+    from .evaluation.metrics import evaluate, format_evaluation
+
+    try:
+        documents = load_corpus(args.corpus)
+    except CorpusError as exc:
+        print(f"corpus: {exc}", file=sys.stderr)
+        return EXIT_USAGE
+    if args.language:
+        wanted = {name.lower() for name in args.language}
+        documents = [doc for doc in documents if doc.language in wanted]
+        if not documents:
+            print(f"no corpus documents for {sorted(wanted)}", file=sys.stderr)
+            return EXIT_USAGE
+
+    specs = [part.strip() for part in (args.detectors or "").split(",") if part.strip()]
+    for name in specs or [None]:
+        try:
+            registry = build_registry(name) if name else default_registry()
+            # evaluate() is inside the guard too: backends load their model on
+            # first prediction, so a missing dependency surfaces here rather than
+            # at construction, and an uncaught one would print a traceback and
+            # still exit 0.
+            result = evaluate(documents, registry)
+        except (ValueError, MissingDependency) as exc:
+            print(f"{name or 'default'}: {exc}", file=sys.stderr)
+            return EXIT_UNSUPPORTED
+        label = name or "default (" + ", ".join(type(d).__name__ for d in registry.detectors) + ")"
+        print(format_evaluation(result, f"detectors: {label}"))
+        for note in registry.notes:
+            print(f"  note: {note}")
+        print()
+
+    print(
+        "The corpus is small and synthetic: these numbers rank detectors against "
+        "each other, they are not a benchmark result."
+    )
+    return EXIT_OK
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    handlers = {"scrub": _cmd_scrub, "inspect": _cmd_inspect, "entities": _cmd_entities}
+    handlers = {
+        "scrub": _cmd_scrub,
+        "inspect": _cmd_inspect,
+        "entities": _cmd_entities,
+        "benchmark": _cmd_benchmark,
+    }
     return handlers[args.command](args)
 
 

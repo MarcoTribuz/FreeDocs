@@ -31,10 +31,20 @@ jobs:
       - name: Format
         run: uv run ruff format --check .
 
+      # The 'ner' extra is deliberately not installed here: it would pull torch
+      # and download ~1.2GB of model weights on every run. The model-backed tests
+      # skip themselves when it is absent, and detection quality is measured by
+      # `freedocs benchmark` against the labelled corpus rather than asserted in
+      # CI. What CI must protect is the machinery.
       - name: Test
-        run: uv run pytest -q
+        run: uv run pytest -q -m "not slow"
 
       # Run the leak checks on their own so a failure here is unmistakable in
       # the log. This is the suite that decides whether the tool is usable.
       - name: Leak checks
-        run: uv run pytest -q -m leak
+        run: uv run pytest -q -m "leak and not slow"
+
+      # The corpus is gold data: bad offsets would make every future benchmark
+      # number meaningless, so its consistency is checked on every push.
+      - name: Corpus integrity
+        run: uv run pytest -q tests/test_corpus.py

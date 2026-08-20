@@ -16,16 +16,8 @@ import re
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 
+from ..core.errors import MissingDependency
 from ..core.findings import EntityType, Finding, Layer, Span
-
-
-class MissingDependency(RuntimeError):
-    """A validator's backing library is not installed.
-
-    Raised rather than warned: a silently skipped rule means confidential data
-    passes through undetected, which is the one failure mode this tool exists to
-    prevent.
-    """
 
 
 def _require(module: str, attr: str | None = None) -> object:

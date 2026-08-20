@@ -1,0 +1,30 @@
+Compte rendu de reunion - confidentiel
+
+Presents: [PERSON:Julien Moreau] ([JOB_TITLE:directeur commercial]), [PERSON:Camille Rousseau]
+et [PERSON:Olivier Fontaine] pour [ORGANISATION:Realise Consulting SA].
+
+La cliente [ORGANISATION:Transports Lemanic Sarl], dont le siege est
+[ADDRESS:Rue du Rhone 24, 1204 Geneve], a confirme le renouvellement du contrat.
+L'interlocutrice est [PERSON:Sophie Girard], joignable a
+[EMAIL:s.girard@transports-lemanic.example] ou au [PHONE:+41 22 318 45 60].
+
+Donnees administratives:
+IDE de la societe: [CH_UID:CHE-116.281.710]
+Numero AVS du collaborateur detache: [CH_AHV:756.1234.5678.97]
+Compte pour les paiements: [IBAN:CH93 0076 2011 6238 5295 7]
+
+La succursale de [LOCATION:Lausanne] reprendra le projet des le mois de mars. Le
+[JOB_TITLE:responsable technique] [PERSON:Nicolas Perret] sera detache six mois a
+[LOCATION:Neuchatel]. Les frais seront verses sur
+[IBAN:FR14 2004 1010 0505 0001 3M02 606].
+
+[PERSON:Camille Rousseau] a signale que l'adresse de facturation
+[ADDRESS:Avenue de la Gare 8, 1003 Lausanne] est obsolete dans le systeme.
+
+La partie adverse [ORGANISATION:Cabinet Lefebvre et Associes] de
+[LOCATION:Paris] se chargera de la revision contractuelle. Contact:
+[EMAIL:secretariat@cabinet-lefebvre.example], telephone [PHONE:+33 1 42 68 53 00].
+
+Le serveur de test reste accessible sur [IP_ADDRESS:10.42.7.19] jusqu'a la
+recette. Commande 90210 du 03.03.2024, 250 pieces, livraison en avril.
+Le devis a ete approuve sans modification.
