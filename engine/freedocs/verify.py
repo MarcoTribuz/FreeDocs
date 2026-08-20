@@ -27,7 +27,16 @@ MIN_CANARY_LENGTH = 4
 
 @dataclass(frozen=True)
 class Leak:
-    """A value that was detected as confidential and is still in the output."""
+    """A value that was detected as confidential and is still in the output.
+
+    ``text`` is kept because the in-process caller sometimes needs it, but
+    :meth:`describe` deliberately does not render it. That message travels: to
+    the CLI's stderr, which a user may redirect to a file, and through the RPC
+    layer into an app that may log it. Putting the surviving confidential value
+    into an error about confidential values surviving would be its own leak, so
+    the description names the type, the detector and the count and leaves the
+    reader to look at their own document.
+    """
 
     entity: str
     text: str
@@ -36,8 +45,8 @@ class Leak:
 
     def describe(self) -> str:
         return (
-            f"{self.entity} value {self.text!r} (found by {self.detector}) still "
-            f"appears {self.occurrences}x in the output"
+            f"a {self.entity} value found by {self.detector} still appears "
+            f"{self.occurrences}x in the output"
         )
 
 

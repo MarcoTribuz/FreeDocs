@@ -9,9 +9,10 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M6 complete.** Plain text, PDF (born-digital and scanned),
-`docx`, `xlsx` and `pptx` end to end, with checksum, NER and value-propagation
-detection over it/de/fr/en. What remains is the Tauri app, M7.
+**Current state: M7 complete.** The engine handles plain text, PDF (born-digital
+and scanned), `docx`, `xlsx` and `pptx`, with checksum, NER and value-propagation
+detection over it/de/fr/en. A Tauri app in `app/` drives it over a JSON pipe. What
+remains is M8, the opt-in Ollama review pass.
 
 ## Commands
 
@@ -42,6 +43,65 @@ detection quality is measured by `benchmark`, not asserted in CI.
 CI (`.github/workflows/engine.yml`) runs lint, format, the suite and the leak
 checks on Python 3.10 and 3.12. Keep both green: 3.10 is the declared floor in
 `pyproject.toml`, so avoid 3.11+ syntax.
+
+## The desktop app
+
+```bash
+cd app && npm install
+npm run tauri dev      # engine comes from engine/.venv, no bundle needed
+CI=true npm run tauri build   # needs engine/dist/freedocs-engine to exist first
+
+cd engine && uv run --with pyinstaller python packaging/build.py
+```
+
+The app holds **no rules**. Every judgement about what is confidential, what gets
+removed and what the user is warned about lives in Python. Two places deciding
+what an IBAN looks like is two answers that can disagree, so `app/src/lib/engine.ts`
+carries messages and nothing else.
+
+`freedocs/rpc.py` is the contract: newline-delimited JSON on stdin/stdout, one
+object per line, requests carrying an `id` and progress arriving as notifications
+without one. It is tested by `tests/test_rpc.py` because the protocol is all the
+app can see, and it is far cheaper to test than the app. Those tests pin
+`detectors="l1"` — they are about response shape, and letting them load the model
+tripled the suite's runtime.
+
+**The engine is a pipe, never a socket.** It reads and writes files named by
+whoever is on the other end, so its only safe caller is a parent process that
+already has the user's permission. One process serves the whole session: loading
+GLiNER2 takes seconds and running it takes milliseconds.
+
+**The channel carries values; the disk must not.** `inspect` returns the matched
+text, because a preview that cannot show what is about to be removed is not a
+preview, and that is fine down a local pipe. The JSON report, which does reach
+disk, carries counts and positions only. `Leak.describe()` is value-free for the
+same reason: that message travels to stderr and through the RPC layer, and an
+error about confidential values surviving must not carry them.
+
+### Packaging
+
+One-dir, not one-file: a one-file bundle unpacks half a gigabyte of torch to a
+temp directory on every launch. `tauri.conf.json` ships it as a resource and
+`src-tauri/src/engine.rs` spawns the executable inside it, falling back to the
+repository virtualenv so `tauri dev` works before any bundle exists.
+
+**`packaging/build.py` must exercise the model, not just `capabilities`.** Every
+format handler and detector backend imports lazily, and `NerDetector` is
+constructed without touching gliner2 — so `capabilities` cheerfully reported the
+NER layer present in a bundle that had no model stack in it at all, and the first
+real document failed. The smoke test now inspects a sentence with a name in it and
+demands a `PERSON` finding. Anything imported inside a function needs
+`collect_submodules` in the spec; PyInstaller cannot see call-time imports.
+
+**`CI=true` is required for `tauri build`.** The `.dmg` step runs AppleScript to
+arrange icons in a Finder window; without Finder automation permission it fails
+with `AppleEvent timed out (-1712)` after minutes of bundling. Tauri passes
+`--skip-jenkins` when `CI` is set. The `.app` is unaffected.
+
+**Multi-platform is configured, not verified.** `.github/workflows/app.yml` builds
+macOS arm64/x86_64, Linux and Windows on their own runners, because neither
+PyInstaller nor Tauri cross-compiles. Only macOS has been built and run here. Do
+not describe the other three as working.
 
 ## Architecture
 

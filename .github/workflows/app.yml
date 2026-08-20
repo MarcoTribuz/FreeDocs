@@ -1,0 +1,106 @@
+name: app
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: ["app/**", "engine/**", ".github/workflows/app.yml"]
+  workflow_dispatch:
+
+# PyInstaller does not cross-compile and neither does Tauri, so each platform
+# builds its own artefact on its own runner. This matrix is the only place the
+# multi-platform claim is actually tested: the Linux and Windows halves have never
+# been built on a developer's Mac.
+jobs:
+  bundle:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Tauri needs the system webview and its build dependencies. macOS and
+      # Windows ship one; Linux does not.
+      - name: Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
+            tesseract-ocr
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install the engine
+        working-directory: engine
+        run: uv sync --extra dev --extra pdf --extra ooxml --extra ner
+
+      # The engine's own tests gate the bundle: shipping an app around a broken
+      # engine wastes everyone's time downloading it.
+      - name: Test the engine
+        working-directory: engine
+        run: uv run pytest -q -m "not slow"
+
+      - name: Build the engine sidecar
+        working-directory: engine
+        run: uv run --with pyinstaller python packaging/build.py
+
+      - name: Install the frontend
+        working-directory: app
+        run: npm ci
+
+      - name: Type-check the frontend
+        working-directory: app
+        run: npm run check
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Signing is opt-in: these are unset on a fork, and an unsigned build is
+          # still worth having for testing. A release build for distribution needs
+          # them set as repository secrets.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: app
+          args: --target ${{ matrix.target }}
+          tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          releaseDraft: true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: freedocs-${{ matrix.target }}
+          path: |
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.AppImage
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
+          if-no-files-found: warn

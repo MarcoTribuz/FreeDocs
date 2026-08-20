@@ -46,6 +46,9 @@ dev = [
 
 [project.scripts]
 freedocs = "freedocs.cli:main"
+# The sidecar the desktop app spawns. Newline-delimited JSON on stdin/stdout, and
+# never a socket: it reads and writes files named by whoever is on the other end.
+freedocs-rpc = "freedocs.rpc:serve"
 
 [build-system]
 requires = ["hatchling"]

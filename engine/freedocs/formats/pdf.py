@@ -40,6 +40,7 @@ before changing anything here:
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -78,10 +79,46 @@ DEFAULT_OCR_LANGUAGE = "ita+deu+fra+eng"
 #: gain on documents rather than photographs.
 DEFAULT_OCR_DPI = 200
 
-#: Where to look for Tesseract language data, in order. The project directory
-#: comes before the system one so a checkout with the four corpus languages
-#: downloaded wins over a Homebrew install that only has English.
+#: The repository's own copy, holding the four corpus languages. Checked before
+#: the system's, because a Homebrew install of Tesseract ships English only and a
+#: checkout that has bothered to download Italian should get Italian.
 _PROJECT_TESSDATA = Path(__file__).resolve().parent.parent.parent / "models" / "tessdata"
+
+#: Where each platform's package manager puts language data. Listed rather than
+#: shelled out for, because asking Tesseract costs a subprocess and this runs on
+#: every PDF. Every path is checked for actual ``.traineddata`` before it counts,
+#: so a stale entry is harmless.
+_SYSTEM_TESSDATA = (
+    # macOS: Homebrew on Apple silicon, then Intel, then MacPorts.
+    "/opt/homebrew/share/tessdata",
+    "/usr/local/share/tessdata",
+    "/opt/local/share/tessdata",
+    # Debian and Ubuntu version the directory; Fedora and Arch do not.
+    "/usr/share/tesseract-ocr/5/tessdata",
+    "/usr/share/tesseract-ocr/4.00/tessdata",
+    "/usr/share/tesseract-ocr/tessdata",
+    "/usr/share/tessdata",
+    "/usr/local/share/tesseract-ocr/tessdata",
+    # Windows, both the UB Mannheim installer's default and the 32-bit path.
+    r"C:\Program Files\Tesseract-OCR\tessdata",
+    r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
+)
+
+
+def _tessdata_candidates() -> list[str]:
+    return [
+        candidate
+        for candidate in (
+            # An explicit choice always wins.
+            os.environ.get("FREEDOCS_TESSDATA"),
+            os.environ.get("TESSDATA_PREFIX"),
+            # Beside the executable, which is where a packaged build would put it.
+            str(Path(sys.executable).resolve().parent / "tessdata"),
+            str(_PROJECT_TESSDATA),
+            *_SYSTEM_TESSDATA,
+        )
+        if candidate
+    ]
 
 
 def tessdata_path() -> str | None:
@@ -92,13 +129,9 @@ def tessdata_path() -> str | None:
     trusting it produces a confusing failure deep inside Tesseract instead of a
     clear "OCR is not available" here.
     """
-    candidates = [
-        os.environ.get("FREEDOCS_TESSDATA"),
-        os.environ.get("TESSDATA_PREFIX"),
-        str(_PROJECT_TESSDATA),
-    ]
-    for candidate in candidates:
-        if candidate and Path(candidate).is_dir() and any(Path(candidate).glob("*.traineddata")):
+    for candidate in _tessdata_candidates():
+        directory = Path(candidate)
+        if directory.is_dir() and any(directory.glob("*.traineddata")):
             return candidate
     return None
 

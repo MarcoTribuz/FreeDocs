@@ -1,0 +1,401 @@
+"""The GUI contract, exercised without a GUI.
+
+Every one of these runs the real dispatch over real files, because the protocol
+is the only thing the desktop app can see. A shape change here is a broken app,
+and the app cannot be unit-tested nearly as cheaply as this can.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+from pathlib import Path
+
+import pytest
+
+from freedocs.core.findings import EntityType
+from freedocs.rpc import (
+    INVALID_REQUEST,
+    LEAK_DETECTED,
+    METHOD_NOT_FOUND,
+    MISSING_DEPENDENCY,
+    NEEDS_OCR,
+    UNSUPPORTED_FORMAT,
+    Session,
+    handle,
+    serve,
+)
+
+from .conftest import CANARIES
+
+
+@pytest.fixture
+def session() -> Session:
+    return Session(out=io.StringIO())
+
+
+@pytest.fixture
+def document(tmp_path: Path) -> Path:
+    path = tmp_path / "scheda.txt"
+    path.write_text(
+        "Scheda cliente\n"
+        f"Codice fiscale: {CANARIES['IT_CODICE_FISCALE']}\n"
+        f"IBAN: {CANARIES['IBAN']}\n"
+        "Ordine 90210 del 03.03.2024\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+def call(session: Session, method: str, **params) -> dict:
+    """Send one request, pinned to the checksum layer unless told otherwise.
+
+    These tests are about the protocol, not about detection quality: the shape of
+    a response is what the desktop app depends on. Letting them load the NER model
+    tripled the whole suite's runtime for no extra coverage, since the benchmark
+    already measures what the model finds.
+    """
+    params.setdefault("detectors", "l1")
+    request = {"jsonrpc": "2.0", "id": 7, "method": method, "params": params}
+    response = handle(session, json.dumps(request))
+    assert response is not None
+    assert response["id"] == 7
+    return response
+
+
+def result_of(session: Session, method: str, **params) -> dict:
+    response = call(session, method, **params)
+    assert "error" not in response, response["error"]
+    return response["result"]
+
+
+def error_of(session: Session, method: str, **params) -> dict:
+    response = call(session, method, **params)
+    assert "result" not in response
+    return response["error"]
+
+
+# -- framing ------------------------------------------------------------------
+
+
+def test_malformed_json_is_answered_not_crashed(session: Session):
+    response = handle(session, "{not json")
+    assert response["error"]["code"] == INVALID_REQUEST
+
+
+def test_a_non_object_request_is_rejected(session: Session):
+    assert handle(session, "[1, 2, 3]")["error"]["code"] == INVALID_REQUEST
+
+
+def test_an_unknown_method_is_rejected(session: Session):
+    assert error_of(session, "sudo")["code"] == METHOD_NOT_FOUND
+
+
+def test_non_object_params_are_rejected(session: Session):
+    response = handle(
+        session, json.dumps({"jsonrpc": "2.0", "id": 1, "method": "inspect", "params": [1]})
+    )
+    assert response["error"]["code"] == INVALID_REQUEST
+
+
+def test_one_response_per_line(document: Path):
+    """The transport is newline-delimited; an embedded newline breaks framing."""
+    out = io.StringIO()
+    requests = "\n".join(
+        json.dumps({"jsonrpc": "2.0", "id": index, "method": "entities"}) for index in range(3)
+    )
+    serve(stdin=io.StringIO(requests), stdout=out)
+    lines = [line for line in out.getvalue().splitlines() if line]
+    # One "ready" notification plus one response each.
+    assert len(lines) == 4
+    for line in lines:
+        json.loads(line)
+
+
+def test_blank_lines_are_ignored(session: Session):
+    out = io.StringIO()
+    serve(stdin=io.StringIO('\n\n{"jsonrpc":"2.0","id":1,"method":"entities"}\n\n'), stdout=out)
+    responses = [json.loads(line) for line in out.getvalue().splitlines() if line]
+    assert sum(1 for item in responses if item.get("id") == 1) == 1
+
+
+def test_the_session_announces_itself_on_startup():
+    """The app renders capabilities before the user picks a file."""
+    out = io.StringIO()
+    serve(stdin=io.StringIO(""), stdout=out)
+    first = json.loads(out.getvalue().splitlines()[0])
+    assert first["method"] == "ready"
+    assert "formats" in first["params"]
+
+
+# -- capabilities -------------------------------------------------------------
+
+
+def test_capabilities_lists_the_formats_actually_registered(session: Session):
+    capabilities = result_of(session, "capabilities")
+    assert ".pdf" in capabilities["formats"]
+    assert ".docx" in capabilities["formats"]
+    assert ".xlsx" in capabilities["formats"]
+    assert ".pptx" in capabilities["formats"]
+
+
+def test_capabilities_states_its_limitations(session: Session):
+    """A missing optional dependency must be visible, not discovered later."""
+    capabilities = result_of(session, "capabilities")
+    assert isinstance(capabilities["limitations"], list)
+    assert capabilities["caveats"], "the app must be able to show the caveats"
+    assert isinstance(capabilities["ocr_available"], bool)
+
+
+def test_entities_marks_the_report_only_ones(session: Session):
+    entities = result_of(session, "entities")["entities"]
+    by_name = {item["name"]: item for item in entities}
+    assert by_name[EntityType.DATE.value]["report_only"] is True
+    assert by_name[EntityType.IBAN.value]["report_only"] is False
+
+
+# -- inspect ------------------------------------------------------------------
+
+
+def test_inspect_reports_findings_with_positions(session: Session, document: Path):
+    found = result_of(session, "inspect", path=str(document))
+    assert found["format"] == "plaintext"
+    entities = {item["entity"] for item in found["findings"]}
+    assert EntityType.IT_CODICE_FISCALE.value in entities
+    for item in found["findings"]:
+        assert item["end"] > item["start"]
+
+
+def test_inspect_includes_the_value_so_a_preview_can_show_it(session: Session, document: Path):
+    """A preview that cannot show what is about to be removed is not a preview."""
+    found = result_of(session, "inspect", path=str(document))
+    texts = {item["text"] for item in found["findings"]}
+    assert CANARIES["IT_CODICE_FISCALE"] in texts
+
+
+def test_inspect_reports_the_action_the_policy_would_take(session: Session, document: Path):
+    found = result_of(session, "inspect", path=str(document))
+    actions = {item["entity"]: item["action"] for item in found["findings"]}
+    assert actions[EntityType.IBAN.value] == "redact"
+
+
+def test_keep_changes_the_reported_action(session: Session, document: Path):
+    found = result_of(session, "inspect", path=str(document), keep=["IBAN"])
+    actions = {item["entity"]: item["action"] for item in found["findings"]}
+    assert actions[EntityType.IBAN.value] == "keep"
+
+
+def test_inspect_writes_nothing(session: Session, document: Path, tmp_path: Path):
+    before = sorted(p.name for p in tmp_path.iterdir())
+    result_of(session, "inspect", path=str(document))
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+
+
+def test_a_missing_file_is_a_request_error(session: Session, tmp_path: Path):
+    assert error_of(session, "inspect", path=str(tmp_path / "assente.txt"))["code"] == (
+        INVALID_REQUEST
+    )
+
+
+def test_a_missing_parameter_is_a_request_error(session: Session):
+    assert error_of(session, "inspect")["code"] == INVALID_REQUEST
+
+
+def test_an_unknown_entity_name_is_a_request_error(session: Session, document: Path):
+    assert error_of(session, "inspect", path=str(document), keep=["TELEPATHY"])["code"] == (
+        INVALID_REQUEST
+    )
+
+
+@pytest.mark.parametrize("value", [-0.5, 1.5, "high", None])
+def test_an_out_of_range_confidence_is_rejected(session: Session, document: Path, value):
+    assert error_of(session, "inspect", path=str(document), min_confidence=value)["code"] == (
+        INVALID_REQUEST
+    )
+
+
+def test_an_unsupported_format_reports_its_own_code(session: Session, tmp_path: Path):
+    path = tmp_path / "archivio.zip"
+    path.write_bytes(b"PK\x03\x04" + b"\x00" * 32)
+    assert error_of(session, "inspect", path=str(path))["code"] == UNSUPPORTED_FORMAT
+
+
+def test_a_scan_without_ocr_reports_its_own_code(session: Session, tmp_path: Path, monkeypatch):
+    """The app should say "install OCR", not "something went wrong"."""
+    pymupdf = pytest.importorskip("pymupdf")
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: None)
+    doc = pymupdf.open()
+    page = doc.new_page()
+    pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 100))
+    pixmap.set_rect(pixmap.irect, (200, 200, 200))
+    page.insert_image(pymupdf.Rect(50, 50, 250, 150), pixmap=pixmap)
+    path = tmp_path / "scansione.pdf"
+    doc.save(str(path))
+    doc.close()
+
+    assert error_of(session, "inspect", path=str(path))["code"] == NEEDS_OCR
+
+
+# -- scrub --------------------------------------------------------------------
+
+
+def test_scrub_writes_the_file_and_reports_where(session: Session, document: Path, tmp_path: Path):
+    output = tmp_path / "out"
+    results = result_of(session, "scrub", paths=[str(document)], output_dir=str(output))["results"]
+    assert len(results) == 1
+    assert results[0]["ok"] is True
+    written = Path(results[0]["output"])
+    assert written.exists()
+    assert CANARIES["IT_CODICE_FISCALE"] not in written.read_text(encoding="utf-8")
+
+
+def test_scrub_creates_the_output_directory(session: Session, document: Path, tmp_path: Path):
+    output = tmp_path / "nuova" / "cartella"
+    result_of(session, "scrub", paths=[str(document)], output_dir=str(output))
+    assert output.is_dir()
+
+
+def test_scrub_emits_progress_per_file(document: Path, tmp_path: Path):
+    out = io.StringIO()
+    session = Session(out=out)
+    result_of(
+        session,
+        "scrub",
+        paths=[str(document), str(document)],
+        output_dir=str(tmp_path / "out"),
+    )
+    progress = [
+        json.loads(line)
+        for line in out.getvalue().splitlines()
+        if line and json.loads(line).get("method") == "progress"
+    ]
+    assert [item["params"]["index"] for item in progress] == [0, 1]
+    assert all(item["params"]["total"] == 2 for item in progress)
+
+
+def test_the_report_carries_no_confidential_values(
+    session: Session, document: Path, tmp_path: Path
+):
+    """The report is the part that reaches disk, so it holds counts only."""
+    results = result_of(session, "scrub", paths=[str(document)], output_dir=str(tmp_path / "out"))[
+        "results"
+    ]
+    serialised = json.dumps(results[0]["report"])
+    for value in (CANARIES["IT_CODICE_FISCALE"], CANARIES["IBAN"]):
+        assert value not in serialised
+
+
+def test_one_bad_file_does_not_abandon_the_batch(session: Session, document: Path, tmp_path: Path):
+    """A batch that stops at its third file has wasted the first two."""
+    broken = tmp_path / "archivio.zip"
+    broken.write_bytes(b"PK\x03\x04" + b"\x00" * 32)
+    results = result_of(
+        session,
+        "scrub",
+        paths=[str(broken), str(document)],
+        output_dir=str(tmp_path / "out"),
+    )["results"]
+    assert [item["ok"] for item in results] == [False, True]
+    assert results[0]["error"]["code"] == UNSUPPORTED_FORMAT
+
+
+def test_a_leak_is_reported_as_a_failure_without_the_values(
+    session: Session, document: Path, tmp_path: Path, monkeypatch
+):
+    """Nothing is written, and the count goes out without the text."""
+    from freedocs.formats import plaintext
+
+    monkeypatch.setattr(plaintext.PlainTextHandler, "write_back", lambda self, edits: self.data)
+    output = tmp_path / "out"
+    results = result_of(session, "scrub", paths=[str(document)], output_dir=str(output))["results"]
+    assert results[0]["ok"] is False
+    assert results[0]["error"]["code"] == LEAK_DETECTED
+    assert results[0]["error"]["data"]["leaks"] > 0
+    assert CANARIES["IBAN"] not in json.dumps(results[0])
+    assert not (output / document.name).exists()
+
+
+def test_scrub_surfaces_hidden_content_removals(session: Session, tmp_path: Path):
+    """The user should see what was taken out that they never saw in the first place."""
+    pytest.importorskip("lxml")
+    from .docx_builder import DocxSpec, write_docx
+
+    path = write_docx(
+        tmp_path / "scheda.docx",
+        DocxSpec(paragraphs=[[f"IBAN: {CANARIES['IBAN']}"]], comment="nota interna"),
+    )
+    results = result_of(session, "scrub", paths=[str(path)], output_dir=str(tmp_path / "out"))[
+        "results"
+    ]
+    kinds = {item["kind"] for item in results[0]["hidden_removed"]}
+    assert "comments" in kinds
+    assert "metadata" in kinds
+
+
+def test_an_empty_path_list_is_a_request_error(session: Session, tmp_path: Path):
+    assert error_of(session, "scrub", paths=[], output_dir=str(tmp_path))["code"] == (
+        INVALID_REQUEST
+    )
+
+
+def test_a_non_string_path_is_a_request_error(session: Session, tmp_path: Path):
+    assert error_of(session, "scrub", paths=[42], output_dir=str(tmp_path))["code"] == (
+        INVALID_REQUEST
+    )
+
+
+# -- session state ------------------------------------------------------------
+
+
+def test_the_registry_is_reused_across_requests(session: Session, document: Path):
+    """The reason the app talks to a process rather than shelling out per file.
+
+    Loading GLiNER2 takes seconds and running it takes milliseconds, so a process
+    that rebuilt the registry per request would spend its life loading a model.
+    """
+    result_of(session, "inspect", path=str(document))
+    first = session._registry
+    result_of(session, "inspect", path=str(document))
+    assert session._registry is first
+
+
+def test_changing_the_detector_spec_rebuilds_the_registry(session: Session, document: Path):
+    result_of(session, "inspect", path=str(document), detectors="l1")
+    first = session._registry
+    result_of(session, "inspect", path=str(document), detectors="ner")
+    assert session._registry is not first
+
+
+@pytest.mark.slow
+def test_the_default_stack_is_what_an_app_gets_when_it_asks_for_nothing(
+    session: Session, document: Path
+):
+    """One test does exercise the real default, so the wiring cannot rot."""
+    pytest.importorskip("gliner2", reason="the 'ner' extra is required")
+    request = {"jsonrpc": "2.0", "id": 1, "method": "inspect", "params": {"path": str(document)}}
+    response = handle(session, json.dumps(request))
+    assert "error" not in response, response.get("error")
+    layers = result_of(session, "capabilities")["layers"]
+    assert "NerDetector" in layers
+
+
+def test_a_backend_that_cannot_load_reports_a_missing_component(
+    session: Session, document: Path, monkeypatch
+):
+    """Detector backends load their model on first use, not at construction.
+
+    So a missing one surfaces during detection, after the request has been
+    accepted. Before this was mapped, the app was told "internal error" for what
+    is really "a component is missing" — and a packaged build with the model stack
+    left out of the bundle failed exactly this way.
+    """
+    from freedocs.core.errors import MissingDependency
+    from freedocs.detect import registry as registry_module
+
+    def refuse(self, text):
+        raise MissingDependency("gliner2 is required for the GLiNER2 backend")
+
+    monkeypatch.setattr(registry_module.DetectorRegistry, "detect", refuse)
+    assert error_of(session, "inspect", path=str(document))["code"] == MISSING_DEPENDENCY

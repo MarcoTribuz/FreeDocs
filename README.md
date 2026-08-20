@@ -7,10 +7,10 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M6.** The pipeline works end to end on plain text, PDF (born-digital
-and scanned) and all three Office formats, with checksum-backed and model-backed
-detection across Italian, German, French and English. What is left is the desktop
-app. See [Roadmap](#roadmap).
+**Status: M7.** The engine works end to end on plain text, PDF (born-digital and
+scanned) and all three Office formats, with checksum-backed and model-backed
+detection across Italian, German, French and English. A Tauri desktop app drives
+it. See [Roadmap](#roadmap).
 
 ## Why another one of these
 
@@ -175,6 +175,70 @@ Two consequences worth knowing before using it on a workbook full of formulas:
   arbitrary numbers of that length, so anchoring every amount would turn the
   ledger into placeholders.
 
+## The desktop app
+
+```bash
+cd app
+npm install
+npm run tauri dev        # uses the engine from engine/.venv, no bundle needed
+CI=true npm run tauri build   # needs the sidecar built first, see below
+```
+
+The app is a window around the engine and holds no rules of its own. Every
+judgement about what is confidential, what gets removed and what the user is
+warned about stays in Python: two places deciding what an IBAN looks like is two
+answers that can disagree.
+
+They talk newline-delimited JSON over a pipe — `engine/freedocs/rpc.py`, exercised
+by 36 tests that need no GUI. One engine process serves the whole session, because
+loading the NER model takes seconds and running it takes milliseconds. The engine
+is **never** a socket: it reads and writes files named by whoever is on the other
+end, so its only safe caller is a parent process that already has the user's
+permission.
+
+What the window shows, deliberately: the detection layers actually loaded, whether
+OCR is available, every warning the engine raised, and the hidden content that was
+removed — not just the counts. A build that quietly finds less has to say so.
+
+### Building for distribution
+
+```bash
+cd engine
+uv run --with pyinstaller python packaging/build.py   # -> engine/dist/freedocs-engine/
+cd ../app && CI=true npm run tauri build              # -> .app and .dmg
+```
+
+`CI=true` matters: without it the `.dmg` step runs AppleScript to arrange icons in
+a Finder window, which needs Finder automation permission and times out in any
+non-interactive shell. The `.app` builds either way; only the disk image fails, and
+only after several minutes. Result here: a 1.0 GB `.app` and a 325 MB `.dmg`.
+
+One directory, not one file: a one-file bundle unpacks half a gigabyte of torch to
+a temporary directory on every launch. It ships as a Tauri resource and the Rust
+side spawns the executable inside it — and falls back to the repository
+virtualenv, which is what makes `tauri dev` usable before any bundle exists.
+
+`packaging/build.py` runs the built binary and asks it for `capabilities` before
+declaring success. Every format handler and detector backend is imported lazily,
+so a missing hidden import produces a binary that works until the user opens that
+format; asking what it supports is what catches that.
+
+Not in the bundle, on purpose: the NER model (~1.2 GB, fetched to the user's cache
+on first use) and Tesseract. Both absences are reported through `capabilities`, so
+the app says so rather than failing mysteriously.
+
+**Multi-platform status, honestly.** `.github/workflows/app.yml` builds macOS
+(arm64 and x86_64), Linux and Windows on their own runners, because neither
+PyInstaller nor Tauri cross-compiles. macOS is the only one built and run here;
+the Linux and Windows halves are configured and wired into CI but have not been
+executed on this machine. Apple signing is opt-in through repository secrets — an
+unsigned build still works for testing.
+
+The obvious size win is not taken yet: torch is 501 MB of the bundle, and the NER
+model would run under `onnxruntime` at roughly 15 MB. Exporting GLiNER2 to ONNX
+needs re-benchmarking to prove the numbers above still hold, so it is a measured
+optimisation rather than a refactor to do blind.
+
 ## Scans: redacting pixels, not glyphs
 
 On a scanned page there are no glyphs to delete — the text *is* the image. The
@@ -288,8 +352,8 @@ because it gets sent.
 | M4 | `xlsx`, including pivot caches and `veryHidden` sheets | done |
 | M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | done |
 | M6 | Scanned PDF: OCR plus redaction on word bounding boxes | done |
-| M7 | Tauri desktop app | next |
-| M8 | L3 Ollama review, opt-in | |
+| M7 | Tauri desktop app | done |
+| M8 | L3 Ollama review, opt-in | next |
 
 ## Licence
 

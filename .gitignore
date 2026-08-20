@@ -18,7 +18,14 @@ engine/models/
 # Node / Tauri
 node_modules/
 app/dist/
+app/build/
+app/.svelte-kit/
 app/src-tauri/target/
+app/src-tauri/gen/
+
+# The PyInstaller sidecar: ~650 MB, rebuilt per platform on the platform.
+engine/packaging/dist/
+engine/packaging/build/
 
 # IntelliJ
 out/
