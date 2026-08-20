@@ -1,0 +1,50 @@
+[project]
+name = "freedocs"
+version = "0.1.0"
+description = "Local, offline removal of confidential data from documents before they reach an LLM"
+# No `readme` key: the project README lives at the repository root, outside this
+# package directory, and duplicating it here would leave two copies to drift.
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0-or-later" }
+
+# M0 keeps the dependency set to what the L1 validator layer actually needs.
+# The NER model, PDF and OOXML stacks arrive with their own milestones so that
+# a broken optional dependency can never take down the core pipeline.
+dependencies = [
+    "python-stdnum>=1.19",
+    "phonenumbers>=8.13",
+]
+
+[project.optional-dependencies]
+pdf = [
+    "pymupdf>=1.24",
+]
+ooxml = ["lxml>=5.0"]
+ner = ["gliner>=0.2.13", "torch>=2.2"]
+ocr = ["pytesseract>=0.3.10", "pillow>=10.0"]
+dev = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+
+[project.scripts]
+freedocs = "freedocs.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["freedocs"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = [
+    "leak: end-to-end check that no canary value survives a scrub",
+    "fidelity: check that document structure is preserved byte-for-byte where it should be",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

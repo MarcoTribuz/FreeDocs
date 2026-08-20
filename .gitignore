@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Models downloaded at first run, never bundled
+engine/models/
+
+# Node / Tauri
+node_modules/
+app/dist/
+app/src-tauri/target/
+
+# IntelliJ
+out/
+
+# macOS
+.DS_Store
+
+# Scrub output from manual runs — may contain real data
+/tmp-out/
+*.freedocs-report.json
