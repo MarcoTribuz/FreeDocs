@@ -7,9 +7,9 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M2.** The pipeline works end to end on plain text and on PDFs with a
-text layer, with checksum-backed and model-backed detection across Italian,
-German, French and English. It does not yet handle Office formats or scans. See
+**Status: M3.** The pipeline works end to end on plain text, text-layer PDF and
+Word documents, with checksum-backed and model-backed detection across Italian,
+German, French and English. Excel, PowerPoint and scans are still to come. See
 [Roadmap](#roadmap).
 
 ## Why another one of these
@@ -107,6 +107,35 @@ The corpus is small and synthetic. These numbers rank configurations against eac
 other; they are not a published benchmark result, and the tool says so every time
 it prints them.
 
+## What a Word file hides
+
+The visible text is the easy part. Everything below was found by building a
+realistic `.docx` and looking inside the container, and every item is removed and
+named in the report:
+
+- **Deleted text is still in the file.** With track changes on, `<w:del>` keeps
+  the removed words in `<w:delText>`. The paragraph someone cut because it named
+  the wrong client is there verbatim, and Word shows it to anyone who turns
+  markup on.
+- **A rendered thumbnail of the first page.** `docProps/thumbnail.jpeg` is a
+  picture of the unredacted document, shipped inside the redacted one. Scrubbing
+  every character of text and leaving this behind achieves nothing.
+- **Hyperlink targets live outside the body.** The visible link text is in
+  `document.xml`; `mailto:mario.rossi@example.com` is in
+  `document.xml.rels`. Redacting what you can read leaves the address behind.
+- **Comments are separate parts**, and `people.xml` maps each commenter to a
+  name and usually an email.
+- **`customXml/`** is the data store behind content controls, so it holds a
+  structured copy of the fields shown in the document.
+- **Revision save IDs** (`w:rsid*`) are stable per editing session and link two
+  documents to the same author.
+- **Metadata** names the author, the last editor, the company, the manager, and
+  the local template path — which contains a username.
+
+Removing a part means also removing what points at it. A dangling relationship or
+an orphaned `[Content_Types].xml` override makes Word offer to repair the file, so
+`OoxmlPackage.drop()` does all three together.
+
 ## Anonymisation, not pseudonymisation
 
 Values are replaced with typed placeholders — `[PERSONA_1]`, `[IBAN_2]` — that
@@ -122,7 +151,7 @@ are reported rather than silently rewritten, and every report states the caveat.
 
 ```bash
 cd engine
-uv sync --extra dev --extra pdf --extra ner    # ner adds ~1.2GB of model on first run
+uv sync --extra dev --extra pdf --extra ooxml --extra ner   # ner adds ~1.2GB of model
 
 uv run freedocs inspect documento.pdf          # what would go, without writing
 uv run freedocs scrub documento.pdf -o out/    # write the scrubbed copy
@@ -147,8 +176,8 @@ because it gets sent.
 | M0 | Core, L1 validators, plain text, CLI, verify, tests | done |
 | M1 | PDF text: true content-stream redaction, hidden-content scrub | done |
 | M2 | L2 NER integrated, labelled corpus, measured coverage | done |
-| M3 | `docx` with run-aware write-back and hidden-content scrub | next |
-| M4 | `xlsx`, including pivot caches and `veryHidden` sheets | |
+| M3 | `docx` with run-aware write-back and hidden-content scrub | done |
+| M4 | `xlsx`, including pivot caches and `veryHidden` sheets | next |
 | M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | |
 | M6 | Scanned PDF: OCR plus redaction on word bounding boxes | |
 | M7 | Tauri desktop app | |

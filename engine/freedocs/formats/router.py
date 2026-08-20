@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import FormatHandler
+from .ooxml.docx import DocxHandler
 from .pdf_text import PdfTextHandler
 from .plaintext import PlainTextHandler
 
@@ -22,6 +23,7 @@ from .plaintext import PlainTextHandler
 #: "unsupported format", which is the difference between a fixable message and a
 #: misleading one.
 HANDLERS: list[type[FormatHandler]] = [
+    DocxHandler,
     PdfTextHandler,
     PlainTextHandler,
 ]

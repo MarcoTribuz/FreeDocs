@@ -23,7 +23,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra pdf --python ${{ matrix.python-version }}
+        run: uv sync --extra dev --extra pdf --extra ooxml --python ${{ matrix.python-version }}
 
       - name: Lint
         run: uv run ruff check .

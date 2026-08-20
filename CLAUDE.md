@@ -9,9 +9,9 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M2 complete.** Plain text and text-layer PDF end to end, with
-checksum, NER and value-propagation detection over it/de/fr/en. No Office
-formats, no OCR — those are M3 onwards, and the code says so where it matters.
+**Current state: M3 complete.** Plain text, text-layer PDF and `docx` end to end,
+with checksum, NER and value-propagation detection over it/de/fr/en. No `xlsx` or
+`pptx` yet, no OCR — those are M4 onwards, and the code says so where it matters.
 
 ## Commands
 
@@ -19,9 +19,9 @@ All Python work happens in `engine/`.
 
 ```bash
 cd engine
-uv sync --extra dev --extra pdf --extra ner   # Python 3.12, pinned in .python-version
+uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (181 tests, ~20s with the model)
+uv run pytest -q                       # full suite (227 tests, ~26s with the model)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -188,10 +188,39 @@ text, and deleting it blind would throw away content this pipeline can redact
 properly.
 
 **Office write-back goes through `lxml` on the zip parts.** `openpyxl`,
-`python-docx` and `python-pptx` are for *reading* structure only: they have no
-management API for charts, images or pivot tables and can drop them on save.
-Hidden content is where the real leak lives — pivot caches hold a raw copy of the
-source data, and `pptx` charts embed their whole backing spreadsheet.
+`python-docx` and `python-pptx` have no management API for charts, images or pivot
+tables and can drop them on save, so the engine never uses them —
+`formats/ooxml/zip_part.py` reads the container once and rewrites only the parts
+that were both parsed *and* marked dirty. Everything else is copied through as
+the bytes it arrived as, which cannot lose what it never parsed.
+`test_docx_real.py` asserts `styles.xml` and `theme1.xml` come back byte-identical.
+
+`python-docx` *is* a dev dependency, used only in tests: it produces a realistic
+package to validate against, so the suite is not just checking our own hand-built
+XML back at us, and it reads the output to confirm the file still opens. Both
+leaks below were found that way and by nothing else.
+
+**Dropping a part means dropping what points at it.** `OoxmlPackage.drop()`
+removes the part, any relationship resolving to it, and its
+`[Content_Types].xml` override. Doing only the first leaves a dangling reference:
+Word offers to repair the file and a strict consumer rejects it. Relationship
+targets are relative to the *owning part's* directory, which is why
+`_resolve()` strips two path components.
+
+**The thumbnail is a picture of the unredacted page.** `docProps/thumbnail.*`
+must go. Scrubbing every character and shipping a screenshot of the original
+achieves nothing, and no amount of reading `document.xml` reveals it.
+
+**Text lives in places reading the document does not reveal.** `<w:instrText>`
+holds a HYPERLINK field's target, external relationship targets hold hyperlink
+addresses, `customXml/` holds the data behind content controls, and headers,
+footers and footnotes are separate parts. Relationship targets are exposed to the
+pipeline as ordinary anchors via `AttributeLocator` rather than being pattern-
+matched in the handler — the detectors already know what an email looks like.
+
+**`xml:space="preserve"` is not optional.** When a replacement gains leading or
+trailing whitespace it must be set, or Word eats the space and the words fuse.
+Only ever added, never removed.
 
 ## Conventions
 
