@@ -7,10 +7,10 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M4.** The pipeline works end to end on plain text, text-layer PDF, Word
-documents and Excel workbooks, with checksum-backed and model-backed detection
-across Italian, German, French and English. PowerPoint and scans are still to
-come. See [Roadmap](#roadmap).
+**Status: M5.** The pipeline works end to end on plain text, text-layer PDF and
+all three Office formats, with checksum-backed and model-backed detection across
+Italian, German, French and English. Scanned documents are still to come. See
+[Roadmap](#roadmap).
 
 ## Why another one of these
 
@@ -64,6 +64,11 @@ Detection is layered:
 - **L2.5 — value propagation.** A value identified once is identified: every
   other occurrence of it in the document is redacted too. Cheap, and it closed
   most of the residual gap (see below).
+- **L1 verifies L2's structured claims.** When the model labels something a
+  credit card, IBAN or codice fiscale, the matching checksum gets the final say.
+  GLiNER2 called two chart amounts — `1500` and `2300` — a card number at 0.87
+  confidence; no threshold separates that from a real finding, and Luhn settles
+  it in one call.
 - **L3 — LLM review via Ollama, opt-in.** A second pass over the *already
   anonymised* text, flagging leftovers and quasi-identifiers. Not the primary
   detector: a generative model does not return reliable offsets, so it cannot
@@ -170,6 +175,28 @@ Two consequences worth knowing before using it on a workbook full of formulas:
   arbitrary numbers of that length, so anchoring every amount would turn the
   ledger into placeholders.
 
+## What a PowerPoint deck hides
+
+- **A chart carries its whole source workbook.** `ppt/embeddings/*.xlsx` is a
+  complete OOXML package inside the presentation — sheets, string table,
+  metadata. A chart of three bars can hold five hundred rows. FreeDocs nests a
+  real `XlsxHandler` inside the deck and folds its anchors into the same stream,
+  so the workbook inside the chart gets the same treatment as a workbook on its
+  own. The leak tests search the zip inside the zip.
+- **Speaker notes** are a separate part per slide, invisible while presenting,
+  and where the blunt version of the sentence tends to live.
+- **Hidden slides** (`<p:sld show="0">`) are skipped when presenting and fully
+  intact in the file.
+- **Shapes dragged off the canvas** are the same habit without the menu: a text
+  box at `x="-4000000"` on a slide 9144000 EMU wide is invisible and complete.
+- **Alt text** on a shape is a description someone typed, so it can say anything.
+- **SmartArt keeps its own data model** in `ppt/diagrams/`, duplicating the text
+  it renders.
+
+Hidden slides and off-canvas shapes are reported but kept: extraction walks the
+whole slide part rather than what would be rendered, so their text is redacted
+either way, and deleting a slide renumbers the deck.
+
 ## Anonymisation, not pseudonymisation
 
 Values are replaced with typed placeholders — `[PERSONA_1]`, `[IBAN_2]` — that
@@ -212,8 +239,8 @@ because it gets sent.
 | M2 | L2 NER integrated, labelled corpus, measured coverage | done |
 | M3 | `docx` with run-aware write-back and hidden-content scrub | done |
 | M4 | `xlsx`, including pivot caches and `veryHidden` sheets | done |
-| M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | next |
-| M6 | Scanned PDF: OCR plus redaction on word bounding boxes | |
+| M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | done |
+| M6 | Scanned PDF: OCR plus redaction on word bounding boxes | next |
 | M7 | Tauri desktop app | |
 | M8 | L3 Ollama review, opt-in | |
 

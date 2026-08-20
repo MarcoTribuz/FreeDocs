@@ -9,9 +9,9 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M4 complete.** Plain text, text-layer PDF, `docx` and `xlsx` end
-to end, with checksum, NER and value-propagation detection over it/de/fr/en. No
-`pptx` yet, no OCR — those are M5 onwards, and the code says so where it matters.
+**Current state: M5 complete.** Plain text, text-layer PDF, `docx`, `xlsx` and
+`pptx` end to end, with checksum, NER and value-propagation detection over
+it/de/fr/en. No OCR — that is M6, and the code says so where it matters.
 
 ## Commands
 
@@ -21,7 +21,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (288 tests, ~34s with the model)
+uv run pytest -q                       # full suite (321 tests, ~42s with the model)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -221,6 +221,32 @@ sheet is mostly numbers and the 11-digit partita IVA checksum passes on about on
 in ten arbitrary numbers of that length. Do not lower this without measuring the
 over-redaction cost. A `t="s"` cell's `<v>` is an index into the string table, not
 text — editing it repoints the cell at an unrelated string.
+
+**A PowerPoint chart embeds a whole workbook, and it is scrubbed recursively.**
+`PptxHandler` nests an `XlsxHandler` per `ppt/embeddings/*.xlsx` and folds its
+anchors into the parent stream, routing write-back by `id(locator)` rather than by
+part name. The nested part names are deliberately *not* prefixed for readability:
+doing that handed the nested package a `mark_dirty` name it had never heard of, so
+edits were applied to the elements and then discarded in favour of the original
+bytes. The leak check caught it; `test_names_inside_the_embedded_workbook_do_not_survive`
+keeps it caught. A pptx-in-pptx is excluded from nesting to bound the recursion.
+
+**A leak test for a nested format must open the inner zip.** A chart's workbook is
+a zip inside a zip, so a single-level search reports a clean file that is not.
+`tests/test_pptx.py::survives_anywhere` descends one level and returns the part
+name, so a failure says where.
+
+**L1 gets the last word on L2's structured claims.**
+`registry.drop_unconfirmed_structured` discards a NER finding labelled IBAN, card,
+codice fiscale, partita IVA, AHV, UID or CH VAT when the matching checksum
+rejects the text. GLiNER2 labelled two adjacent chart amounts a credit card at
+0.87 — no threshold separates that from a real finding. `validators.confirms`
+checks the checksum only, not the regex, so a model can still contribute a real
+identifier written in a format the L1 pattern would not nominate.
+
+**Separator choice is not cosmetic.** Cache values get `\n`, spreadsheet cells
+within a row get `\t`. Joining two independent cached amounts with a tab is what
+produced the credit-card false positive in the first place.
 
 **Dropping a part means dropping what points at it.** `OoxmlPackage.drop()`
 removes the part, any relationship resolving to it, and its

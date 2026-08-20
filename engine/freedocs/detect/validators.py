@@ -248,3 +248,48 @@ class ValidatorDetector:
                     detector=f"phonenumbers-{region}",
                     confidence=1.0,
                 )
+
+
+#: Entity types a checksum can settle. If a model claims one of these and the
+#: matching validator disagrees, the model is wrong: L1 scans the same text with
+#: precision near 1.0, so a real one would already have been found.
+CHECKSUM_VERIFIABLE = frozenset(
+    {
+        EntityType.IBAN,
+        EntityType.CREDIT_CARD,
+        EntityType.IT_CODICE_FISCALE,
+        EntityType.IT_PARTITA_IVA,
+        EntityType.CH_AHV,
+        EntityType.CH_UID,
+        EntityType.CH_VAT,
+    }
+)
+
+
+def confirms(entity: EntityType, text: str) -> bool | None:
+    """Whether a checksum accepts ``text`` as an ``entity``.
+
+    Returns None when no validator covers the type, which the caller must read as
+    "no opinion" rather than as a rejection.
+
+    This exists because GLiNER2 labelled two chart amounts, ``1500`` and ``2300``,
+    as a credit card number at 0.87 confidence. No threshold separates that from a
+    real finding, but Luhn does instantly. Using L1 as a verifier for L2's
+    structured claims costs one function call and removes the whole class.
+
+    It deliberately does not require the *format* to match a rule's regex, only
+    the checksum: an IBAN written with dashes is real even though the pattern
+    would not nominate it, and rejecting it would lose recall the model earned.
+    """
+    if entity not in CHECKSUM_VERIFIABLE:
+        return None
+    try:
+        rules = [rule for rule in build_rules() if rule.entity is entity]
+    except MissingDependency:  # pragma: no cover - depends on the environment
+        # Without the validators there is no second opinion to offer, and
+        # withholding the finding would lose it for no reason.
+        return None
+    if not rules:
+        return None
+    candidate = text.strip()
+    return any(rule.validate(candidate) for rule in rules)

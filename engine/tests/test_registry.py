@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from freedocs.core.findings import EntityType, Finding, Layer, Span
-from freedocs.detect.registry import resolve_overlaps, summarise
+from freedocs.detect.registry import drop_unconfirmed_structured, resolve_overlaps, summarise
 
 
 def make(
@@ -66,3 +68,46 @@ def test_summarise_counts_per_entity():
         make(20, 25, EntityType.IBAN, Layer.VALIDATOR),
     ]
     assert summarise(findings) == {"EMAIL": 2, "IBAN": 1}
+
+
+# -- checksum verification of model claims ------------------------------------
+
+
+def make_text(text: str, entity: EntityType, layer: Layer) -> Finding:
+    return Finding(
+        span=Span(0, len(text)),
+        entity=entity,
+        text=text,
+        layer=layer,
+        detector="test",
+        confidence=0.9,
+    )
+
+
+def test_a_model_claim_a_checksum_rejects_is_dropped():
+    """GLiNER2 labelled two chart amounts as a card number at 0.87 confidence.
+
+    No threshold separates that from a real finding; Luhn does, in one call.
+    """
+    pytest.importorskip("stdnum")
+    bogus = make_text("1500\t2300", EntityType.CREDIT_CARD, Layer.NER)
+    assert drop_unconfirmed_structured([bogus]) == []
+
+
+def test_a_model_claim_a_checksum_accepts_is_kept():
+    """The model may spot a real identifier the L1 pattern would not nominate."""
+    pytest.importorskip("stdnum")
+    real = make_text("4111111111111111", EntityType.CREDIT_CARD, Layer.NER)
+    assert drop_unconfirmed_structured([real]) == [real]
+
+
+def test_validator_findings_are_never_second_guessed():
+    """They are the checksum; re-running it on them proves nothing."""
+    finding = make_text("whatever", EntityType.IBAN, Layer.VALIDATOR)
+    assert drop_unconfirmed_structured([finding]) == [finding]
+
+
+def test_types_without_a_checksum_are_left_alone():
+    """No validator covers a person's name, so there is no opinion to apply."""
+    finding = make_text("Mario Rossi", EntityType.PERSON, Layer.NER)
+    assert drop_unconfirmed_structured([finding]) == [finding]

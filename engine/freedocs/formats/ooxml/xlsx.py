@@ -229,7 +229,7 @@ class XlsxHandler(FormatHandler):
         for part in self.package.matching("xl/pivotCache/"):
             tree = self.package.tree(part)
             for element in tree.iter(qn("s:s")):
-                add_attribute(builder, element, "v", part=part, separator="\t")
+                add_attribute(builder, element, "v", part=part)
             builder.add_filler("\n")
 
     def _add_charts(self, builder: TextStreamBuilder) -> None:
@@ -239,7 +239,7 @@ class XlsxHandler(FormatHandler):
             for element in tree.iter(CHART_VALUE_TAG):
                 if element.text:
                     builder.add(element.text, part=part, locator=element)
-                    builder.add_filler("\t")
+                    builder.add_filler("\n")
             builder.add_filler("\n")
 
     def _add_external_links(self, builder: TextStreamBuilder) -> None:
@@ -251,7 +251,10 @@ class XlsxHandler(FormatHandler):
             for element in tree.iter(VALUE_TAG):
                 if element.text:
                     builder.add(element.text, part=part, locator=element)
-                    builder.add_filler("\t")
+                    # A newline, not a tab: these are a flat list of cached
+                    # values, not a row. Joining them with a tab let the model
+                    # read two adjacent amounts as one credit card number.
+                    builder.add_filler("\n")
             builder.add_filler("\n")
 
     # -- hidden content --------------------------------------------------------

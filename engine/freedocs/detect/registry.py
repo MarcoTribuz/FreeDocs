@@ -19,8 +19,9 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from ..core.findings import Finding
+from ..core.findings import Finding, Layer
 from .propagate import propagate_known_values
+from .validators import confirms
 
 
 class Detector(Protocol):
@@ -36,6 +37,27 @@ def _sort_key(finding: Finding) -> tuple[int, int, float, int]:
         -finding.confidence,
         finding.span.start,
     )
+
+
+def drop_unconfirmed_structured(findings: Iterable[Finding]) -> list[Finding]:
+    """Discard model claims about identifiers that a checksum rejects.
+
+    A model asked for "credit card number" will sometimes oblige. GLiNER2
+    labelled two chart amounts, ``1500`` and ``2300``, as a card number at 0.87
+    confidence — high enough that no threshold separates it from a real finding,
+    and Luhn settles it in one call. L1 findings are exempt: they *are* the
+    checksum.
+    """
+    kept: list[Finding] = []
+    for finding in findings:
+        if finding.layer is Layer.VALIDATOR:
+            kept.append(finding)
+            continue
+        verdict = confirms(finding.entity, finding.text)
+        if verdict is False:
+            continue
+        kept.append(finding)
+    return kept
 
 
 def resolve_overlaps(findings: Iterable[Finding]) -> list[Finding]:
@@ -76,7 +98,7 @@ class DetectorRegistry:
         raw: list[Finding] = []
         for detector in self.detectors:
             raw.extend(detector.detect(text))
-        resolved = resolve_overlaps(raw)
+        resolved = resolve_overlaps(drop_unconfirmed_structured(raw))
         if not self.propagate:
             return resolved
         # Propagate after resolution, so a value that lost an overlap contest is
