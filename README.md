@@ -7,10 +7,10 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M5.** The pipeline works end to end on plain text, text-layer PDF and
-all three Office formats, with checksum-backed and model-backed detection across
-Italian, German, French and English. Scanned documents are still to come. See
-[Roadmap](#roadmap).
+**Status: M6.** The pipeline works end to end on plain text, PDF (born-digital
+and scanned) and all three Office formats, with checksum-backed and model-backed
+detection across Italian, German, French and English. What is left is the desktop
+app. See [Roadmap](#roadmap).
 
 ## Why another one of these
 
@@ -175,6 +175,32 @@ Two consequences worth knowing before using it on a workbook full of formulas:
   arbitrary numbers of that length, so anchoring every amount would turn the
   ledger into placeholders.
 
+## Scans: redacting pixels, not glyphs
+
+On a scanned page there are no glyphs to delete — the text *is* the image. The
+same `apply_redactions()` call blanks the image pixels inside the rectangle,
+editing the image stream rather than covering it, so re-running OCR on the output
+no longer reads the value. The tests check exactly that: they machine-read the
+scrubbed file and assert the canary is unreadable, while the rest of the page
+still is.
+
+Three things this milestone settled:
+
+- **The decision is per page, not per document.** Real files mix them — a
+  contract exported from Word with the signed page scanned back in. PyMuPDF
+  returns OCR results in the page's own coordinate system with the same structure
+  as the text layer, so extraction, anchoring and redaction stay one code path.
+- **Verification had to be made adversarial.** A scanned page is only
+  machine-read when its text layer looks empty; after redaction it carries the
+  placeholders, which is enough text to look ordinary. Verification was therefore
+  inspecting the placeholders and never the pixels — a failed pixel redaction
+  would have passed. `harden_for_verification()` now makes the check re-read every
+  imaged page.
+- **OCR is a reading, not the text.** A codice fiscale with one character misread
+  fails its checksum, is never detected, and survives. That is inherent to
+  redacting a scan, so every machine-read page is named in a warning telling the
+  user to check it by eye.
+
 ## What a PowerPoint deck hides
 
 - **A chart carries its whole source workbook.** `ppt/embeddings/*.xlsx` is a
@@ -223,6 +249,27 @@ uv run freedocs benchmark                      # score the layers on the corpus
 Without `--extra ner` everything still works on checksums alone, and every report
 states that names, organisations, locations and addresses are not being detected.
 
+### Scanned documents
+
+OCR needs the Tesseract binary and its language data, neither of which pip can
+install. PyMuPDF drives Tesseract directly, so there is no Python package:
+
+```bash
+brew install tesseract                     # or your platform's package
+mkdir -p engine/models/tessdata
+for lang in ita deu fra eng; do
+  curl -sSL -o "engine/models/tessdata/$lang.traineddata" \
+    "https://github.com/tesseract-ocr/tessdata/raw/main/$lang.traineddata"
+done
+```
+
+`engine/models/tessdata` is searched by default, after `FREEDOCS_TESSDATA` and
+`TESSDATA_PREFIX`. Homebrew's `tesseract-lang` works too, at 1.2 GB for every
+language instead of 50 MB for four.
+
+Without it, a PDF whose pages have no text layer is **refused** — naming the
+pages and what to install — rather than returned untouched.
+
 Useful flags: `--report r.json` for a machine-readable summary, `--keep URL` to
 leave an entity type alone, `--min-confidence 0.8` to raise the threshold.
 
@@ -240,8 +287,8 @@ because it gets sent.
 | M3 | `docx` with run-aware write-back and hidden-content scrub | done |
 | M4 | `xlsx`, including pivot caches and `veryHidden` sheets | done |
 | M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | done |
-| M6 | Scanned PDF: OCR plus redaction on word bounding boxes | next |
-| M7 | Tauri desktop app | |
+| M6 | Scanned PDF: OCR plus redaction on word bounding boxes | done |
+| M7 | Tauri desktop app | next |
 | M8 | L3 Ollama review, opt-in | |
 
 ## Licence

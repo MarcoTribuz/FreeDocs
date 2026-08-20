@@ -15,7 +15,7 @@ from pathlib import Path
 from .core.errors import MissingDependency
 from .core.findings import EntityType
 from .core.policy import Action, Policy
-from .formats.pdf_text import ScannedPdfNotSupported
+from .formats.pdf import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import Scrubber, build_registry, default_registry
 from .report import build_report, format_console

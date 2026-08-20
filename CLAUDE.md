@@ -9,9 +9,9 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M5 complete.** Plain text, text-layer PDF, `docx`, `xlsx` and
-`pptx` end to end, with checksum, NER and value-propagation detection over
-it/de/fr/en. No OCR — that is M6, and the code says so where it matters.
+**Current state: M6 complete.** Plain text, PDF (born-digital and scanned),
+`docx`, `xlsx` and `pptx` end to end, with checksum, NER and value-propagation
+detection over it/de/fr/en. What remains is the Tauri app, M7.
 
 ## Commands
 
@@ -21,7 +21,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (321 tests, ~42s with the model)
+uv run pytest -q                       # full suite (334 tests, ~49s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -181,11 +181,36 @@ walks every xref and searches the decompressed streams. Apply the same standard
 to OOXML: search inside the zip parts, not the zip.
 
 **Never return a scan as if it were processed.** `extract()` raises
-`ScannedPdfNotSupported` when a PDF has no usable text layer, rather than
-producing an untouched file the user believes was scrubbed. `hidden_text=False`
-is passed to `scrub()` deliberately: an OCR layer over a scan *is* invisible
-text, and deleting it blind would throw away content this pipeline can redact
-properly.
+`ScannedPdfNotSupported` when a page has no usable text layer *and OCR is
+unavailable*, naming the pages and what to install, rather than producing an
+untouched file the user believes was scrubbed. `hidden_text=False` is passed to
+`scrub()` deliberately: an OCR layer over a scan *is* invisible text, and
+deleting it blind would throw away content this pipeline can redact properly.
+
+**On a scan the redaction is to the pixels.** There are no glyphs to delete: the
+text is the image. `apply_redactions()` blanks the image pixels inside the rect
+(`images` defaults to `PDF_REDACT_IMAGE_PIXELS`), editing the image stream rather
+than covering it. The test that proves it re-runs OCR on the output; checking
+`get_text()` proves nothing about a scan.
+
+**The OCR decision is per page.** Real files mix born-digital and scanned pages.
+`page.get_images()` is what distinguishes a scan from a genuinely blank page — OCR
+the first, ignore the second — and PyMuPDF returns OCR results in the page's
+coordinate system with the same `rawdict` shape as the text layer, so `_add_page`
+handles both. Do not rasterise and map pixel coordinates by hand; it is the same
+result with an extra transform to get wrong.
+
+**`harden_for_verification()` exists because verification was checking the wrong
+thing.** A scanned page is only machine-read when its text layer looks empty, and
+a *redacted* scan carries the placeholders that replaced its content — enough text
+to look ordinary. So verification inspected the placeholders and never the pixels,
+and a failed pixel redaction would have passed. Any handler that reads less than
+everything for speed must override this hook. `test_verification_re_reads_the_pixels`
+pins it.
+
+**OCR is a reading, not the text.** A value OCR misreads fails its checksum, is
+never detected, and survives. Every machine-read page is named in a warning for
+that reason. Do not remove the warning to tidy the output.
 
 **Office write-back goes through `lxml` on the zip parts.** `openpyxl`,
 `python-docx` and `python-pptx` have no management API for charts, images or pivot

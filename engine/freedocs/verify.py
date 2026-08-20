@@ -91,6 +91,10 @@ def verify_output(
     in the document on purpose.
     """
     handler = handler_cls(output_path, output_bytes)
+    # Read the output harder than the input was read. A format that skips work
+    # for speed during extraction must not be allowed to skip it here: the
+    # question has changed from "what is in this file" to "did anything survive".
+    handler.harden_for_verification()
     stream = handler.extract()
     haystack = stream.text.casefold()
 

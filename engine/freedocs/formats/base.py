@@ -82,3 +82,21 @@ class FormatHandler(ABC):
         than the visible text.
         """
         return []
+
+    def harden_for_verification(self) -> None:
+        """Reconfigure this handler to re-read output as adversarially as possible.
+
+        Called by :mod:`freedocs.verify` on the handler it builds over the
+        scrubbed bytes, never on the one that produced them. A format may read
+        less than everything for speed during extraction; when the question is
+        "did anything survive", the cheap reading is not good enough.
+
+        The case that forced this: a scanned page is machine-read only when its
+        text layer looks empty. After redaction that page carries a couple of
+        placeholder strings, which is enough text to look like a normal page, so
+        verification checked the placeholders and never looked at the image
+        pixels — the only place the confidential data had ever been.
+
+        Default is a no-op: for most formats one reading is the reading.
+        """
+        return None

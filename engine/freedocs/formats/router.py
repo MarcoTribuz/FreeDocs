@@ -14,7 +14,7 @@ from .base import FormatHandler
 from .ooxml.docx import DocxHandler
 from .ooxml.pptx import PptxHandler
 from .ooxml.xlsx import XlsxHandler
-from .pdf_text import PdfTextHandler
+from .pdf import PdfTextHandler
 from .plaintext import PlainTextHandler
 
 #: Registration order is significance order. PlainTextHandler stays last: it

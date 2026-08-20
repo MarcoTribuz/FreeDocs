@@ -16,15 +16,22 @@ pymupdf = pytest.importorskip("pymupdf", reason="PyMuPDF is required for PDF sup
 
 from freedocs.core.findings import Span  # noqa: E402
 from freedocs.core.stream import Edit  # noqa: E402
-from freedocs.formats.pdf_text import (  # noqa: E402
+from freedocs.formats.pdf import (  # noqa: E402
     MIN_FONT_SIZE,
     PdfSpanLocator,
     PdfTextHandler,
     ScannedPdfNotSupported,
+    tessdata_path,
 )
 from freedocs.formats.router import handler_for  # noqa: E402
 
 from .conftest import CANARIES, l1_scrubber  # noqa: E402
+
+
+def pdf_ocr_unavailable() -> bool:
+    """OCR needs Tesseract and its language data, neither of which pip installs."""
+    return tessdata_path() is None
+
 
 LINES = [
     "Scheda cliente - RISERVATA",
@@ -165,19 +172,73 @@ def test_multi_page_documents_are_flattened_in_order(tmp_path: Path):
 # -- scanned documents --------------------------------------------------------
 
 
-def test_a_pdf_without_a_text_layer_is_refused(tmp_path: Path):
-    """Returning a scan untouched but reported as scrubbed is the worst outcome."""
+def make_blank_image_pdf(path: Path) -> Path:
+    """A page carrying an image with no text in it at all."""
     doc = pymupdf.open()
     page = doc.new_page()
     pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 200, 100))
     pixmap.set_rect(pixmap.irect, (200, 200, 200))
     page.insert_image(pymupdf.Rect(50, 50, 250, 150), pixmap=pixmap)
-    path = tmp_path / "scansione.pdf"
     doc.save(str(path))
     doc.close()
+    return path
 
-    with pytest.raises(ScannedPdfNotSupported, match="no usable text layer"):
+
+def make_scan(path: Path, lines: list[str] | None = None, *, pages: int = 1) -> Path:
+    """A genuine scan: a born-digital page rasterised, with no text layer left.
+
+    Built by rendering rather than by omitting text, so the fixture is a real
+    picture of words and OCR has to actually read it.
+    """
+    source = pymupdf.open(
+        stream=make_pdf(path.with_suffix(".src.pdf"), lines, pages=pages).read_bytes(),
+        filetype="pdf",
+    )
+    scan = pymupdf.open()
+    for page in source:
+        pixmap = page.get_pixmap(dpi=200)
+        target = scan.new_page(width=page.rect.width, height=page.rect.height)
+        target.insert_image(target.rect, pixmap=pixmap)
+    scan.save(str(path))
+    scan.close()
+    return path
+
+
+def test_a_rasterised_page_really_has_no_text_layer(tmp_path: Path):
+    """If it had one, every OCR test below would be testing the wrong thing."""
+    path = make_scan(tmp_path / "scansione.pdf")
+    doc = pymupdf.open(str(path))
+    assert doc[0].get_text().strip() == ""
+
+
+def test_a_pdf_without_a_text_layer_is_refused_when_ocr_is_unavailable(tmp_path: Path, monkeypatch):
+    """Returning a scan untouched but reported as scrubbed is the worst outcome."""
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: None)
+    path = make_scan(tmp_path / "scansione.pdf")
+    with pytest.raises(ScannedPdfNotSupported, match="no usable text layer on page"):
         handler_for(path).extract()
+
+
+def test_the_refusal_names_the_pages_and_what_to_install(tmp_path: Path, monkeypatch):
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: None)
+    path = make_scan(tmp_path / "due.pdf", pages=2)
+    with pytest.raises(ScannedPdfNotSupported) as caught:
+        handler_for(path).extract()
+    assert "1, 2" in str(caught.value)
+    assert "Tesseract" in str(caught.value)
+
+
+def test_a_blank_image_page_is_not_refused(tmp_path: Path):
+    """A separator page with a logo on it is not a scan of anything."""
+    if pdf_ocr_unavailable():
+        pytest.skip("OCR is not configured")
+    handler = handler_for(make_blank_image_pdf(tmp_path / "vuota.pdf"))
+    handler.extract()
+    assert any("OCR found no text" in warning for warning in handler.warnings)
 
 
 # -- redaction ----------------------------------------------------------------
@@ -358,3 +419,130 @@ def test_warnings_reach_the_scrub_result(source: Path):
 def test_a_document_with_nothing_to_redact_warns_about_nothing(tmp_path: Path):
     path = make_pdf(tmp_path / "pulito.pdf", FILLER_LINES)
     assert l1_scrubber().scrub_file(path).warnings == []
+
+
+# -- OCR ----------------------------------------------------------------------
+
+ocr = pytest.mark.skipif(pdf_ocr_unavailable(), reason="Tesseract language data not configured")
+
+
+def reocr(data: bytes) -> str:
+    """Read the output the way an attacker would: machine-read the picture again.
+
+    Checking the text layer is not enough for a scan. After redaction the page
+    carries the placeholders, which looks like ordinary text while the pixels —
+    the only place the data ever was — go unexamined.
+    """
+    doc = pymupdf.open(stream=data, filetype="pdf")
+    out = []
+    for page in doc:
+        textpage = page.get_textpage_ocr(
+            flags=0, language="ita+eng", dpi=200, full=True, tessdata=tessdata_path()
+        )
+        out.append(page.get_text("text", textpage=textpage))
+    return "\n".join(out)
+
+
+@ocr
+def test_ocr_reads_a_scanned_page(tmp_path: Path):
+    stream = handler_for(make_scan(tmp_path / "scansione.pdf")).extract()
+    assert CANARIES["IT_CODICE_FISCALE"] in stream.text
+    assert "Scheda cliente" in stream.text
+
+
+@ocr
+def test_ocr_gives_a_box_per_character(tmp_path: Path):
+    """Same structure as the text layer, so redaction is one code path."""
+    stream = handler_for(make_scan(tmp_path / "scansione.pdf")).extract()
+    assert stream.anchors
+    for anchor in stream.anchors:
+        assert isinstance(anchor.locator, PdfSpanLocator)
+        assert len(anchor.locator.char_boxes) == len(anchor)
+
+
+@ocr
+def test_ocr_boxes_are_inside_the_page(tmp_path: Path):
+    """PyMuPDF returns page coordinates, not pixels; a pixel bbox would overflow."""
+    path = make_scan(tmp_path / "scansione.pdf")
+    doc = pymupdf.open(str(path))
+    width, height = doc[0].rect.width, doc[0].rect.height
+    for anchor in handler_for(path).extract().anchors:
+        for x0, y0, x1, y1 in anchor.locator.char_boxes:
+            assert -1 <= x0 <= x1 <= width + 1
+            assert -1 <= y0 <= y1 <= height + 1
+
+
+@ocr
+def test_the_page_is_reported_as_machine_read(tmp_path: Path):
+    """An OCR misreading is a value this tool cannot detect. Say so."""
+    result = l1_scrubber().scrub_file(make_scan(tmp_path / "scansione.pdf"))
+    assert any("read by OCR" in warning for warning in result.warnings)
+    assert any("check those pages by eye" in warning for warning in result.warnings)
+
+
+@ocr
+def test_a_born_digital_page_is_not_reported_as_machine_read(source: Path):
+    result = l1_scrubber().scrub_file(source)
+    assert not any("read by OCR" in warning for warning in result.warnings)
+
+
+@ocr
+@pytest.mark.leak
+def test_a_canary_on_a_scanned_page_is_no_longer_readable(tmp_path: Path):
+    """The redaction that matters here is to the pixels: there are no glyphs."""
+    result = l1_scrubber().scrub_file(make_scan(tmp_path / "scansione.pdf"))
+    recognised = reocr(result.output)
+    assert CANARIES["IT_CODICE_FISCALE"] not in recognised
+    assert "CH93" not in recognised
+
+
+@ocr
+@pytest.mark.leak
+def test_the_rest_of_a_scanned_page_is_still_readable(tmp_path: Path):
+    """Blanking the whole image would leak nothing and be useless."""
+    recognised = reocr(l1_scrubber().scrub_file(make_scan(tmp_path / "scansione.pdf")).output)
+    assert "Scheda cliente" in recognised
+
+
+@ocr
+@pytest.mark.leak
+def test_verification_re_reads_the_pixels(tmp_path: Path, monkeypatch):
+    """A failed pixel redaction must fail the run, not pass on the placeholders.
+
+    Without harden_for_verification the check inspected the two placeholder
+    strings the redaction had just written and never looked at the image.
+    """
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module.PdfTextHandler, "write_back", lambda self, edits: self.data)
+    from freedocs.verify import LeakDetected
+
+    with pytest.raises(LeakDetected):
+        l1_scrubber().scrub_file(make_scan(tmp_path / "scansione.pdf"))
+
+
+@ocr
+def test_verification_hardening_is_off_during_extraction(source: Path):
+    """OCRing a born-digital page is pure cost, so it is opt-in."""
+    handler = handler_for(source)
+    assert handler.ocr_every_imaged_page is False
+    handler.harden_for_verification()
+    assert handler.ocr_every_imaged_page is True
+
+
+@ocr
+def test_a_mixed_document_ocrs_only_the_scanned_page(tmp_path: Path):
+    """Real files mix the two: a Word export with a signed page scanned back in."""
+    native = pymupdf.open(str(make_pdf(tmp_path / "nativo.pdf")))
+    scanned = pymupdf.open(str(make_scan(tmp_path / "scansione.pdf", ["Allegato firmato"])))
+    merged = pymupdf.open()
+    merged.insert_pdf(native)
+    merged.insert_pdf(scanned)
+    path = tmp_path / "misto.pdf"
+    merged.save(str(path))
+
+    handler = handler_for(path)
+    stream = handler.extract()
+    assert handler.ocr_pages == [2]
+    assert CANARIES["IBAN"] in stream.text
+    assert "Allegato firmato" in stream.text

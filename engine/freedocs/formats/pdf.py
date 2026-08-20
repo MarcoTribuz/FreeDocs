@@ -1,14 +1,28 @@
-"""PDF with a text layer: real redaction, not a rectangle on top.
+"""PDF, born-digital or scanned: real redaction, not a rectangle on top.
 
 The distinction is the whole point. Drawing a black box over a name leaves the
 name in the content stream, selectable and copyable, which is how redaction
 scandals happen. PyMuPDF's ``apply_redactions()`` deletes the glyphs from the
-stream, so the characters stop existing rather than stop being visible.
+stream, so the characters stop existing rather than stop being visible. On a
+scanned page there are no glyphs — the text *is* the image — and the same call
+blanks the image pixels inside the rectangle, editing the image stream rather than
+covering it. Re-running OCR on the output no longer reads the value.
 
 Anchoring is per span, with a bounding box recorded for every single character.
 That is what lets an arbitrary character range — the eleven digits inside a
 longer line — be turned into an exact rectangle. Working from span bounding boxes
 alone would redact whole spans and destroy text that was never confidential.
+
+The decision to machine-read is taken **per page**, not per document, because a
+real file mixes them: a contract exported from Word with a signed page scanned
+back in. PyMuPDF drives Tesseract itself and returns a text page in the page's own
+coordinate system with the same structure as the text layer, so extraction,
+anchoring and redaction are one code path for both kinds of page.
+
+OCR is a reading, not the text. A codice fiscale with one character misread fails
+its checksum, is therefore never detected, and survives. That is inherent to
+redacting a scan, and every OCR'd page is named in a warning for exactly that
+reason.
 
 Two behaviours of the underlying library shape this module and are worth knowing
 before changing anything here:
@@ -25,6 +39,7 @@ before changing anything here:
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -52,6 +67,49 @@ MIN_CHARS_PER_PAGE = 8
 #: Reported by PyMuPDF alongside real metadata but describing the file rather
 #: than its author, so listing them as removed confidential content is noise.
 NON_SENSITIVE_METADATA_KEYS = frozenset({"format", "encryption"})
+
+#: Languages requested from Tesseract. All four corpus languages at once: the
+#: document's language is not known, and a scrubber that has to guess it before it
+#: can read the page has an extra way to fail silently.
+DEFAULT_OCR_LANGUAGE = "ita+deu+fra+eng"
+
+#: Rasterisation resolution for OCR. 200 is the usual floor for reliable
+#: recognition of body text; 72 loses characters and 300 costs time for little
+#: gain on documents rather than photographs.
+DEFAULT_OCR_DPI = 200
+
+#: Where to look for Tesseract language data, in order. The project directory
+#: comes before the system one so a checkout with the four corpus languages
+#: downloaded wins over a Homebrew install that only has English.
+_PROJECT_TESSDATA = Path(__file__).resolve().parent.parent.parent / "models" / "tessdata"
+
+
+def tessdata_path() -> str | None:
+    """The first usable Tesseract language directory, or None if there is none.
+
+    A directory only counts if it actually holds ``.traineddata``. PyMuPDF's
+    ``get_tessdata()`` echoes ``TESSDATA_PREFIX`` without checking it exists, so
+    trusting it produces a confusing failure deep inside Tesseract instead of a
+    clear "OCR is not available" here.
+    """
+    candidates = [
+        os.environ.get("FREEDOCS_TESSDATA"),
+        os.environ.get("TESSDATA_PREFIX"),
+        str(_PROJECT_TESSDATA),
+    ]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_dir() and any(Path(candidate).glob("*.traineddata")):
+            return candidate
+    return None
+
+
+def _count_chars(raw: dict) -> int:
+    return sum(
+        len(span.get("chars", ()))
+        for block in raw.get("blocks", ())
+        for line in block.get("lines", ())
+        for span in line.get("spans", ())
+    )
 
 
 class ScannedPdfNotSupported(RuntimeError):
@@ -90,10 +148,19 @@ class PdfTextHandler(FormatHandler):
     name = "pdf-text"
     extensions = (".pdf",)
 
+    #: Requested from Tesseract when a page has to be machine-read.
+    ocr_language: str = DEFAULT_OCR_LANGUAGE
+    ocr_dpi: int = DEFAULT_OCR_DPI
+    #: Machine-read every page carrying an image, not only those whose text layer
+    #: looks empty. Set by :meth:`harden_for_verification`; off during extraction
+    #: because OCRing a born-digital page is pure cost.
+    ocr_every_imaged_page: bool = False
+
     def __init__(self, path: Path, data: bytes) -> None:
         super().__init__(path, data)
         self._fitz = _pymupdf()
         self._doc = self._fitz.open(stream=data, filetype="pdf")
+        self.ocr_pages: list[int] = []
 
     @classmethod
     def sniff(cls, path: Path, head: bytes) -> bool:
@@ -105,44 +172,117 @@ class PdfTextHandler(FormatHandler):
 
     def extract(self) -> TextStream:
         builder = TextStreamBuilder()
-        total_chars = 0
+        #: Pages that were machine-read. Reported, because an OCR misreading is a
+        #: character this tool cannot detect.
+        self.ocr_pages: list[int] = []
+        unreadable: list[int] = []
 
         for page_index, page in enumerate(self._doc):
             part = f"page:{page_index + 1}"
             # sort=True gives reading order even when the content stream is in a
             # different sequence, which matters for the detector's context window.
             raw = page.get_text("rawdict", sort=True)
-            for block in raw.get("blocks", ()):
-                # Image blocks have no "lines"; nothing to extract until M6.
-                for line in block.get("lines", ()):
-                    for span in line.get("spans", ()):
-                        chars = span.get("chars", ())
-                        text = "".join(char["c"] for char in chars)
-                        if not text:
-                            continue
-                        total_chars += len(text)
-                        builder.add(
-                            text,
-                            part=part,
-                            locator=PdfSpanLocator(
-                                page=page_index,
-                                char_boxes=tuple(tuple(char["bbox"]) for char in chars),
-                                font_size=float(span.get("size", 11.0)),
-                            ),
-                        )
-                    # One newline per line, so the detector sees line boundaries
-                    # rather than words fused across them.
-                    builder.add_filler("\n")
-                builder.add_filler("\n")
+            count = _count_chars(raw)
 
-        if total_chars < MIN_CHARS_PER_PAGE * max(1, self._doc.page_count):
+            # A page with no text is either a scan or genuinely blank, and the two
+            # need opposite treatment: OCR the first, ignore the second. An image
+            # is what distinguishes them. In verification mode every imaged page is
+            # read, however much text it already has: a redacted scan carries the
+            # placeholders that replaced its content, which is enough text to look
+            # like an ordinary page while the pixels go unchecked.
+            if page.get_images() and (count < MIN_CHARS_PER_PAGE or self.ocr_every_imaged_page):
+                ocr = self._ocr(page)
+                if ocr is None:
+                    unreadable.append(page_index + 1)
+                else:
+                    raw = page.get_text("rawdict", sort=True, textpage=ocr)
+                    self.ocr_pages.append(page_index + 1)
+                    if _count_chars(raw) < MIN_CHARS_PER_PAGE:
+                        self.warn(
+                            f"page {page_index + 1} carries an image that OCR found no "
+                            "text in; if it holds text this tool cannot see, nothing on "
+                            "it was redacted"
+                        )
+
+            self._add_page(builder, raw, part, page_index)
+
+        if unreadable:
             raise ScannedPdfNotSupported(
-                f"{self.path.name} has {total_chars} extractable characters across "
-                f"{self._doc.page_count} page(s), which means it has no usable text "
-                "layer. Redacting a scan needs OCR, which arrives in M6; this build "
-                "will not pretend to have processed it."
+                f"{self.path.name} has no usable text layer on page(s) "
+                f"{', '.join(str(number) for number in unreadable)}, and OCR is not "
+                "available. Install Tesseract and point FREEDOCS_TESSDATA or "
+                "TESSDATA_PREFIX at its language data. This build will not pretend "
+                "to have processed a scan it could not read."
+            )
+
+        if self.ocr_pages:
+            # OCR is a reading, not the text. A codice fiscale with one character
+            # misread fails its checksum and is therefore never detected, so it
+            # survives. That is a limitation of scanned-document redaction, not a
+            # bug, and the user has to know which pages it applies to.
+            self.warn(
+                "page(s) "
+                + ", ".join(str(number) for number in self.ocr_pages)
+                + " were read by OCR. A value OCR misreads cannot be detected, so "
+                "check those pages by eye before sending the file"
             )
         return builder.build()
+
+    def _add_page(self, builder: TextStreamBuilder, raw: dict, part: str, page: int) -> None:
+        for block in raw.get("blocks", ()):
+            # Image blocks have no "lines". On an OCR'd page the recognised text
+            # arrives as ordinary text blocks alongside them.
+            for line in block.get("lines", ()):
+                for span in line.get("spans", ()):
+                    chars = span.get("chars", ())
+                    text = "".join(char["c"] for char in chars)
+                    if not text:
+                        continue
+                    builder.add(
+                        text,
+                        part=part,
+                        locator=PdfSpanLocator(
+                            page=page,
+                            char_boxes=tuple(tuple(char["bbox"]) for char in chars),
+                            font_size=float(span.get("size", 11.0)),
+                        ),
+                    )
+                # One newline per line, so the detector sees line boundaries
+                # rather than words fused across them.
+                builder.add_filler("\n")
+            builder.add_filler("\n")
+
+    def _ocr(self, page: pymupdf.Page) -> object | None:
+        """Machine-read one page, or None if OCR is unavailable.
+
+        PyMuPDF drives Tesseract itself and hands back a text page in the *page's*
+        coordinate system, with a bounding box per character. That is the same
+        shape the text layer produces, so everything downstream — anchoring,
+        detection, the rectangle a redaction covers — works unchanged. Rasterising
+        and mapping pixel coordinates by hand would have been the same result with
+        an extra chance to get the transform wrong.
+        """
+        tessdata = tessdata_path()
+        if tessdata is None:
+            return None
+        try:
+            return page.get_textpage_ocr(
+                flags=0, language=self.ocr_language, dpi=self.ocr_dpi, full=True, tessdata=tessdata
+            )
+        except Exception as exc:
+            self.warn(f"OCR failed on page {page.number + 1} ({exc}); nothing on it was redacted")
+            return None
+
+    def harden_for_verification(self) -> None:
+        """OCR every imaged page when checking output, whatever text it carries.
+
+        A redacted scan holds the placeholders that replaced its content, which is
+        enough text for the ordinary heuristic to skip OCR. Verification would
+        then have inspected the placeholders and never the image pixels, which is
+        the only place the confidential data ever was: a failed pixel redaction
+        would have passed.
+        """
+        self.ocr_every_imaged_page = True
 
     # -- hidden content --------------------------------------------------------
 
