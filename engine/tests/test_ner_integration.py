@@ -141,3 +141,20 @@ def test_a_name_does_not_survive_an_end_to_end_scrub(tmp_path: Path):
     assert "Mario Rossi" not in output
     assert "[PERSON_1]" in output
     assert result.verify.ok
+
+
+def test_two_registries_share_one_loaded_model():
+    """The half of the caching claim that needs the real thing.
+
+    A country selection narrows the checksum layer and leaves the model alone, so
+    rebuilding a registry for a new selection must not reload it.
+    """
+    from freedocs.detect.ner import load_backend
+
+    first = build_registry("all", countries=("ch",))
+    second = build_registry("all", countries=("de", "fr"))
+    ner_first = next(d for d in first.detectors if type(d).__name__ == "NerDetector")
+    ner_second = next(d for d in second.detectors if type(d).__name__ == "NerDetector")
+    assert ner_first is not ner_second, "the detectors are per registry"
+    assert ner_first.backend is ner_second.backend, "but the loaded model is not"
+    assert ner_first.backend is load_backend("gliner2")

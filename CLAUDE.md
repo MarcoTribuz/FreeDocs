@@ -25,7 +25,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (523 tests, ~77s with model+OCR)
+uv run pytest -q                       # full suite (525 tests, ~32s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file

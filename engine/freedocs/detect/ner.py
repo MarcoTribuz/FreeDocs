@@ -22,6 +22,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
+from functools import cache
 from typing import Protocol
 
 from ..core.errors import MissingDependency
@@ -143,8 +144,29 @@ DEFAULT_LABEL_MAP: dict[str, EntityType] = {
 }
 
 
+@cache
 def load_backend(name: str = "gliner2") -> NerBackend:
-    """Instantiate a backend by name, loading its model."""
+    """Instantiate a backend by name, loading its model. Once per process.
+
+    Cached because the model is the expensive thing in this codebase by two
+    orders of magnitude: loading GLiNER2 takes about 7.4 seconds and running it
+    takes milliseconds. A fresh `NerDetector` starts with `_backend = None` and
+    pays that again, and `NerDetector` is constructed once per registry — so
+    anything that rebuilds a registry rebuilt the model.
+
+    That went unnoticed until the country selection existed, because nothing
+    rebuilt a registry mid-session before. `Session.registry` keys its cache on
+    the countries as well as the layer spec, correctly: narrowing them changes
+    which rules run. But the NER layer is *not* narrowed by country — the model
+    reads names and addresses and has no notion of who issued anything — so
+    every chip click in the window paid a full model load for a layer that had
+    not changed. Measured over the pipe: 0.10 s for a repeated inspection, 7.4 s
+    for the same inspection after one country was switched off.
+
+    Keyed on the name alone, which is sound because that is the whole input: a
+    caller wanting a different model or label set constructs the backend itself
+    and hands it to `NerDetector`.
+    """
     if name in {"gliner2", "gliner"}:
         from .backends.gliner_backend import GlinerBackend
 
