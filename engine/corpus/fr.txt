@@ -174,3 +174,9 @@ BE403019260. Aucune ne satisfait sa cle de controlle.
 Bon de commande 771 204 330 du service achats, lot 918 445 207 en stock.
 Reference transporteur 502 118 940, palette 640 233 815.
 Code article 45 830 117 au catalogue, quantite 250, livraison en mai.
+
+Droit applicable: le present contrat cadre est regi par le droit suisse, et les
+tribunaux de Geneve sont seuls competents. Tout arbitrage siege a Lausanne.
+
+Les factures sont payables en francs suisses sous trente jours; les montants
+libelles en euros sont convertis au cours du jour de la facture.

@@ -13,7 +13,10 @@ competitive gap it targets; the full design and milestone plan live in
 plain text, PDF (born-digital and scanned), `docx`, `xlsx` and `pptx`, with
 checksum, NER and value-propagation detection. Identifiers are checksum-confirmed
 for twelve countries (ch, it, de, at, fr, be, es, pt, nl, pl, se, gb) and the NER
-layer reads it/de/fr/en without being told which. A Tauri app in `app/` drives it
+layer reads it/de/fr/en without being told which. Two passes then correct the
+free-text layer: `detect/organisations.py` finds a company name from its legal
+form where the model found nothing, and `detect/suppress.py` drops the places
+that identify nobody. A Tauri app in `app/` drives it
 over a JSON pipe, and an opt-in local-LLM pass reviews the output. Anything
 further is new work, not a remaining milestone.
 
@@ -25,7 +28,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (525 tests, ~32s with model+OCR)
+uv run pytest -q                       # full suite (558 tests, ~30s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -36,6 +39,8 @@ uv run freedocs inspect FILE           # report findings, write nothing
 uv run freedocs scrub FILE -o out/     # write a scrubbed copy
 uv run freedocs entities               # list supported entity types
 uv run freedocs countries              # list countries and what each one gets
+uv run freedocs doctor                 # what this machine can actually do
+uv run freedocs doctor --strict        # non-zero when any optional layer is missing
 uv run freedocs benchmark              # score detectors against corpus/
 uv run freedocs benchmark --detectors "l1,all:gliner2,all:presidio"
 uv run freedocs benchmark --countries ch,it              # price a country selection
@@ -180,6 +185,13 @@ same characters.
   kept installable so the comparison stays reproducible.
 - **L2.5** (`detect/propagate.py`, shipped): copies each confirmed value to its
   other occurrences. Runs after overlap resolution, then resolves again.
+- **L2.6** (`detect/organisations.py`, shipped): nominates a company name from
+  the legal form that follows it, and **only where no layer claimed those
+  characters**. It is a gap fill, not a detector — see the invariant below.
+- **L2.7** (`detect/suppress.py`, shipped): removes findings that name something
+  real and identify nobody. Country names and lowercase common nouns go on both
+  sides of propagation; jurisdictions go only after it. Also the invariant
+  below, because the two halves are not interchangeable.
 - **L3** (`detect/llm_review.py`, shipped, off by default): an Ollama pass over the
   *already anonymised* text, flagging leftovers and quasi-identifiers. Advisory
   only, and not part of the registry — it produces no spans and drives no edits.
@@ -350,13 +362,36 @@ every number after it is wrong — and then the benchmark measures the annotatio
 instead of the model. An unknown label is an error, not a skip: a dropped
 annotation gets scored as a detector hallucination.
 
-**The corpus has to be able to make something fail.** It is 378 entities over
-twenty documents, up from 103 over four, and growing it moved the headline from
-99.0% to 97.4% — the instrument getting sharper, not a regression. What the small
-one could not report: LOCATION coverage is 75.8% against PERSON's 100%, because
-every remaining leak but one is a place name that also appears as somebody's
-surname in the same document (`Basel`, `Preston`, `Lyon`, `Firenze`). Keep those
-collisions when editing the corpus; they are the finding.
+**The corpus has to be able to make something fail.** It is 514 annotated
+entities across the four language files `corpus/{de,en,fr,it}.txt`, up from 103,
+and growing it is what moved the headline down from 99.0% — the instrument
+getting sharper, not a regression. `freedocs benchmark` prints the counts it
+actually loaded, so trust that line over any figure written down here.
+
+What the small corpus could not report: LOCATION is the weakest category at
+88.6% coverage and 0.73 precision against PERSON's 100% and 1.00, and every
+remaining LOCATION leak is a place name that also appears as somebody's surname
+in the same document (`Zug`, `Sion`, `Lyon`, `Firenze`). Keep those collisions
+when editing the corpus; they are the finding. The other five leaks are all
+ADDRESS: the model returns the city and drops the street, which is the case a
+postcode-anchored address pattern would close and nothing currently does.
+
+**Adding corpus text moves NER chunk boundaries, and that alone changes
+coverage.** Appending six lines to `corpus/fr.txt` cost the annotated
+`Meir 78, 2000 Antwerpen` two lines above it: the text is near the end of the
+file, the final `iter_chunks` window moved, and GLiNER2 stopped returning an
+address it had returned before. Verified by re-running with the new rules
+disabled — the leak is there either way. So when the corpus grows, attribute the
+delta before believing it: a rule and a boundary shift look identical in the
+headline. It is also the strongest argument on hand for re-measuring
+`MAX_CHUNK_CHARS`, which is currently a documented guess.
+
+The four files also each end with a governing-law and payment block, added
+unannotated. Those clauses are the cases `detect/suppress.py` is paid to pass,
+and they are the reason `Basel`, `Geneve`, `Lugano` and `Milano` each appear both
+as somebody's location and as a jurisdiction. Do not annotate them, and do not
+delete them: without a document where the same string is confidential in one
+sentence and not in the next, nothing here can be measured at all.
 
 **At twelve countries a value broken for one checksum is often valid for
 another.** `192598180` was written into the corpus as a rejected Polish REGON and
@@ -387,6 +422,56 @@ IP and PHONE precision sit at 0.83, and no regex can settle either.
 `evaluate()` calls `detect()` directly, so `Policy.min_confidence` is **not**
 applied. The benchmark measures the detector, not the pipeline. Do not tune a
 corpus trap against a threshold that is not in the loop.
+
+**A gap fill must not compete with the layer it backs up.**
+`detect/organisations.py` nominates a company name from the legal form after it,
+and skips any candidate overlapping an existing finding *of any type*. Run as a
+peer detector it was strictly worse: German capitalises common nouns, so the
+backward scan produced `Kunde Nordwind Logistik GmbH` and
+`Die Tochtergesellschaft Nordwind Logistik Deutschland GmbH`, each beating the
+model's correct span because `_sort_key` prefers the longer span at equal
+precedence. That cost eight points of ORGANISATION precision to gain one name.
+Restricted to gaps it gains the same name and changes nothing else. Short legal
+forms are matched **case-sensitively** for the same class of reason: `sa` is a
+French possessive, `ab` a Swedish preposition, and lowercasing a two-letter form
+turns every sentence into a company.
+
+**Suppression is split across propagation, and the halves are not
+interchangeable.** `detect/suppress.py` answers two different questions.
+`drop_non_identifying` judges a *value* — a bare country name identifies nobody
+anywhere, so it runs on both sides and cannot spread.
+`drop_jurisdiction_mentions` judges an *occurrence* — the same city is
+confidential in the party's address and not in "the courts of Zurich" — so it
+runs **after** propagation only. Filtering jurisdictions first was measured and
+cost three covered entities to save seventy-two over-redacted characters:
+`Basel`, `Geneve` and `Milano` are each found by the model *only* in the clause,
+and that sighting is the template propagation needs to reach the same city in the
+address twenty lines up. Kill the clause mention early and the address survives.
+
+**A suppression rule needs a corpus case, and the burden of proof runs the other
+way here.** Every other rule can be wrong and merely noisy; this one can be wrong
+and turn a working scrub into a leak. The country list came from six measured
+false positives, the lowercase-organisation rule from two, the jurisdiction
+patterns from nine. The currency rule that the same source suggested was
+**dropped**: GLiNER2 never tagged "Swiss francs", "francs suisses" or
+"United States dollars" at all, because FreeDocs has no nationality entity type
+for "Indian" in "Indian Rupees" to land on. Do not add it back without a case.
+
+**City-states stay in.** Luxembourg, Monaco, Singapore, San Marino and Andorra
+name a city as often as a country, and the country list drops findings outright,
+so an ambiguous name in it is a leak. When the name could be either, the finding
+stays.
+
+**`suppress.py` folds diacritics and `keywords.py` does not.** The context tables
+in `detect/keywords.py` are written unaccented (`securite sociale`,
+`numero de tva`, `gultig bis`) and `Rule.confidence_at` matches them against
+`window.casefold()` — no decomposition — so the accented spelling a real French
+or German document actually contains never matches. `suppress.py` folds through
+NFKD because the phrases it looks for are ordinary prose, which is where the
+accents are. The `keywords.py` side is a latent gap, not a fixed one: the corpus
+is ASCII throughout, so it cannot currently show the failure, and closing it
+would change which weak rules clear `min_confidence` and therefore needs
+re-measuring rather than a one-line patch.
 
 **Redaction removes, it does not cover.** `formats/pdf_text.py` uses PyMuPDF
 `apply_redactions()` and always a full rewrite (`garbage=4, clean=True,

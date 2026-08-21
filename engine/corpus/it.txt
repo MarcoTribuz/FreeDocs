@@ -145,3 +145,9 @@ rifiutata dal circuito.
 Codice cliente 05129830 - non e una partita IVA, sono otto cifre.
 Numero di lotto 756123456789 nel gestionale di magazzino.
 Riferimento catastale 20156-210-9 del fabbricato di Milano.
+
+Legge applicabile: il presente contratto quadro e regolato dal diritto svizzero
+e il foro competente e Lugano. Ogni arbitrato ha sede a Milano.
+
+Le fatture sono pagabili in franchi svizzeri entro trenta giorni; gli importi
+espressi in euro sono convertiti al cambio della data di fattura.

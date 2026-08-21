@@ -20,7 +20,9 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from ..core.findings import Finding, Layer
+from .organisations import fill_organisation_gaps
 from .propagate import propagate_known_values
+from .suppress import drop_jurisdiction_mentions, drop_non_identifying
 from .validators import confirms
 
 
@@ -99,12 +101,25 @@ class DetectorRegistry:
         for detector in self.detectors:
             raw.extend(detector.detect(text))
         resolved = resolve_overlaps(drop_unconfirmed_structured(raw))
+        # A company name nominated by its legal form is added only where nothing
+        # else claimed those characters, so this runs after resolution rather
+        # than as another detector: see `organisations.fill_organisation_gaps`
+        # for what happened when it competed on equal terms.
+        resolved = drop_non_identifying(fill_organisation_gaps(text, resolved))
         if not self.propagate:
             return resolved
         # Propagate after resolution, so a value that lost an overlap contest is
         # not spread across the document under the wrong label. Resolve again
         # afterwards: a propagated span can still collide with a longer finding.
-        return resolve_overlaps(propagate_known_values(text, resolved))
+        #
+        # Suppression is split across the two sides of propagation because the
+        # two questions it answers behave differently. A value that identifies
+        # nobody is filtered on both sides, so it cannot spread. A value that is
+        # only unwanted *here* — a city in a governing-law clause — is filtered
+        # afterwards only: it is still the sighting that lets propagation reach
+        # the same city in the party's address. See `detect.suppress`.
+        propagated = resolve_overlaps(propagate_known_values(text, resolved))
+        return drop_jurisdiction_mentions(drop_non_identifying(propagated), text)
 
 
 def summarise(findings: Sequence[Finding]) -> dict[str, int]:

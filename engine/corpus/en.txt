@@ -178,3 +178,10 @@ cartao de cidadao 002978753EH7.
 
 Consignment 4471209382 booked against cost centre 30-412/2201.
 Pallet dimensions 1200 800 144, gross weight 250 kg, delivery due in May.
+
+Governing law: this framework agreement is governed by the laws of England and
+Wales, and the courts of London shall have exclusive jurisdiction over any
+dispute arising from it. Any arbitration shall be seated in Geneva.
+
+Invoices are payable in Swiss francs within thirty days; amounts stated in
+United States dollars are converted at the rate published on the invoice date.
