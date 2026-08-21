@@ -21,6 +21,7 @@ from freedocs.formats.pdf import (  # noqa: E402
     PdfSpanLocator,
     PdfTextHandler,
     ScannedPdfNotSupported,
+    ocr_unavailable_reason,
     tessdata_path,
 )
 from freedocs.formats.router import handler_for  # noqa: E402
@@ -30,7 +31,7 @@ from .conftest import CANARIES, l1_scrubber  # noqa: E402
 
 def pdf_ocr_unavailable() -> bool:
     """OCR needs Tesseract and its language data, neither of which pip installs."""
-    return tessdata_path() is None
+    return ocr_unavailable_reason() is not None
 
 
 LINES = [
@@ -553,3 +554,59 @@ def test_a_mixed_document_ocrs_only_the_scanned_page(tmp_path: Path):
     assert handler.ocr_pages == [2]
     assert CANARIES["IBAN"] in stream.text
     assert "Allegato firmato" in stream.text
+
+
+# -- what "OCR is available" has to mean --------------------------------------
+
+
+def test_ocr_is_not_reported_available_without_the_binary(monkeypatch):
+    """The language data is only half of what OCR needs.
+
+    PyMuPDF shells out to the `tesseract` executable, and the two halves are
+    installed separately: a packaged build carries the `.traineddata` files
+    beside its executable and cannot carry the binary. Reporting availability
+    from the data alone made the capability true on every machine, so the window
+    promised OCR and the first scan failed inside Tesseract.
+    """
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tesseract_binary", lambda: None)
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: "/somewhere/tessdata")
+    reason = pdf_module.ocr_unavailable_reason()
+    assert reason is not None
+    assert "PATH" in reason
+
+
+def test_ocr_is_not_reported_available_without_the_language_data(monkeypatch):
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tesseract_binary", lambda: "/usr/bin/tesseract")
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: None)
+    reason = pdf_module.ocr_unavailable_reason()
+    assert reason is not None
+    assert "traineddata" in reason
+
+
+def test_the_refusal_says_which_half_is_missing(tmp_path: Path, monkeypatch):
+    """Naming it is the difference between a fixable message and a dead end."""
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tesseract_binary", lambda: None)
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: None)
+    path = make_scan(tmp_path / "scansione.pdf")
+    with pytest.raises(ScannedPdfNotSupported) as caught:
+        handler_for(path).extract()
+    assert "PATH" in str(caught.value)
+
+
+def test_the_requested_languages_cover_the_supported_countries():
+    """Nine languages for twelve countries, and the list has to track them.
+
+    A country added to SUPPORTED_COUNTRIES whose language nobody requested reads
+    its scans through the wrong alphabet's model, which is a silent quality loss
+    rather than an error.
+    """
+    from freedocs.formats import pdf as pdf_module
+
+    requested = set(pdf_module.DEFAULT_OCR_LANGUAGE.split("+"))
+    assert requested == {"ita", "deu", "fra", "eng", "spa", "nld", "por", "pol", "swe"}

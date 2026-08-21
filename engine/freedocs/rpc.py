@@ -40,7 +40,7 @@ from .detect.llm_review import (
     available_models,
 )
 from .detect.validators import SUPPORTED_COUNTRIES
-from .formats.pdf import ScannedPdfNotSupported, tessdata_path
+from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import LAYER_SPECS, Scrubber, build_registry, default_registry
 from .report import CAVEATS, build_report
@@ -136,7 +136,13 @@ class Session:
             "placeholder_language": DEFAULT_LOCALE,
             "layers": [type(detector).__name__ for detector in registry.detectors],
             "limitations": list(registry.notes),
-            "ocr_available": tessdata_path() is not None,
+            # Both halves, not just the language data. PyMuPDF shells out to
+            # the Tesseract executable, and a packaged build ships the
+            # `.traineddata` files but not the binary — so checking only the
+            # data made this true everywhere and the window promised an OCR the
+            # first scan could not deliver.
+            "ocr_available": ocr_unavailable_reason() is None,
+            "ocr_unavailable_reason": ocr_unavailable_reason(),
             # Offered so the app can present a real choice instead of a free-text
             # box that 404s. Empty when Ollama is not running, which is the
             # honest answer to "what can I review with".

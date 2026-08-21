@@ -59,9 +59,9 @@ def test_the_default_stack_states_the_gap_when_ner_is_missing(monkeypatch):
 
     original = pipeline.build_registry
 
-    def only_l1(spec: str = "l1"):
+    def only_l1(spec: str = "l1", *, countries=None):
         if spec == "l1":
-            return original("l1")
+            return original("l1", countries=countries)
         raise MissingDependency("simulated: the ner extra is not installed")
 
     monkeypatch.setattr(pipeline, "build_registry", only_l1)
@@ -79,8 +79,10 @@ def test_registry_notes_reach_the_scrub_report(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(
         pipeline,
         "build_registry",
-        lambda spec="l1": (
-            original("l1") if spec == "l1" else (_ for _ in ()).throw(MissingDependency("no ner"))
+        lambda spec="l1", *, countries=None: (
+            original("l1", countries=countries)
+            if spec == "l1"
+            else (_ for _ in ()).throw(MissingDependency("no ner"))
         ),
     )
     path = tmp_path / "nota.txt"

@@ -65,6 +65,27 @@ for package in ("gliner2", "transformers", "tokenizers"):
     except Exception:  # noqa: BLE001 - an absent optional extra is not an error
         pass
 
+# Tesseract language data, shipped beside the executable because that is the
+# first place `tessdata_path()` looks after the two environment variables — see
+# `_tessdata_candidates`, whose comment has said "where a packaged build would
+# put it" since before any build put it there.
+#
+# The binary itself is not bundled, and cannot be: PyMuPDF shells out to
+# `tesseract`, which is a platform package. So this does not make OCR work on a
+# machine without Tesseract, and `capabilities.ocr_available` checks both halves
+# for exactly that reason.
+#
+# Absent rather than fatal when the directory is empty: the files are gitignored
+# and downloaded by the README's loop, so a fresh clone can still build an engine
+# that refuses scans instead of failing to build at all.
+_tessdata = os.path.join(ENGINE_DIR, "models", "tessdata")  # noqa: F821 - injected
+if os.path.isdir(_tessdata):
+    datas += [
+        (os.path.join(_tessdata, name), "tessdata")
+        for name in sorted(os.listdir(_tessdata))
+        if name.endswith(".traineddata")
+    ]
+
 analysis = Analysis(
     [os.path.join(SPECPATH, "sidecar.py")],  # noqa: F821 - injected
     # The engine package itself, so `import freedocs` resolves.
