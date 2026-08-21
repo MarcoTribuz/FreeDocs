@@ -15,9 +15,11 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
+from functools import cache
 
 from ..core.errors import MissingDependency
 from ..core.findings import EntityType, Finding, Layer, Span
+from . import keywords
 
 
 def _require(module: str, attr: str | None = None) -> object:
@@ -52,8 +54,15 @@ class Rule:
     #: country: an IBAN, a card number and an email address are the same
     #: everywhere. Only country-tied rules can be switched off by ``countries``.
     country: str | None = None
-    #: Words that, appearing near a match, make it much more likely to be real.
+    #: Word stems that, appearing near a match, make it much more likely to be
+    #: real. Matched as substrings, because German glues them to other words
+    #: (``Firmenkarte``) and every language inflects them (``cards``, ``Cartes``).
     context: tuple[str, ...] = ()
+    #: Acronyms and codes, matched as whole words. Kept apart from the stems
+    #: above because the two need opposite treatment: ``iva`` as a substring
+    #: fires inside ``arriva``, and ``karte`` as a whole word misses
+    #: ``Firmenkarte``.
+    context_codes: tuple[str, ...] = ()
     #: Confidence when no context word is nearby. 1.0 means the checksum alone
     #: is conclusive; lower values push the decision to the policy threshold.
     confidence_without_context: float = 1.0
@@ -82,14 +91,37 @@ class Rule:
         return None
 
     def confidence_at(self, text: str, start: int, end: int) -> float:
-        if not self.context or self.confidence_without_context >= 1.0:
+        if self.confidence_without_context >= 1.0:
             return 1.0
-        window = text[max(0, start - self.context_window) : end + self.context_window].casefold()
-        return (
-            1.0
-            if any(word in window for word in self.context)
-            else (self.confidence_without_context)
-        )
+        if not self.context and not self.context_codes:
+            return 1.0
+        window = text[max(0, start - self.context_window) : end + self.context_window]
+        folded = window.casefold()
+        if any(stem in folded for stem in self.context):
+            return 1.0
+        if self.context_codes and _code_pattern(self.context_codes).search(window):
+            return 1.0
+        return self.confidence_without_context
+
+
+@cache
+def _code_pattern(codes: tuple[str, ...]) -> re.Pattern[str]:
+    """Match any of ``codes`` as a whole word.
+
+    Acronyms cannot be looked for as substrings. Once the vocabulary is the union
+    of nine languages the short terms are ``iva``, ``vat``, ``nif``, ``nip``,
+    ``cif`` and ``cc``, and as substrings they fire inside ``arriva``,
+    ``salvataggio``, ``definisce`` and ``manipolare`` — handing a candidate full
+    confidence on the strength of an unrelated verb.
+
+    Word stems are the opposite case and stay substrings: see ``Rule.context``.
+
+    Lookarounds rather than ``\\b``, because a code may begin or end with
+    punctuation — ``p.iva``, ``ust.-nr`` — and ``\\b`` after a full stop demands a
+    word character that is not there.
+    """
+    alternatives = "|".join(re.escape(code) for code in sorted(codes, key=len, reverse=True))
+    return re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)", re.IGNORECASE)
 
 
 def _always(_: str) -> bool:
@@ -173,7 +205,8 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             validate=lambda m: bool(iva.is_valid(_compact(m))),  # type: ignore[attr-defined]
             # Eleven digits passing an 11-digit Luhn is weak on its own: roughly
             # one in ten random numbers of that length does.
-            context=("partita iva", "p.iva", "piva", "vat", "iva", "codice impresa"),
+            context=keywords.VAT_STEMS,
+            context_codes=keywords.VAT_CODES,
             confidence_without_context=0.55,
         ),
     ]
@@ -184,7 +217,8 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             name="credit-card-luhn",
             pattern=re.compile(r"\b(?:\d[ -]?){12,18}\d\b"),
             validate=lambda m: bool(luhn.is_valid(_digits(m))) and 13 <= len(_digits(m)) <= 19,  # type: ignore[attr-defined]
-            context=("carta", "card", "visa", "mastercard", "amex", "pan", "cvv", "scadenza"),
+            context=keywords.CARD_STEMS,
+            context_codes=keywords.CARD_CODES,
             confidence_without_context=0.6,
         ),
         Rule(

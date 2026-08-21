@@ -169,3 +169,68 @@ def test_an_explicit_rule_list_wins_over_the_country_selection():
     only_iban = [rule for rule in build_rules() if rule.name == "iban-mod97"]
     detector = ValidatorDetector(rules=only_iban, countries=("de",))
     assert detector.rules == only_iban
+
+
+# -- context vocabulary --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Die Firmenkarte 5454545454545454 lautet auf Ursula Hofer.",
+        "Zugeteilte Zahlungskarten: 5454545454545454",
+        "Payment cards issued: 5454545454545454",
+        "Cartes de paiement attribuees: 5454545454545454",
+        "Kreditkarte 5454545454545454",
+    ],
+)
+def test_a_context_stem_is_found_inside_a_compound_or_a_plural(
+    detector: ValidatorDetector, text: str
+):
+    """German glues the word to another one and every language inflects it.
+
+    All five of these appear in the corpus, and requiring a whole word lost every
+    one of them: `karte` is the tail of `Firmenkarte`, and `card` is a prefix of
+    `cards`. This is why stems are matched as substrings.
+    """
+    cards = [f for f in detector.detect(text) if f.entity is EntityType.CREDIT_CARD]
+    assert cards, "no card detected at all"
+    assert cards[0].confidence == 1.0
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Il pacco arriva domani, rif 00743110157 in fattura.",
+        "Nel salvataggio 00743110157 va controllato.",
+    ],
+)
+def test_a_context_code_does_not_fire_inside_an_ordinary_word(
+    detector: ValidatorDetector, text: str
+):
+    """`iva` inside `arriva`, `vat` inside `salvataggio`.
+
+    Eleven digits passing an eleven-digit Luhn is weak evidence, and an unrelated
+    verb is not the corroboration the rule is asking for. Codes are therefore
+    matched as whole words, unlike the stems above.
+    """
+    matched = [f for f in detector.detect(text) if f.entity is EntityType.IT_PARTITA_IVA]
+    assert matched, "the candidate should still be nominated, only with less confidence"
+    assert matched[0].confidence == pytest.approx(0.55)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Partita IVA 00743110157 del fornitore.",
+        "P.IVA 00743110157 del fornitore.",
+        "VAT 00743110157 supplier.",
+        "MWST 00743110157",
+    ],
+)
+def test_a_context_code_still_fires_when_it_stands_alone(detector: ValidatorDetector, text: str):
+    """Including when punctuation surrounds it: `\\b` after the dot in `p.iva`
+    would demand a word character that is not there, which is why the pattern
+    uses lookarounds."""
+    matched = [f for f in detector.detect(text) if f.entity is EntityType.IT_PARTITA_IVA]
+    assert matched and matched[0].confidence == 1.0
