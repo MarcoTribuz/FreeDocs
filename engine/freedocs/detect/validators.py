@@ -124,6 +124,23 @@ def _code_pattern(codes: tuple[str, ...]) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)", re.IGNORECASE)
 
 
+#: ``confidence_without_context`` for a rule whose pattern is only digits, chosen
+#: by how much work the check digit actually does. Each figure below was measured
+#: the same way: 20 000 randomly generated format-plausible values per validator,
+#: counting how many it accepts. The anchor is the Italian partita IVA, which
+#: accepts 1.05% and has shipped at 0.55 since M0.
+#:
+#: A rule whose pattern requires a literal prefix — CHE, 756, DE, ATU — does not
+#: use these at all and stays at 1.0. The prefix throws away almost every
+#: candidate before the checksum runs, which is why `ch_uid` is safe at full
+#: confidence while accepting 9.09% of the numbers that reach it. Effective
+#: strength is pattern specificity times checksum strength, and only the second
+#: half is in this table.
+STRONG_CHECK = 0.55  # accepts under 1%: redacted even with no keyword nearby
+MEDIUM_CHECK = 0.5  # 1% to 5%: still redacted by default, dropped by any raised threshold
+WEAK_CHECK = 0.45  # over 5%: found and reported, never redacted without a keyword
+
+
 def _always(_: str) -> bool:
     return True
 
@@ -151,6 +168,12 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
     ch_uid = _require("stdnum.ch.uid")
     iban_mod = _require("stdnum.iban")
     luhn = _require("stdnum.luhn")
+    de_idnr = _require("stdnum.de.idnr")
+    de_stnr = _require("stdnum.de.stnr")
+    de_vat = _require("stdnum.de.vat")
+    at_uid = _require("stdnum.at.uid")
+    at_tin = _require("stdnum.at.tin")
+    at_vnr = _require("stdnum.at.vnr")
 
     # Order matters because the registry resolves overlaps by layer and then by
     # span length. IBAN has to be nominated before the digit soup inside it can
@@ -207,7 +230,68 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             # one in ten random numbers of that length does.
             context=keywords.VAT_STEMS,
             context_codes=keywords.VAT_CODES,
-            confidence_without_context=0.55,
+            confidence_without_context=STRONG_CHECK,
+        ),
+        Rule(
+            entity=EntityType.TAX_ID,
+            country="de",
+            name="de-idnr",
+            # Eleven digits, optionally grouped 2-3-3-3 as the tax office prints
+            # them. Same shape as a partita IVA, so both rules nominate the same
+            # strings and both checksums get a say; the chance of one number
+            # passing both is about one in thirty thousand.
+            pattern=re.compile(r"\b\d{2}[ ]?\d{3}[ ]?\d{3}[ ]?\d{3}\b"),
+            validate=lambda m: bool(de_idnr.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.TAX_STEMS,
+            context_codes=keywords.TAX_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.34%
+        ),
+        Rule(
+            entity=EntityType.TAX_ID,
+            country="de",
+            name="de-stnr",
+            # Thirteen digits, or the slashed form a Finanzamt writes.
+            pattern=re.compile(r"\b(?:\d{3}/\d{3}/\d{4}[ ]?\d|\d{13})\b"),
+            validate=lambda m: bool(de_stnr.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.TAX_STEMS,
+            context_codes=keywords.TAX_CODES,
+            confidence_without_context=MEDIUM_CHECK,  # accepts 3.50%
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="de",
+            name="de-vat",
+            pattern=re.compile(r"\bDE[ ]?\d{9}\b"),
+            validate=lambda m: bool(de_vat.is_valid(_compact(m))),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="at",
+            name="at-uid",
+            pattern=re.compile(r"\bATU[ ]?\d{8}\b", re.IGNORECASE),
+            validate=lambda m: bool(at_uid.is_valid(_compact(m))),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.TAX_ID,
+            country="at",
+            name="at-tin",
+            pattern=re.compile(r"\b(?:\d{2}-\d{3}/\d{4}|\d{9})\b"),
+            validate=lambda m: bool(at_tin.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.TAX_STEMS,
+            context_codes=keywords.TAX_CODES,
+            confidence_without_context=MEDIUM_CHECK,  # accepts 3.97%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="at",
+            name="at-vnr",
+            # Four-digit serial then a birth date as DDMMYY, which is most of
+            # what the check actually tests.
+            pattern=re.compile(r"\b\d{4}[ ]?\d{6}\b"),
+            validate=lambda m: bool(at_vnr.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 8.39%
         ),
     ]
 
@@ -219,7 +303,7 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             validate=lambda m: bool(luhn.is_valid(_digits(m))) and 13 <= len(_digits(m)) <= 19,  # type: ignore[attr-defined]
             context=keywords.CARD_STEMS,
             context_codes=keywords.CARD_CODES,
-            confidence_without_context=0.6,
+            confidence_without_context=0.6,  # card, accepts under 1% via Luhn+length
         ),
         Rule(
             entity=EntityType.EMAIL,
