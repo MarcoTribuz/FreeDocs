@@ -127,3 +127,49 @@ controle et a ete corrige. La carte 5454545454545455 a aussi ete refusee.
 Numero de client 05129830 - ce n'est pas un IDE, seulement huit chiffres.
 Numero de lot 756123456789 dans le systeme de stock.
 Reference cadastrale 20156-210-9 du batiment de Fribourg.
+
+
+Dossier filiale France-Belgique - confidentiel
+
+La filiale [ORGANISATION:Nordvent Logistique SARL], [ADDRESS:14 rue de la Paix, 75002 Paris],
+est consolidee depuis juillet. Le [JOB_TITLE:directeur de site] est
+[PERSON:Laurent Mercier], joignable au [PHONE:+33 1 42 86 11 70] et a
+[EMAIL:l.mercier@nordvent-logistique.example].
+
+Numero fiscal de [PERSON:Laurent Mercier]: [TAX_ID:3023217600053]. Le SIRET de
+l'etablissement est [COMPANY_ID:73282932000074] et le SIREN
+[COMPANY_ID:404833048]. Numero de TVA: [VAT_ID:FR40303265045].
+
+La comptabilite est tenue par [PERSON:Sylvie Beaumont],
+[JOB_TITLE:responsable comptable], numero fiscal [TAX_ID:0984466595056],
+[EMAIL:s.beaumont@nordvent-logistique.example]. Reglements sur
+[IBAN:FR14 2004 1010 0505 0001 3M02 606].
+
+Numero de securite sociale de [PERSON:Sylvie Beaumont]:
+[NATIONAL_ID:162031757572659]. Celui du [JOB_TITLE:chef d'equipe]
+[PERSON:Bruno Chevalier] est [NATIONAL_ID:154055319756254], domicilie
+[ADDRESS:8 avenue Jean Jaures, 69007 Lyon].
+
+La societe soeur belge [ORGANISATION:Ardenne Transit BVBA],
+[ADDRESS:Kortrijksesteenweg 220, 9000 Gent], porte le numero de TVA
+[VAT_ID:BE403019261]. Contact [EMAIL:info@ardenne-transit.example],
+[PHONE:+32 9 224 51 30].
+
+Rijksregisternummer de [PERSON:Katrien Vermeulen], [JOB_TITLE:coordinatrice]:
+[NATIONAL_ID:85.07.30-033 28]. Son collegue [PERSON:Dirk Maes] est enregistre
+sous le BIS-nummer [NATIONAL_ID:98.47.28-997.65], residence
+[ADDRESS:Meir 78, 2000 Antwerpen].
+
+Autres references: SIREN [COMPANY_ID:228722377], SIRET
+[COMPANY_ID:34962329809439], TVA [VAT_ID:FR07228722377], numero fiscal
+[TAX_ID:2533309467395], rijksregisternummer [NATIONAL_ID:72030817650],
+TVA belge [VAT_ID:BE0222006571].
+
+Les valeurs suivantes ont ete refusees a la saisie: numero fiscal 3023217600050,
+securite sociale 295109912611190, SIRET 73282932000070, SIREN 404833040, TVA
+FR40303265040, rijksregisternummer 85073003320, BIS 98472899760 et TVA
+BE403019260. Aucune ne satisfait sa cle de controlle.
+
+Bon de commande 771 204 330 du service achats, lot 918 445 207 en stock.
+Reference transporteur 502 118 940, palette 640 233 815.
+Code article 45 830 117 au catalogue, quantite 250, livraison en mai.

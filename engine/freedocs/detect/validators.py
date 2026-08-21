@@ -174,6 +174,14 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
     at_uid = _require("stdnum.at.uid")
     at_tin = _require("stdnum.at.tin")
     at_vnr = _require("stdnum.at.vnr")
+    fr_nif = _require("stdnum.fr.nif")
+    fr_nir = _require("stdnum.fr.nir")
+    fr_siret = _require("stdnum.fr.siret")
+    fr_siren = _require("stdnum.fr.siren")
+    fr_tva = _require("stdnum.fr.tva")
+    be_nn = _require("stdnum.be.nn")
+    be_bis = _require("stdnum.be.bis")
+    be_vat = _require("stdnum.be.vat")
 
     # Order matters because the registry resolves overlaps by layer and then by
     # span length. IBAN has to be nominated before the digit soup inside it can
@@ -292,6 +300,94 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             context=keywords.NATIONAL_STEMS,
             context_codes=keywords.NATIONAL_CODES,
             confidence_without_context=WEAK_CHECK,  # accepts 8.39%
+        ),
+        Rule(
+            entity=EntityType.TAX_ID,
+            country="fr",
+            name="fr-nif",
+            pattern=re.compile(r"\b\d{13}\b"),
+            validate=lambda m: bool(fr_nif.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.TAX_STEMS,
+            context_codes=keywords.TAX_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.05%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="fr",
+            name="fr-nir",
+            # Sex digit, birth year and month, then the department, which is
+            # "2A" or "2B" for Corsica and digits everywhere else, then the
+            # commune, the serial and two check digits.
+            pattern=re.compile(
+                r"\b[12][\s.]?\d{2}[\s.]?\d{2}[\s.]?(?:\d{2}|\d[AB])"
+                r"[\s.]?\d{3}[\s.]?\d{3}[\s.]?\d{2}\b",
+                re.IGNORECASE,
+            ),
+            validate=lambda m: bool(fr_nir.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.99%
+        ),
+        Rule(
+            entity=EntityType.COMPANY_ID,
+            country="fr",
+            name="fr-siret",
+            # Before SIREN, because a SIRET starts with one and the shorter
+            # match would otherwise win the overlap on span length.
+            pattern=re.compile(r"\b\d{3}[\s.]?\d{3}[\s.]?\d{3}[\s.]?\d{5}\b"),
+            validate=lambda m: bool(fr_siret.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.COMPANY_STEMS,
+            context_codes=keywords.COMPANY_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.98%
+        ),
+        Rule(
+            entity=EntityType.COMPANY_ID,
+            country="fr",
+            name="fr-siren",
+            pattern=re.compile(r"\b\d{3}[\s.]?\d{3}[\s.]?\d{3}\b"),
+            validate=lambda m: bool(fr_siren.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.COMPANY_STEMS,
+            context_codes=keywords.COMPANY_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 9.80%
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="fr",
+            name="fr-tva",
+            pattern=re.compile(
+                r"\bFR[\s]?[0-9A-Z]{2}[\s]?\d{3}[\s]?\d{3}[\s]?\d{3}\b", re.IGNORECASE
+            ),
+            validate=lambda m: bool(fr_tva.is_valid(_compact(m))),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="be",
+            name="be-nn",
+            # Birth date, serial, two check digits. The BIS number for
+            # non-residents has the same shape and its own check, so both rules
+            # nominate the same strings and each answers for itself.
+            pattern=re.compile(r"\b\d{2}[.\s]?\d{2}[.\s]?\d{2}[-.\s]?\d{3}[.\s]?\d{2}\b"),
+            validate=lambda m: bool(be_nn.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.13%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="be",
+            name="be-bis",
+            pattern=re.compile(r"\b\d{2}[.\s]?\d{2}[.\s]?\d{2}[-.\s]?\d{3}[.\s]?\d{2}\b"),
+            validate=lambda m: bool(be_bis.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.37%
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="be",
+            name="be-vat",
+            pattern=re.compile(r"\bBE[\s]?0?\d{9}\b", re.IGNORECASE),
+            validate=lambda m: bool(be_vat.is_valid(_compact(m))),  # type: ignore[attr-defined]
         ),
     ]
 
