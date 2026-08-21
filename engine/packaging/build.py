@@ -24,12 +24,24 @@ ENGINE = HERE.parent
 SPEC = HERE / "freedocs-engine.spec"
 OUTPUT = ENGINE / "dist" / "freedocs-engine"
 
-#: A sentence with a name in it. Detecting the name is the only thing that proves
-#: the model stack made it into the bundle: `capabilities` reports the NER layer as
-#: present without ever importing it, because the backend loads its model on first
-#: use. A bundle that passes capabilities and fails this is exactly what shipped
-#: the first time this script was written.
-SMOKE_TEXT = "Il cliente Mario Rossi ha firmato il contratto.\n"
+#: A sentence with a name and a foreign VAT number in it, and both halves have to
+#: be found.
+#:
+#: The name proves the model stack made it into the bundle: `capabilities` reports
+#: the NER layer as present without ever importing it, because the backend loads
+#: its model on first use, and a bundle that passes capabilities and fails this is
+#: exactly what shipped the first time this script was written.
+#:
+#: The VAT number proves the country rule set did too. `stdnum` keeps one module
+#: per country and imports them by name at call time, so PyInstaller sees none of
+#: them and a missing `collect_submodules` produces a bundle that finds Swiss
+#: numbers and silently finds nothing from anywhere else. The French TVA is the
+#: one to test with: it accepts 0.12% of random values of its shape, so this
+#: cannot pass by luck.
+SMOKE_TEXT = (
+    "Il cliente Mario Rossi ha firmato il contratto.\n"
+    "Numero de TVA du fournisseur: FR40303265045.\n"
+)
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -139,7 +151,17 @@ def smoke_test(bundle: Path) -> None:
             "and PyInstaller cannot see them; check the collect_submodules block in "
             "freedocs-engine.spec."
         )
-    print(f"smoke test passed: {len(formats)} formats, and the model found the name")
+    if "VAT_ID" not in entities:  # pragma: no cover - packaging only
+        raise SystemExit(
+            "the built engine did not find the French VAT number in the smoke "
+            "sample, so the per-country stdnum modules are missing from the bundle. "
+            "stdnum imports them by name at call time; check the collect_submodules "
+            "block in freedocs-engine.spec."
+        )
+    print(
+        f"smoke test passed: {len(formats)} formats, the model found the name and the "
+        "checksum layer found the foreign VAT number"
+    )
 
 
 def report_size(bundle: Path) -> None:

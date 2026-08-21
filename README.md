@@ -7,10 +7,13 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M8 — the plan is complete.** The engine handles plain text, PDF
-(born-digital and scanned) and all three Office formats, with checksum-backed and
-model-backed detection across Italian, German, French and English. A Tauri desktop
-app drives it, and an optional local-LLM pass reviews the result. See
+**Status: M8 — the plan is complete, plus international coverage.** The engine
+handles plain text, PDF (born-digital and scanned) and all three Office formats.
+Identifiers are confirmed by checksum for **twelve countries** — Switzerland,
+Italy, Germany, Austria, France, Belgium, Spain, Portugal, the Netherlands,
+Poland, Sweden and the United Kingdom — and names, addresses and organisations
+come from one multilingual model with no language hint. A Tauri desktop app
+drives it, and an optional local-LLM pass reviews the result. See
 [Roadmap](#roadmap).
 
 ## Why another one of these
@@ -56,8 +59,27 @@ no new run has to be invented.
 
 Detection is layered:
 
-- **L1 — validators.** Regex nominates, checksum decides: codice fiscale CIN,
-  partita IVA, AHV (EAN-13), Swiss UID, IBAN mod-97, Luhn. Precision near 1.0.
+- **L1 — validators.** Regex nominates, checksum decides. Forty rules over twelve
+  countries: national identity and social-security numbers, tax numbers, VAT
+  numbers, company-register numbers, plus IBAN mod-97 and Luhn, which are the
+  same everywhere. Every validator comes from `python-stdnum`, which ships 201
+  number modules across 87 countries and was already a dependency — extending
+  the coverage was populating a table, not training anything.
+
+  Confidence per rule is set from a measurement, not a judgement: each validator
+  was run against 20 000 randomly generated format-plausible values to see how
+  many it accepts. A rule whose pattern demands a literal prefix (`CHE`, `756`,
+  `DE`, `ATU`) stays at full confidence even on a one-in-ten check digit, because
+  the prefix discards almost every candidate before the checksum runs. A rule
+  that is only digits gets a confidence tied to what its check digit actually
+  does, and the weakest ones sit below the default threshold — found and
+  reported, never removed, unless a word naming them is nearby.
+
+  Some numbers cannot be done this way and are not pretended into the table. US
+  social security and employer numbers have no check digit at all: `stdnum`
+  accepts 89% and 83% of random values of their shape. They come from the model
+  instead, which is the honest layer for an identifier only its context
+  distinguishes. `freedocs countries` prints what each country actually gets.
 - **L2 — NER encoder.** For names, addresses, organisations, job titles. GLiNER2
   on an `mdeberta-v3-base` encoder, so one model handles four languages with no
   language hint. Must return character offsets, since those are what the anchors
@@ -66,10 +88,17 @@ Detection is layered:
   other occurrence of it in the document is redacted too. Cheap, and it closed
   most of the residual gap (see below).
 - **L1 verifies L2's structured claims.** When the model labels something a
-  credit card, IBAN or codice fiscale, the matching checksum gets the final say.
-  GLiNER2 called two chart amounts — `1500` and `2300` — a card number at 0.87
+  credit card or an IBAN, the matching checksum gets the final say. GLiNER2
+  called two chart amounts — `1500` and `2300` — a card number at 0.87
   confidence; no threshold separates that from a real finding, and Luhn settles
   it in one call.
+
+  For a country-issued number the verifier needs to know *whose* it is, and
+  usually does not. A tax number is claimed by the twelve countries here and by
+  none of the other hundred and eighty, so a Brazilian CPF the model correctly
+  spotted passes no check digit this build knows — and "nobody we cover accepts
+  it" is not evidence against a number from a country nobody taught us. Without a
+  country there is no opinion, and the finding survives.
 - **L3 — LLM review via Ollama, opt-in.** A second pass over the *already
   anonymised* text, flagging leftovers and quasi-identifiers. Not the primary
   detector: a generative model does not return reliable offsets, so it cannot
@@ -77,9 +106,10 @@ Detection is layered:
 
 ## Measured, not estimated
 
-`uv run freedocs benchmark` scores the layers against `corpus/`: 378 labelled
-entities over twenty Italian, German, French and English business documents, of
-which 342 are entities the policy actually removes.
+`uv run freedocs benchmark` scores the layers against `corpus/`: 514 labelled
+entities over Italian, German, French and English business documents, of which 464
+are entities the policy actually removes. The documents cover the twelve
+countries, so a rule for one of them is measured rather than asserted.
 
 The headline is not F1. For redaction the numbers that matter are **coverage**
 (gold entities *fully* removed — a partial span is a leak, because "Rossi" left
@@ -91,14 +121,23 @@ Coverage is reported over the **removable** entities. The rest are `REPORT_ONLY`
 types like job titles, which the policy flags and never deletes, so "share fully
 removed" says nothing true about them in either direction. They were a tenth of
 the corpus and had been quietly inflating the headline; they are now counted
-apart, at 97.2% found.
+apart, at 92.0% found.
 
 | Layers | Coverage | Over-redaction | Exact micro-F1 |
 |---|---|---|---|
-| L1 only | 51.2% | 0.4% | 0.623 |
-| GLiNER2 only | 66.7% | 0.8% | 0.791 |
-| L1 + GLiNER2 | 92.7% | 1.2% | 0.928 |
-| **L1 + GLiNER2 + propagation** | **97.4%** | **1.2%** | **0.950** |
+| L1 only | 53.7% | 1.0% | 0.627 |
+| GLiNER2 only | 84.1% | 2.2% | 0.773 |
+| L1 + GLiNER2 | 94.0% | 2.9% | 0.894 |
+| **L1 + GLiNER2 + propagation** | **97.6%** | **2.9%** | **0.912** |
+
+Over-redaction is higher than the 1.2% published before, and most of that is the
+corpus rather than the rules. On this corpus, restricted to Switzerland and Italy
+so the rule set matches what was measured then, it is already 2.4%: the new
+documents are denser in identifier-shaped strings and carry more adversarial
+traps. Enabling the other ten countries takes it from 2.4% to 2.9% and buys 2.1
+points of coverage. `--countries` reproduces either number, and
+`--apply-min-confidence 0.5` reports what a scrub would actually do rather than
+what the detector nominated, which is 2.7%.
 
 Presidio is absent from this table on purpose: it was measured on the earlier
 103-entity corpus at 55.3% coverage and **21.5%** over-redaction, and quoting that
@@ -117,7 +156,7 @@ What this corpus shows that the previous one could not:
 - **Propagation is worth more than any threshold change.** Most residual misses
   are repeat mentions: the model finds "Anna Bianchi" in the attendee list and
   scores the same name below threshold eight lines later. A literal
-  case-insensitive search with word boundaries takes coverage from 92.7% to 97.4%
+  case-insensitive search with word boundaries takes coverage from 94.0% to 97.6%
   at no over-redaction cost.
 - **Place names that double as surnames are the weak spot.** Every remaining leak
   but one is a `LOCATION`: `Basel`, `Zug`, `Preston`, `Leeds`, `Geneve`, `Lyon`,
@@ -126,9 +165,30 @@ What this corpus shows that the previous one could not:
   had no such collisions and so reported nothing about them.
 - **The over-redaction cost is nearly all ambiguity with no checksum behind it.**
   A four-part firmware version is indistinguishable from an IPv4 address, and an
-  eight-digit customer number is a valid Italian landline. Those two shapes account
-  for most of the 1.2%: IP precision 0.83, PHONE precision 0.83. Nothing in a
-  regex can settle either.
+  eight-digit customer number is a valid Italian landline. Nothing in a regex can
+  settle either.
+
+- **A phone number written the way a local writes it is only findable by that
+  country's plan, and that is what those plans cost.** A number carrying its own
+  country code is unambiguous, so one region-less pass finds every `+41 44 …` in
+  the document. It finds not one `044 668 18 00`. Measured: the region-less pass
+  alone reaches 82.9% PHONE coverage at precision 1.00, all thirteen national
+  plans reach 97.1% at 0.67. All of them are on, because a number a scrub leaves
+  behind gets sent while an over-redacted order number is read and shrugged at.
+
+- **At twelve countries, a broken identifier is often a valid one somewhere
+  else.** Three corpus traps written as rejected values had to be replaced: a
+  rejected Polish REGON is a valid Portuguese NIF, a rejected Polish NIP is a
+  valid British UTR. Changing the last digit no longer produces a value nothing
+  accepts, and a trap now has to be checked against every rule — which a test
+  enforces, because the benchmark otherwise charges the detector for being right.
+
+- **Per-country precision is where a weak check digit shows.** `freedocs
+  benchmark` prints it: Switzerland, Germany, France, Belgium, the Netherlands,
+  Portugal and Sweden sit at 1.00, while Spain (0.40), the United Kingdom (0.55),
+  Austria (0.58) and Poland (0.62) carry the rules whose validators accept 8-10%
+  of random values of the right shape. Those are the rules that stay below the
+  default threshold without a keyword beside them.
 
 The corpus is still small and synthetic. These numbers rank configurations against
 each other; they are not a published benchmark result, and the tool says so every
@@ -423,7 +483,20 @@ Without it, a PDF whose pages have no text layer is **refused** — naming the
 pages and what to install — rather than returned untouched.
 
 Useful flags: `--report r.json` for a machine-readable summary, `--keep URL` to
-leave an entity type alone, `--min-confidence 0.8` to raise the threshold.
+leave an entity type alone, `--min-confidence 0.8` to raise the threshold,
+`--countries ch,it` to look for identifiers from those countries only, and
+`--placeholder-language it` to write the placeholders in Italian rather than
+English.
+
+`--countries` raises precision and can hide an identifier from a country you did
+not expect in the file, so it is never required: leave it off and every supported
+country is looked for. A narrowed run says so in the report and in the window,
+because the output otherwise looks exactly like a full one.
+
+Placeholders are English by default — `[PERSON_1]`, `[TAX_ID_1]` — because the
+reader of a scrubbed document is usually a language model and the stem is the only
+thing telling it what used to be there. Italian, German and French are available
+for a human audience.
 
 A failed verification exits non-zero and writes nothing. That is deliberate: a
 file that is nearly clean is more dangerous than one that obviously is not,

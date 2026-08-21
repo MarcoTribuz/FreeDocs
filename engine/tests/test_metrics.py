@@ -168,3 +168,59 @@ def test_coverage_over_everything_stays_available_for_comparison():
     )
     assert result.coverage == 1.0
     assert result.coverage_all == 0.5
+
+
+def test_per_country_counts_precision_not_coverage():
+    """There is no per-country denominator to recall against, and that is the point.
+
+    The corpus markup says what a value is — TAX_ID — and never whose it is, so a
+    country has predictions and no gold. Precision is also the half that answers
+    the question a country selection raises: switching one on cannot lose
+    coverage, only cost precision.
+    """
+    document = CorpusDocument(
+        name="x", language="de", text="AAAA BBBB", entities=[gold("AAAA", 0, EntityType.TAX_ID)]
+    )
+
+    class Detector:
+        def detect(self, text: str):
+            return [
+                Finding(
+                    span=Span(0, 4),
+                    entity=EntityType.TAX_ID,
+                    text="AAAA",
+                    layer=Layer.VALIDATOR,
+                    detector="de-idnr",
+                    country="de",
+                ),
+                Finding(
+                    span=Span(5, 9),
+                    entity=EntityType.TAX_ID,
+                    text="BBBB",
+                    layer=Layer.VALIDATOR,
+                    detector="gb-utr",
+                    country="gb",
+                ),
+            ]
+
+    result = evaluate([document], Detector())
+    assert result.per_country == {"de": (1, 1), "gb": (0, 1)}
+
+
+def test_a_country_neutral_finding_is_not_counted_against_any_country():
+    """An IBAN is the same everywhere; attributing it would invent a fact."""
+    document = CorpusDocument(name="x", language="de", text="AAAA", entities=[])
+
+    class Detector:
+        def detect(self, text: str):
+            return [
+                Finding(
+                    span=Span(0, 4),
+                    entity=EntityType.IBAN,
+                    text="AAAA",
+                    layer=Layer.VALIDATOR,
+                    detector="iban-mod97",
+                )
+            ]
+
+    assert evaluate([document], Detector()).per_country == {}
