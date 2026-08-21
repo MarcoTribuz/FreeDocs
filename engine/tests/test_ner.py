@@ -187,3 +187,23 @@ def test_every_label_the_gliner_backend_asks_for_has_a_mapping():
 
     unmapped = [label for label in DEFAULT_LABELS if label.casefold() not in DEFAULT_LABEL_MAP]
     assert not unmapped, f"labels requested but never mapped to an EntityType: {unmapped}"
+
+
+def test_the_backend_loader_is_cached():
+    """The model is the expensive thing here by two orders of magnitude.
+
+    Loading GLiNER2 takes about 7.4 seconds and running it takes milliseconds, and
+    a fresh `NerDetector` starts with no backend and pays that again. Nothing
+    rebuilt a registry mid-session until the country selection existed, at which
+    point every chip click in the window paid a full model load for a layer that
+    a country selection does not even narrow: 0.10 s for a repeated inspection,
+    7.4 s for the same one after switching a country off.
+
+    Structural rather than behavioural on purpose — asserting the identity would
+    mean loading the model. See test_ner_integration for that half.
+    """
+    from freedocs.detect.ner import load_backend
+
+    assert hasattr(load_backend, "cache_info"), (
+        "load_backend must stay cached, or a registry rebuild reloads the model"
+    )
