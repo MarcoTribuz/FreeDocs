@@ -20,10 +20,10 @@ can hide a leak, so the burden of proof runs the other way here than elsewhere.
 from __future__ import annotations
 
 import re
-import unicodedata
 from collections.abc import Iterable, Sequence
 
 from ..core.findings import EntityType, Finding
+from ..core.text import fold_diacritics as _fold
 
 #: Types a suppression rule may look at. Everything else is checksum-backed, and
 #: a rule that second-guesses a check digit on contextual grounds is a bug: the
@@ -49,8 +49,13 @@ _FREE_TEXT = frozenset(
 #: City-states are deliberately absent. Luxembourg, Monaco, Singapore, Andorra
 #: and San Marino name a city as often as a country, and dropping the city would
 #: be a leak. When the name is ambiguous the finding stays.
+#: Written unaccented and folded on both sides. The table spells the Austrian
+#: and Swedish names ``osterreich`` and ``suede``, and a plain casefold left the
+#: ``Österreich``, ``Suède``, ``Grèce`` and ``Türkiye`` a real document contains
+#: unmatched — so the bare country name was redacted after all, which is the
+#: over-redaction this list exists to prevent.
 _COUNTRY_NAMES: frozenset[str] = frozenset(
-    name.casefold()
+    _fold(name)
     for names in (
         ("switzerland", "schweiz", "suisse", "svizzera", "zwitserland", "szwajcaria"),
         ("italy", "italien", "italie", "italia", "wlochy"),
@@ -199,6 +204,15 @@ LEGAL_FORMS: tuple[str, ...] = (
     "se",
     "sagl",
     "sarl",
+    # Accented spellings, listed rather than folded away. This table is matched
+    # against the tail of a candidate span, and folding the candidate would cost
+    # the case distinction the short forms in
+    # :mod:`freedocs.detect.organisations` depend on. ``Sarl`` without the accent
+    # is the anglicised form; ``Sàrl`` is what a Romandy or Luxembourg company
+    # actually registers under, and neither pass saw it before it was listed.
+    "s\u00e0rl",
+    "s.\u00e0 r.l.",
+    "s.\u00e0.r.l.",
     "sa",
     "s.a.",
     "sa.",
@@ -330,19 +344,6 @@ _JURISDICTION_AFTER: tuple[re.Pattern[str], ...] = tuple(
 )
 
 
-def _fold(text: str) -> str:
-    """Casefold and strip diacritics, so one spelling of a phrase is enough.
-
-    The context tables elsewhere in the engine are written unaccented and matched
-    against raw text, which quietly means the accented spelling never matches.
-    This module folds instead, because the phrases it looks for are ordinary
-    prose — ``r\u00e9gi par le droit``, ``zust\u00e4ndig``, ``foro competente
-    \u00e8`` — and prose is where the accents actually are.
-    """
-    decomposed = unicodedata.normalize("NFKD", text.casefold())
-    return "".join(char for char in decomposed if not unicodedata.combining(char))
-
-
 def _in_jurisdiction_clause(finding: Finding, text: str) -> bool:
     """Is this a place the contract is *argued* in rather than a place someone is?
 
@@ -358,7 +359,7 @@ def _in_jurisdiction_clause(finding: Finding, text: str) -> bool:
 
 
 def _is_country(text: str) -> bool:
-    return text.strip().strip(".,;:").casefold() in _COUNTRY_NAMES
+    return _fold(text.strip().strip(".,;:")) in _COUNTRY_NAMES
 
 
 def _has_legal_form(text: str) -> bool:

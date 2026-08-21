@@ -54,7 +54,7 @@ Rimborso trasferte sul conto svizzero [IBAN:CH77 0038 9144 1287 3902 1].
 Il collega [PERSON:Andrea Ricci] ([TAX_ID:RCCNDR88P30D969H]) segue
 l'inserimento. Numero interno [PHONE:+41 91 911 22 33].
 
-Nota: il documento di identita fornito riporta un codice fiscale con carattere
+Nota: il documento di identità fornito riporta un codice fiscale con carattere
 di controllo errato, RSSMRA85T10A562T, ed e stato respinto dallo sportello.
 Anche l'IBAN indicato nel primo modulo, IT60 X054 2811 1010 0000 0123 999,
 non supera la verifica e va richiesto di nuovo.
@@ -151,3 +151,7 @@ e il foro competente e Lugano. Ogni arbitrato ha sede a Milano.
 
 Le fatture sono pagabili in franchi svizzeri entro trenta giorni; gli importi
 espressi in euro sono convertiti al cambio della data di fattura.
+
+Nota per il personale: il collaboratore ha cittadinanza italiana e residenza
+fiscale in Svizzera. Nessuno di questi due dati e un codice identificativo, e
+non va trattato come tale.

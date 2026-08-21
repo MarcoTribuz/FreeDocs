@@ -19,6 +19,7 @@ from functools import cache
 
 from ..core.errors import MissingDependency
 from ..core.findings import EntityType, Finding, Layer, Span
+from ..core.text import fold_diacritics as _fold
 from . import keywords
 
 
@@ -96,10 +97,20 @@ class Rule:
         if not self.context and not self.context_codes:
             return 1.0
         window = text[max(0, start - self.context_window) : end + self.context_window]
-        folded = window.casefold()
+        # Folded, not merely casefolded. Both tables in ``keywords`` are written
+        # without accents, and a plain casefold left the accented spelling a real
+        # document carries unmatched: ``numero de tva`` against ``numéro de TVA``,
+        # ``securite sociale`` against ``sécurité sociale``, ``numero national``,
+        # ``numero fiscal``, ``gultig bis``. Measured before fixing — each of
+        # those cost the rule its context and left it at 0.55, below
+        # ``Policy.min_confidence``, so a correctly checksummed French NIR in a
+        # French document was inert. Both tables share the one folded window
+        # because the codes are ASCII acronyms matched whole-word either way, and
+        # one window is one answer.
+        folded = _fold(window)
         if any(stem in folded for stem in self.context):
             return 1.0
-        if self.context_codes and _code_pattern(self.context_codes).search(window):
+        if self.context_codes and _code_pattern(self.context_codes).search(folded):
             return 1.0
         return self.confidence_without_context
 

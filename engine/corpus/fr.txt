@@ -9,39 +9,39 @@ Le client [ORGANISATION:Transports du Rhone SARL], etabli
 Interlocutrice: [PERSON:Sophie Girard], joignable a
 [EMAIL:s.girard@lemanconseil.example] ou au [PHONE:+41 21 613 25 40].
 
-Le numero AVS [NATIONAL_ID:756.1234.5678.97] du collaborateur detache est errone
+Le numéro AVS [NATIONAL_ID:756.1234.5678.97] du collaborateur détaché est erroné
 dans les archives et doit etre corrige.
 
-Les paiements se font sur [IBAN:CH93 0076 2011 6238 5295 7], le numero
+Les paiements se font sur [IBAN:CH93 0076 2011 6238 5295 7], le numéro
 d'identification de l'entreprise est [COMPANY_ID:CHE-116.281.710].
 La succursale de [LOCATION:Neuchatel] reprend le dossier des avril, et le
-[JOB_TITLE:directeur des operations] [PERSON:Nicolas Perret] sera detache a
+[JOB_TITLE:directeur des operations] [PERSON:Nicolas Perret] sera détaché a
 [LOCATION:Fribourg] pour six mois.
 
 Facturation: [ORGANISATION:Leman Conseil SA], telephone [PHONE:+41 22 909 10 20],
 ligne directe [PHONE:01 42 86 11 70] sans indicatif international,
 [EMAIL:comptabilite@lemanconseil.example]. Serveur de test [IP_ADDRESS:10.42.7.19].
 
-Commande numero 90210 du 03.03.2024, 250 pieces, livraison prevue en mai.
+Commande numéro 90210 du 03.03.2024, 250 pièces, livraison prévue en mai.
 
 
 Dossier du personnel - confidentiel
 
-Objet: engagement au poste d'[JOB_TITLE:analyste systeme].
+Objet: engagement au poste d'[JOB_TITLE:analyste système].
 
 Candidate: [PERSON:Amelie Blanchard], domiciliee
 [ADDRESS:Chemin des Vignes 14, 1260 Nyon], AVS [NATIONAL_ID:756.1627.3849.57].
 Contact [EMAIL:amelie.blanchard@courrier.example], [PHONE:+41 22 361 44 55].
 
-Le contrat a ete contresigne par la [JOB_TITLE:directrice des ressources humaines]
+Le contrat a été contresigne par la [JOB_TITLE:directrice des ressources humaines]
 [PERSON:Isabelle Marchand], AVS [NATIONAL_ID:756.9584.7362.15]. Lieu de travail:
 la filiale de [LOCATION:Sion], avec des interventions a [LOCATION:Lugano].
 
 Salaire verse sur [IBAN:FR15 7630 0060 0001 1234 5678 901], frais rembourses
 sur le compte suisse [IBAN:CH39 0024 3123 4567 8901 2].
 
-Remarque: le numero AVS 756.1234.5678.90 indique sur le premier formulaire est
-invalide et a ete refuse. De meme pour l'IBAN
+Remarque: le numéro AVS 756.1234.5678.90 indiqué sur le premier formulaire est
+invalide et a été refuse. De meme pour l'IBAN
 FR76 3000 6000 0112 3456 7890 188, qui echoue au controle.
 
 Dossier 2024/00841. Fin de la periode d'essai 30.09.2024.
@@ -78,8 +78,8 @@ Reference de paiement 11982730451 du 12.06.2025.
 
 Signalement technique - confidentiel
 
-La panne a ete signalee par [PERSON:Olivier Geneve],
-[JOB_TITLE:administrateur systeme] au site de [LOCATION:Geneve].
+La panne a été signalee par [PERSON:Olivier Geneve],
+[JOB_TITLE:administrateur système] au site de [LOCATION:Geneve].
 Joignable a [EMAIL:o.geneve@lemanconseil.example] et [PHONE:+41 58 219 44 12].
 
 Les serveurs concernes sont [IP_ADDRESS:192.168.14.7] et [IP_ADDRESS:10.42.7.19],
@@ -87,11 +87,11 @@ consultables sur le portail [URL:https://monitor.lemanconseil.example/incidents]
 La carte reseau remplacee portait l'adresse [MAC_ADDRESS:00:1B:44:11:3A:B7].
 
 Ont participe [PERSON:Nathalie Lyon] du site de [LOCATION:Lyon] et le
-[JOB_TITLE:responsable de la securite] [PERSON:Vincent Berne].
+[JOB_TITLE:responsable de la sécurité] [PERSON:Vincent Berne].
 
 Version du micrologiciel 2.14.6.3 selon le registre, a aligner sur 11.0.3.
 Fenetre de maintenance 04.11.2024, de 22h00 a 02h00.
-Ticket 5454545454545451 dans l'ancien systeme, migre vers le numero 90210.
+Ticket 5454545454545451 dans l'ancien système, migré vers le numéro 90210.
 
 Le fournisseur [ORGANISATION:Reseaux Techniques SARL], IDE
 [COMPANY_ID:CHE-238.471.076], a facture l'intervention. Paiement sur
@@ -122,11 +122,11 @@ Cartes de paiement attribuees:
 [PERSON:Bernard Aubert] - [CREDIT_CARD:5454545454545454]
 [PERSON:Nathalie Lyon] - [CREDIT_CARD:4532567890123455]
 
-L'IDE indique sur l'ancien contrat, CHE-620.471.960, echoue au chiffre de
-controle et a ete corrige. La carte 5454545454545455 a aussi ete refusee.
+L'IDE indiqué sur l'ancien contrat, CHE-620.471.960, echoue au chiffre de
+controle et a été corrige. La carte 5454545454545455 a aussi été refusee.
 
-Numero de client 05129830 - ce n'est pas un IDE, seulement huit chiffres.
-Numero de lot 756123456789 dans le systeme de stock.
+Numéro de client 05129830 - ce n'est pas un IDE, seulement huit chiffres.
+Numéro de lot 756123456789 dans le système de stock.
 Reference cadastrale 20156-210-9 du batiment de Fribourg.
 
 
@@ -137,22 +137,22 @@ est consolidee depuis juillet. Le [JOB_TITLE:directeur de site] est
 [PERSON:Laurent Mercier], joignable au [PHONE:+33 1 42 86 11 70] et a
 [EMAIL:l.mercier@nordvent-logistique.example].
 
-Numero fiscal de [PERSON:Laurent Mercier]: [TAX_ID:3023217600053]. Le SIRET de
+Numéro fiscal de [PERSON:Laurent Mercier]: [TAX_ID:3023217600053]. Le SIRET de
 l'etablissement est [COMPANY_ID:73282932000074] et le SIREN
-[COMPANY_ID:404833048]. Numero de TVA: [VAT_ID:FR40303265045].
+[COMPANY_ID:404833048]. Numéro de TVA: [VAT_ID:FR40303265045].
 
 La comptabilite est tenue par [PERSON:Sylvie Beaumont],
-[JOB_TITLE:responsable comptable], numero fiscal [TAX_ID:0984466595056],
+[JOB_TITLE:responsable comptable], numéro fiscal [TAX_ID:0984466595056],
 [EMAIL:s.beaumont@nordvent-logistique.example]. Reglements sur
 [IBAN:FR14 2004 1010 0505 0001 3M02 606].
 
-Numero de securite sociale de [PERSON:Sylvie Beaumont]:
+Numéro de sécurité sociale de [PERSON:Sylvie Beaumont]:
 [NATIONAL_ID:162031757572659]. Celui du [JOB_TITLE:chef d'equipe]
 [PERSON:Bruno Chevalier] est [NATIONAL_ID:154055319756254], domicilie
 [ADDRESS:8 avenue Jean Jaures, 69007 Lyon].
 
-La societe soeur belge [ORGANISATION:Ardenne Transit BVBA],
-[ADDRESS:Kortrijksesteenweg 220, 9000 Gent], porte le numero de TVA
+La société soeur belge [ORGANISATION:Ardenne Transit BVBA],
+[ADDRESS:Kortrijksesteenweg 220, 9000 Gent], porte le numéro de TVA
 [VAT_ID:BE403019261]. Contact [EMAIL:info@ardenne-transit.example],
 [PHONE:+32 9 224 51 30].
 
@@ -162,12 +162,12 @@ sous le BIS-nummer [NATIONAL_ID:98.47.28-997.65], residence
 [ADDRESS:Meir 78, 2000 Antwerpen].
 
 Autres references: SIREN [COMPANY_ID:228722377], SIRET
-[COMPANY_ID:34962329809439], TVA [VAT_ID:FR07228722377], numero fiscal
+[COMPANY_ID:34962329809439], TVA [VAT_ID:FR07228722377], numéro fiscal
 [TAX_ID:2533309467395], rijksregisternummer [NATIONAL_ID:72030817650],
 TVA belge [VAT_ID:BE0222006571].
 
-Les valeurs suivantes ont ete refusees a la saisie: numero fiscal 3023217600050,
-securite sociale 295109912611190, SIRET 73282932000070, SIREN 404833040, TVA
+Les valeurs suivantes ont été refusées a la saisie: numéro fiscal 3023217600050,
+sécurité sociale 295109912611190, SIRET 73282932000070, SIREN 404833040, TVA
 FR40303265040, rijksregisternummer 85073003320, BIS 98472899760 et TVA
 BE403019260. Aucune ne satisfait sa cle de controlle.
 
@@ -180,3 +180,12 @@ tribunaux de Geneve sont seuls competents. Tout arbitrage siege a Lausanne.
 
 Les factures sont payables en francs suisses sous trente jours; les montants
 libelles en euros sont convertis au cours du jour de la facture.
+
+Deux prestataires étrangers ont été enregistrés ce trimestre. Le consultant
+[PERSON:Tiago Marques] est domicilié au Portugal et son numéro fiscal est
+[TAX_ID:508417007]. Sa collègue [PERSON:Femke de Vries] a communiqué son
+numéro national pour la retenue à la source: [NATIONAL_ID:184726001].
+
+Le mandat de maintenance est confié à [ORGANISATION:Jurassienne Technique Sàrl],
+qui intervient aussi en Suède et en Grèce. Ces deux pays ne sont pas couverts par
+le contrat cadre; l'Autriche et le Portugal le sont.

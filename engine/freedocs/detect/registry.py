@@ -24,7 +24,7 @@ from .addresses import fill_address_gaps
 from .organisations import fill_organisation_gaps
 from .propagate import propagate_known_values
 from .suppress import drop_jurisdiction_mentions, drop_non_identifying
-from .validators import confirms
+from .validators import CHECKSUM_VERIFIABLE, COUNTRY_ISSUED, confirms
 
 
 class Detector(Protocol):
@@ -42,6 +42,13 @@ def _sort_key(finding: Finding) -> tuple[int, int, float, int]:
     )
 
 
+#: Every type whose value is a number or code. A model claim of one of these
+#: containing no digit at all is answerable without any checksum, which matters
+#: because :func:`confirms` deliberately gives no opinion on a country-issued
+#: type it has no country for.
+_STRUCTURED = COUNTRY_ISSUED | CHECKSUM_VERIFIABLE
+
+
 def drop_unconfirmed_structured(findings: Iterable[Finding]) -> list[Finding]:
     """Discard model claims about identifiers that a checksum rejects.
 
@@ -50,11 +57,22 @@ def drop_unconfirmed_structured(findings: Iterable[Finding]) -> list[Finding]:
     confidence — high enough that no threshold separates it from a real finding,
     and Luhn settles it in one call. L1 findings are exempt: they *are* the
     checksum.
+
+    A digit-free claim is refused first, and separately, because ``confirms``
+    cannot refuse it: a country-issued type arriving without a country gets no
+    opinion by design, so ``cittadinanza italiana`` came back NATIONAL_ID at 0.79
+    and ``Turkish`` at 0.52 — both above ``Policy.min_confidence``, both removed,
+    each replaced by ``[NATIONAL_ID_1]``. That is worse than a false positive: it
+    deletes a sentence's meaning and reports a nationality as an identifier. No
+    identifier this tool covers is written without a digit, and the corpus agrees
+    — every annotated identifier in it contains one.
     """
     kept: list[Finding] = []
     for finding in findings:
         if finding.layer is Layer.VALIDATOR:
             kept.append(finding)
+            continue
+        if finding.entity in _STRUCTURED and not any(char.isdigit() for char in finding.text):
             continue
         verdict = confirms(finding.entity, finding.text, finding.country)
         if verdict is False:

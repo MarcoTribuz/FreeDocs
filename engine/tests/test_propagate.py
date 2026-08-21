@@ -57,14 +57,51 @@ def test_word_boundaries_are_respected():
 
 
 def test_short_values_are_not_propagated():
-    """Two- and three-letter strings appear inside half the words on the page."""
+    """A two-letter legal form is in every company name on the page."""
     text = "Acme SA paga. Beta SA incassa. Gamma SA fattura."
     result = propagate_known_values(text, [found("SA", 5, EntityType.ORGANISATION)])
     assert len(result) == 1
 
 
-def test_the_minimum_length_is_above_common_company_suffixes():
-    assert len("GmbH") < MIN_PROPAGATION_LENGTH
+def test_the_minimum_length_keeps_two_letter_forms_out():
+    assert len("SA") < MIN_PROPAGATION_LENGTH
+
+
+def test_a_legal_form_is_never_a_template_whatever_its_length():
+    """The half of the old floor's reasoning that survived measurement.
+
+    ``Ltd`` is three characters, so length alone no longer excludes it, and a
+    document where a detector claims a bare one would otherwise spread it to
+    every other ``Ltd`` on the page. That is not a second sighting of anything.
+    """
+    text = "Ltd is the abbreviation. Ashcroft Ltd and Barrow Ltd both signed here."
+    result = propagate_known_values(text, [found("Ltd", 0, EntityType.ORGANISATION)])
+    assert len(result) == 1
+
+
+def test_a_longer_legal_form_is_excluded_too():
+    text = "Limited is written out. Ashcroft Limited and Barrow Limited signed."
+    result = propagate_known_values(text, [found("Limited", 0, EntityType.ORGANISATION)])
+    assert len(result) == 1
+
+
+def test_a_three_letter_place_name_now_propagates():
+    """Why the floor moved. ``Zug`` was a confirmed finding and leaked anyway."""
+    text = "Im Lager Zug erfasst. Der Sitz ist Zug, und das Portal heisst Zugang."
+    result = propagate_known_values(text, [found("Zug", 9, EntityType.LOCATION)])
+    assert texts(result) == [(9, "Zug"), (35, "Zug")]
+
+
+def test_the_word_boundary_still_holds_at_three_characters():
+    """``Zugang`` is not a second mention of ``Zug``, and never was.
+
+    This is the half of the old floor's justification that measurement refused:
+    the pattern is bounded, so a short value never matched inside a longer word,
+    and the floor of 5 was not what prevented it.
+    """
+    text = "Der Sitz ist Zug. Das Portal heisst Zugang und der Zugriff ist gesperrt."
+    result = propagate_known_values(text, [found("Zug", 13, EntityType.LOCATION)])
+    assert texts(result) == [(13, "Zug")]
 
 
 def test_an_existing_finding_is_not_duplicated():
