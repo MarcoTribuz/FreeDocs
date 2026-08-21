@@ -28,14 +28,33 @@ from typing import Protocol
 from ..core.errors import MissingDependency
 from ..core.findings import EntityType, Finding, Layer, Span
 
-#: Longest text handed to a backend in one call. Encoder NER models have a token
-#: limit — typically 512 — and silently truncate beyond it, which would make a
-#: whole document past the first page invisible. Deliberately conservative: token
-#: counts per character vary a lot between languages and scripts.
+#: Longest text handed to a backend in one call, measured rather than guessed.
+#: A sweep over 600-3600 characters puts removable coverage on a plateau from
+#: 800 to 1500 (474-477 of 480) and degrades it above that, while over-redaction
+#: falls monotonically with size (752 chars at 800, 493 at 3600) and flag-only
+#: recall collapses (96.2% at 1500, 76.9% at 3600). 1200 sits in the plateau and
+#: takes most of the over-redaction win before either cost starts.
+#:
+#: The reason originally written here — that an encoder truncates silently past
+#: 512 tokens — does not hold for this backend. A name placed at increasing depth
+#: in one call is still returned at 9815 characters, with the score decaying
+#: 0.997 to 0.954, an order of magnitude above ``NerDetector.min_score``. The
+#: ceiling is a quality trade, not a token limit, so raising it loses entities
+#: rather than hiding a page.
 MAX_CHUNK_CHARS = 1200
 
 #: Overlap between consecutive chunks, so an entity straddling a boundary is seen
 #: whole in at least one of them.
+#:
+#: 400 was tried and rejected. On the corpus as it stands it dominates 200 in
+#: every column — one more entity covered, eleven fewer over-redacted characters,
+#: the best exact F1 in the sweep — and none of that survives a control. Shifting
+#: every boundary by prepending 137, 411 and 700 characters of unannotated text
+#: makes the coverage win a wash and the over-redaction win a consistent loss
+#: (620 chars against 595, averaged over the four alignments). That control is
+#: the point: the same shift moves 1200/200 itself between 473 and 477 of 480, so
+#: three entities is the noise floor here and no delta smaller than that is
+#: readable off this corpus at all.
 CHUNK_OVERLAP = 200
 
 #: Paragraph and sentence boundaries, preferred over cutting mid-word.

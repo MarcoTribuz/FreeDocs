@@ -41,7 +41,7 @@ Lohnzahlung auf [IBAN:CH39 0024 3123 4567 8901 2], Spesen auf das deutsche
 Konto [IBAN:DE46 1005 0000 1234 5678 90].
 
 Hinweis: die im ersten Formular angegebene AHV-Nummer 756.1234.5678.90 ist
-ungultig und wurde zuruckgewiesen. Ebenso die IBAN
+ungültig und wurde zurückgewiesen. Ebenso die IBAN
 CH93 0076 2011 6238 5295 9, die die Prufsumme nicht erfullt.
 
 Dossier 2024/00841. Ende der Probezeit 30.09.2024.
@@ -135,7 +135,7 @@ Niederlassungsakte DACH - vertraulich
 
 Die Tochtergesellschaft [ORGANISATION:Nordwind Logistik Deutschland GmbH],
 [ADDRESS:Hafenstrasse 118, 20359 Hamburg], wird ab Juli konsolidiert.
-Geschaftsfuhrer ist [PERSON:Hendrik Vogel], [JOB_TITLE:Niederlassungsleiter],
+Geschäftsführer ist [PERSON:Hendrik Vogel], [JOB_TITLE:Niederlassungsleiter],
 erreichbar unter [EMAIL:h.vogel@nordwind-logistik.example] und
 [PHONE:+49 40 3070 1180].
 
@@ -166,7 +166,7 @@ Zweite Betriebsstelle: UID [VAT_ID:ATU66042908], USt-IdNr.
 
 Die im Entwurf genannte IdNr 36574261800 erfullt die Prufziffer nicht, ebenso
 die Steuernummer 4151181508156, die USt-IdNr. DE136695970, die UID ATU13585620
-und die Abgabenkontonummer 591199010. Alle wurden zuruckgewiesen.
+und die Abgabenkontonummer 591199010. Alle wurden zurückgewiesen.
 
 Auftragsnummer 4471209388 im Altsystem, Wareneingang 20240715.
 Zollposition 8708 9997 00 laut Tarif, Palettenmass 1200 800 144.
@@ -175,7 +175,7 @@ Interne Kostenstelle 30-412/2201, Budgetzeile 0885 vom 15.07.2024.
 Anwendbares Recht: dieser Rahmenvertrag untersteht schweizerischem Recht, und
 Gerichtsstand ist Basel. Ein Schiedsverfahren findet in Zurich statt.
 
-Rechnungen sind in Schweizer Franken innert dreissig Tagen zahlbar; Betrage in
+Rechnungen sind in Schweizer Franken innert dreissig Tagen zahlbar; Beträge in
 Euro werden zum Kurs des Rechnungsdatums umgerechnet.
 
 Lieferantenformular - jedes Feld ausfullen und zurucksenden
@@ -188,7 +188,7 @@ Kontakt:	[EMAIL:b.halder@sonnenrain-zug.example]
 Zeichnungsberechtigt:	[PERSON:Urs Frei]
 Notfallkontakt:	[PERSON:Ilse Brandt]
 
-Unterzeichnet von [PERSON:Urs Frei] fur die Lieferantin.
+Unterzeichnet von [PERSON:Urs Frei] für die Lieferantin.
 Gegengezeichnet von:
 
 [PERSON:Renate Oberholzer]

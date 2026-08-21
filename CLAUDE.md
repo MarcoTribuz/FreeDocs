@@ -17,7 +17,9 @@ layer reads it/de/fr/en without being told which. Three passes then correct the
 free-text layer: `detect/addresses.py` assembles a street address around its
 postal code, `detect/organisations.py` finds a company name from its legal form
 where the model found nothing, and `detect/suppress.py` drops the places that
-identify nobody. A Tauri app in `app/` drives it
+identify nobody. Every table that matches prose folds diacritics through
+`core/text.py`, because the tables are written unaccented and real French and
+German documents are not. A Tauri app in `app/` drives it
 over a JSON pipe, and an opt-in local-LLM pass reviews the output. Anything
 further is new work, not a remaining milestone.
 
@@ -29,7 +31,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (571 tests, ~30s with model+OCR)
+uv run pytest -q                       # full suite (610 tests, ~30s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -185,7 +187,10 @@ same characters.
   rests on `benchmark` output; `presidio_backend.py` is the measured alternative,
   kept installable so the comparison stays reproducible.
 - **L2.5** (`detect/propagate.py`, shipped): copies each confirmed value to its
-  other occurrences. Runs after overlap resolution, then resolves again.
+  other occurrences. Runs after overlap resolution, then resolves again. Values
+  of fewer than `MIN_PROPAGATION_LENGTH` (3) characters do not spread, and a
+  legal form never spreads at any length — see the invariant below for why those
+  are two separate rules.
 - **L2.55** (`detect/addresses.py`, shipped): assembles `<street> <number>,
   <code> <city>` and the British inversion, anchored on the postal code. Fills
   gaps and absorbs a LOCATION it fully contains — the city the model returned
@@ -368,18 +373,30 @@ every number after it is wrong — and then the benchmark measures the annotatio
 instead of the model. An unknown label is an error, not a skip: a dropped
 annotation gets scored as a detector hallucination.
 
-**The corpus has to be able to make something fail.** It is 532 annotated
+**The corpus has to be able to make something fail.** It is 537 annotated
 entities across the four language files `corpus/{de,en,fr,it}.txt`, up from 103,
 and growing it is what moved the headline down from 99.0% — the instrument
 getting sharper, not a regression. `freedocs benchmark` prints the counts it
 actually loaded, so trust that line over any figure written down here.
 
+The French, German and Italian files are also written **with their accents**, and
+that is load-bearing rather than cosmetic. They were ASCII until the day the
+tables that match prose were found to be comparing unaccented entries against
+text that has accents in it, and an ASCII corpus cannot show that failure at all.
+The accents were added by substituting one codepoint for one codepoint
+(`numero` → `numéro`, `ungultig` → `ungültig`), which is what let it happen with
+no gold offset moving and no chunk boundary shifting — see the boundary note
+below for why that mattered.
+
 What the small corpus could not report: LOCATION is the only category still
-leaking, at 88.6% coverage and 0.82 precision against PERSON's 100% and 1.00. All
-four remaining leaks are a place name that also appears as somebody's surname in
-the same document (`Zug`, `Sion`, `Lyon`, `Firenze`), which is a disambiguation no
-pattern can make. Keep those collisions when editing the corpus; they are the
-finding, and at 99.2% coverage they are most of what is left to find.
+leaking, at 94.3% coverage and 0.85 precision against PERSON's 100% and 1.00. Both
+remaining leaks are a place name that also appears as somebody's surname in the
+same document (`Lyon`, `Firenze`), which is a disambiguation no pattern can make —
+and note *which* half fails: the model finds `Nathalie Lyon` and `Roberto Firenze`
+and never the bare place, so there is no confirmed occurrence for propagation to
+copy either. `Zug` and `Sion` looked like the same case and were not; see the
+propagation floor below. Keep these collisions when editing the corpus; they are
+the finding, and at 99.6% coverage they are most of what is left to find.
 
 **Adding corpus text moves NER chunk boundaries, and that alone changes
 coverage.** Appending six lines to `corpus/fr.txt` cost the annotated
@@ -388,8 +405,32 @@ file, the final `iter_chunks` window moved, and GLiNER2 stopped returning an
 address it had returned before. Verified by re-running with the new rules
 disabled — the leak is there either way. So when the corpus grows, attribute the
 delta before believing it: a rule and a boundary shift look identical in the
-headline. It is also the strongest argument on hand for re-measuring
-`MAX_CHUNK_CHARS`, which is currently a documented guess.
+headline. It is also what forced `MAX_CHUNK_CHARS` to be measured rather than
+guessed, which it now has been — see below.
+
+**`MAX_CHUNK_CHARS` is 1200 because a sweep says so, and the sweep also refused
+the obvious improvement.** Removable coverage is flat from 800 to 1500 (474 to 477
+of 480) and falls above it; over-redaction improves monotonically with size (752
+characters at 800, 493 at 3600) and flag-only recall collapses (96.2% at 1500,
+76.9% at 3600). 1200 sits in the plateau and takes most of the over-redaction win
+before either cost begins.
+
+Two things the sweep settled that the old comment had wrong. The stated reason for
+staying low — that an encoder silently truncates past 512 tokens, hiding a whole
+document after the first page — **does not hold for this backend**: a name placed
+at increasing depth in a single call still comes back at 9815 characters, with the
+score decaying only 0.997 to 0.954. The ceiling is a quality trade, not a token
+limit. And `CHUNK_OVERLAP` of 400 appears to dominate 200 on every column of the
+corpus as it stands — one more entity, eleven fewer over-redacted characters, the
+best exact F1 in the sweep — and none of it survives a control. Prepending 137,
+411 and 700 characters of unannotated text to shift every boundary makes the
+coverage win a wash and the over-redaction win a consistent loss, 620 characters
+against 595 averaged over the four alignments.
+
+That control is the transferable part. The same shift moves 1200/200 itself
+between 473 and 477 of 480, so **three entities is the noise floor** on this
+corpus and no delta smaller than that can be read off it. Any future tuning of a
+chunking parameter needs the shift control, not just a better headline.
 
 The four files also each end with a governing-law and payment block, added
 unannotated. Those clauses are the cases `detect/suppress.py` is paid to pass,
@@ -504,21 +545,123 @@ patterns from nine. The currency rule that the same source suggested was
 "United States dollars" at all, because FreeDocs has no nationality entity type
 for "Indian" in "Indian Rupees" to land on. Do not add it back without a case.
 
+Giving it one was tried and rejected — see the special-categories note below. The
+short version is that the nationality type would not have made the currency rule
+necessary either, because it lands on the adjective and the adjective is
+`REPORT_ONLY`.
+
 **City-states stay in.** Luxembourg, Monaco, Singapore, San Marino and Andorra
 name a city as often as a country, and the country list drops findings outright,
 so an ambiguous name in it is a leak. When the name could be either, the finding
 stays.
 
-**`suppress.py` folds diacritics and `keywords.py` does not.** The context tables
-in `detect/keywords.py` are written unaccented (`securite sociale`,
-`numero de tva`, `gultig bis`) and `Rule.confidence_at` matches them against
-`window.casefold()` — no decomposition — so the accented spelling a real French
-or German document actually contains never matches. `suppress.py` folds through
-NFKD because the phrases it looks for are ordinary prose, which is where the
-accents are. The `keywords.py` side is a latent gap, not a fixed one: the corpus
-is ASCII throughout, so it cannot currently show the failure, and closing it
-would change which weak rules clear `min_confidence` and therefore needs
-re-measuring rather than a one-line patch.
+**The propagation floor is 3, and half of the reason it used to be 5 was wrong.**
+`MIN_PROPAGATION_LENGTH` was the only thing keeping `Zug` and `Sion` in their
+documents: both were already confirmed findings elsewhere, so nothing but a length
+test stood between them and the occurrence that survived. A sweep over 5, 4, 3 and
+2 recovers `Sion` at 4 and `Zug` at 3, moves over-redaction not one character at
+any floor, and gains nothing further at 2.
+
+The old comment justified 5 on two grounds and only one of them was true. Short
+strings do **not** match "inside unrelated words" — the pattern is bounded by
+`(?<!\w)`/`(?!\w)` and never matched `Zug` inside `Zugang`, which is now pinned by
+a test. What is true is the legal forms, so those are excluded **by name** rather
+than by length, from the table `suppress.py` exports: a document where a detector
+claims a bare `Ltd` would otherwise spread it to every other `Ltd` on the page,
+which is not a second sighting of anything. It does not happen on the corpus — no
+detector claims a bare legal form there — so that guard is against a case built to
+break it, and it is the one part of the old floor's reasoning that survived.
+
+This is also why `Lyon` and `Firenze` still leak while `Zug` and `Sion` do not.
+Those two never appear as a standalone finding at all, only inside `Nathalie Lyon`
+and `Roberto Firenze`, so there is no template to copy — propagating a substring of
+a person's name to every place it occurs is exactly the inference `propagate.py`
+refuses in its own docstring, and lowering a floor cannot reach them.
+
+**A digit-free identifier claim is refused before any checksum runs.** `confirms()`
+cannot refuse it: a country-issued type arriving from the model without a country
+gets no opinion by design, which is the mechanism that keeps a Brazilian CPF. So
+`cittadinanza italiana` came back NATIONAL_ID at 0.79 and `Turkish` at 0.52, both
+above `Policy.min_confidence`, and each was removed and replaced with
+`[NATIONAL_ID_1]`. That is worse than an ordinary false positive — it destroys the
+sentence's meaning *and* files a nationality as an identifier. No identifier this
+tool covers is written without a digit, and every annotated identifier in the
+corpus contains one, so `registry._STRUCTURED` gates on that. The corpus cannot
+show this one: in a full document the model returns nothing for that phrase, so the
+evidence is the unit case and `corpus/it.txt` carries the sentence only as a
+standing trap.
+
+**Special categories were measured and are not detected.** Nationality, religion
+and political affiliation are GDPR Article 9 data and FreeDocs has no entity type
+for them, which is a decision and not an oversight. Asking GLiNER2 for
+`nationality`, `religious affiliation` and `political affiliation` works on a
+sentence that discloses one — `deutscher Staatsangehöriger` at 0.96, `Turkish
+national` at 0.99, `nationalité algérienne` at 0.81, `SPD` as a political
+affiliation at 0.97. On the corpus it returns eleven findings and **none of them is
+that**: every one is an adjective modifying a thing, not a person — `deutsche
+Konto`, `Dutch account`, `Swiss identification number` four times, `Swiss francs`.
+Business documents use nationality words that way almost exclusively.
+
+The cost of asking was two covered entities. Three more labels shift the model's
+output distribution enough that `Preston` and `Neuchatel` stop being returned as
+LOCATION: removable coverage 483 to 481, over-redaction 595 to 696 characters,
+flag-only recall 92.3% to 86.5%, exact F1 0.929 to 0.912. Measured by injecting a
+narrowed backend, which needs `load_backend.cache_clear()` — it is `@cache`d, and
+patching `DEFAULT_LABELS` or the dataclass field after import silently does
+nothing, so two runs agree and both are the unpatched one.
+
+If this is revisited, the shape that avoids the interference is a second `predict`
+call with only the special-category labels, merged as a strict gap fill that never
+competes — a `REPORT_ONLY` finding winning an overlap against a LOCATION would stop
+that LOCATION being removed, which is a leak. It costs a second model pass per
+chunk, and it still needs a corpus document that actually discloses somebody's
+nationality, which none of the four currently does.
+
+**Chunk-artifact rejection was measured away.** A finding whose span starts or ends
+mid-word is the signature of a chunk-boundary hit, and `iter_chunks` has a
+guaranteed-progress fallback that can cut mid-word, so the defence looked free.
+There are **zero** such findings across the corpus. The test was written first, as
+the plan required, and it said not to build the rule.
+
+**Everything that matches prose against a table folds diacritics, through the one
+function in `core/text.py`.** Two copies of that function are two answers to the
+same question, which is how the bug got in: `suppress.py` folded and
+`Rule.confidence_at` merely casefolded, so five entries in `detect/keywords.py`
+(`securite sociale`, `numero de tva`, `numero national`, `numero fiscal`,
+`gultig bis`) never met the `sécurité sociale` or `numéro de TVA` a real document
+contains. Seven weak rules across six countries were inert as a result — `at-vnr`,
+`pt-nif`, `pt-cc`, `nl-bsn`, `pl-nip`, `gb-nhs`, `gb-utr`, all at 0.45 and so all
+below `Policy.min_confidence` without a keyword.
+
+Fixing it cost nothing and moved labels, not coverage: 0 characters of
+over-redaction and 0 entities either way, exact F1 0.921 to 0.928, and seven spans
+relabelled. Six of the seven were corrections, and they are the point — the
+digits of a Portuguese NIF and a Dutch BSN were being reported as **Polish phone
+numbers**, and a French `numéro fiscal` as a German one, because a `phonenumbers`
+plan claim at 1.00 beats a correct rule sitting at 0.45. That is what a per-country
+precision line of 0.62 was made of.
+
+Two things not to undo. The country list in `suppress.py` is folded on **both**
+sides, because it too was written unaccented (`osterreich`, `suede`, `grece`,
+`turkiye`) and was therefore not suppressing the `Österreich` or `Suède` a
+document actually carries — the bare country name was being redacted after all,
+which is the exact over-redaction that list exists to prevent. And the legal-form
+tables are **not** folded: they gained `sàrl`, `s.à r.l.` and `s.à.r.l.` as listed
+spellings instead, because `organisations.py` matches its short forms
+case-sensitively on purpose and folding a candidate to compare it would throw that
+distinction away. `Sàrl` is what a Romandy or Luxembourg company registers under
+and both passes were blind to it.
+
+One collision is pinned rather than fixed, in `tests/test_diacritics.py`.
+`228722377` in `corpus/fr.txt` is an annotated SIREN with the word `SIREN` six
+characters in front of it, and also a valid Austrian TIN; once the window folds,
+the `numéro fiscal` labelling the *next* number in the same list gives `at-tin` its
+context too. Both then stand at precedence VALIDATOR, the same span and confidence
+1.0, so the winner is whichever the rule table lists first — a decision nobody
+made. The characters are removed either way, so it is a report attribution defect
+and not a leak. Fixing it properly means letting the tie-break see *how far* away
+each rule's own keyword is, which needs a new field on `Finding` and a measurement
+of its own.
 
 **Redaction removes, it does not cover.** `formats/pdf_text.py` uses PyMuPDF
 `apply_redactions()` and always a full rewrite (`garbage=4, clean=True,

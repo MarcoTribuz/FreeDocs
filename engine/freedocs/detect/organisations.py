@@ -49,8 +49,15 @@ _LONG_FORMS: tuple[str, ...] = (
     "gmbh",
     "sagl",
     "sarl",
+    # ``Sarl`` is the anglicised spelling; ``Sàrl`` is what a Romandy or
+    # Luxembourg company registers under, and it was invisible to this pass and
+    # to ``suppress`` until it was listed. Listed rather than folded away: the
+    # short forms below are matched case-sensitively on purpose, and folding a
+    # candidate to compare it would throw that distinction away.
+    "sàrl",
     "s.a.r.l.",
     "s.à r.l.",
+    "s.à.r.l.",
     "spa",
     "s.p.a.",
     "srl",

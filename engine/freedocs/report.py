@@ -28,10 +28,18 @@ CAVEATS = [
     "Direct identifiers are removed; re-identification from combinations of "
     "remaining details (role, dates, locations) is still possible.",
     "Detection is not exhaustive. On the project's own labelled corpus the full "
-    "layer stack covers 99% of the confidential entities it removes, which still "
-    "means some are missed, and a real document is harder than a test one.",
-    "Place names are the weakest category, especially where a place is also "
-    "somebody's surname in the same document.",
+    "layer stack covers 99.6% of the confidential entities it removes, which "
+    "still means some are missed, and a real document is harder than a test one.",
+    "Place names are the weakest category, and both remaining misses are the "
+    "same case: a place that is also somebody's surname in the same document, "
+    "where the name was found and the place was not. No pattern settles that.",
+    # Said plainly because it is the one category where a *removal* would be the
+    # error. Nationality, religion and political affiliation are GDPR Article 9
+    # special categories, and this tool neither removes nor reports them.
+    "Nationality, religion and political affiliation are not detected. Asking "
+    "the model for them was measured: it returns the adjective in 'Swiss "
+    "francs' and 'the German account' rather than a person's nationality, and "
+    "asking cost two entities elsewhere. So a document disclosing one keeps it.",
     # Stated because the reader of the output can see these survive and would
     # otherwise read a deliberate decision as a miss - which is the more
     # dangerous of the two misreadings, since it invites patching around a rule

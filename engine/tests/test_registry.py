@@ -114,6 +114,46 @@ def test_types_without_a_checksum_are_left_alone():
     assert drop_unconfirmed_structured([finding]) == [finding]
 
 
+def test_a_digit_free_identifier_claim_is_refused():
+    """``confirms`` cannot refuse this one, and the consequence is a bad edit.
+
+    A country-issued type arriving from the model without a country gets no
+    opinion by design, so ``cittadinanza italiana`` came back NATIONAL_ID at 0.79
+    and ``Turkish`` at 0.52 — both above ``Policy.min_confidence``. Each was
+    removed and replaced with ``[NATIONAL_ID_1]``, which destroys the sentence and
+    files a nationality as an identifier.
+    """
+    for value in ("cittadinanza italiana", "Turkish", "nationalite algerienne"):
+        finding = make_text(value, EntityType.NATIONAL_ID, Layer.NER)
+        assert drop_unconfirmed_structured([finding]) == []
+
+
+def test_a_digit_free_claim_is_refused_for_every_structured_type():
+    for entity in (
+        EntityType.TAX_ID,
+        EntityType.VAT_ID,
+        EntityType.COMPANY_ID,
+        EntityType.IBAN,
+        EntityType.CREDIT_CARD,
+    ):
+        finding = make_text("no digits here", entity, Layer.NER)
+        assert drop_unconfirmed_structured([finding]) == []
+
+
+def test_the_digit_rule_does_not_touch_a_free_text_type():
+    """A person or a company is named in letters. Only the code types are numbers."""
+    for entity in (EntityType.PERSON, EntityType.ORGANISATION, EntityType.LOCATION):
+        finding = make_text("Nordwind Logistik", entity, Layer.NER)
+        assert drop_unconfirmed_structured([finding]) == [finding]
+
+
+def test_an_identifier_written_in_letters_and_digits_survives():
+    """The codice fiscale is mostly letters, and it is still an identifier."""
+    pytest.importorskip("stdnum")
+    finding = make_text("RSSMRA85T10A562S", EntityType.TAX_ID, Layer.NER)
+    assert drop_unconfirmed_structured([finding]) == [finding]
+
+
 # -- checksum verification when the type belongs to a country ------------------
 
 
