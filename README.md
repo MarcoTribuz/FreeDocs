@@ -77,8 +77,9 @@ Detection is layered:
 
 ## Measured, not estimated
 
-`uv run freedocs benchmark` scores the layers against `corpus/`: 103 labelled
-entities over Italian, German, French and English business documents.
+`uv run freedocs benchmark` scores the layers against `corpus/`: 378 labelled
+entities over twenty Italian, German, French and English business documents, of
+which 342 are entities the policy actually removes.
 
 The headline is not F1. For redaction the numbers that matter are **coverage**
 (gold entities *fully* removed — a partial span is a leak, because "Rossi" left
@@ -86,32 +87,52 @@ behind still identifies someone) and **over-redaction** (characters removed that
 were not confidential — a detector that redacts the page leaks nothing and is
 useless).
 
+Coverage is reported over the **removable** entities. The rest are `REPORT_ONLY`
+types like job titles, which the policy flags and never deletes, so "share fully
+removed" says nothing true about them in either direction. They were a tenth of
+the corpus and had been quietly inflating the headline; they are now counted
+apart, at 97.2% found.
+
 | Layers | Coverage | Over-redaction | Exact micro-F1 |
 |---|---|---|---|
-| L1 only | 36.9% | 0.0% | 0.539 |
-| GLiNER2 only | 80.6% | 0.3% | 0.854 |
-| Presidio + spaCy only | 55.3% | 21.5% | 0.211 |
-| L1 + GLiNER2 | 94.2% | 0.3% | 0.935 |
-| **L1 + GLiNER2 + propagation** | **99.0%** | **0.3%** | **0.961** |
+| L1 only | 51.2% | 0.4% | 0.623 |
+| GLiNER2 only | 66.7% | 0.8% | 0.791 |
+| L1 + GLiNER2 | 92.7% | 1.2% | 0.928 |
+| **L1 + GLiNER2 + propagation** | **97.4%** | **1.2%** | **0.950** |
 
-Three things came out of this that were not obvious beforehand:
+Presidio is absent from this table on purpose: it was measured on the earlier
+103-entity corpus at 55.3% coverage and **21.5%** over-redaction, and quoting that
+figure beside numbers from a different corpus would compare two annotations rather
+than two detectors. Re-running it needs the `ner-presidio` extra. The finding that
+mattered has not changed and is why the option still exists to be re-measured:
+Presidio lost on *over-redaction*, not on recall. It has no way to know the
+document's language, so every configured language is run and merged, and PERSON
+precision fell to 0.28. Removing a fifth of a document for nothing destroys it.
 
-- **Checksums alone leave about two thirds of the confidential entities in a
-  business document.** That is why the NER layer is on by default despite its
-  download size, and why a build without it says so loudly instead of quietly
-  finding less.
-- **Presidio lost on over-redaction, not on recall.** It has no way to know the
-  document's language, so every configured language is run and merged, and PERSON
-  precision falls to 0.28 — 65 predictions for 24 real names. 21% of the document
-  removed for nothing destroys the document. The 1.2 GB model earns its size.
-- **Every residual miss was a repeat mention.** The model found "Anna Bianchi" in
-  the attendee list and scored the same name below threshold eight lines later.
-  Propagation, a literal case-insensitive search with word boundaries, took
-  coverage from 94.2% to 99.0% at no over-redaction cost.
+What this corpus shows that the previous one could not:
 
-The corpus is small and synthetic. These numbers rank configurations against each
-other; they are not a published benchmark result, and the tool says so every time
-it prints them.
+- **Checksums alone leave about half the confidential entities in a business
+  document.** That is why the NER layer is on by default despite its download
+  size, and why a build without it says so loudly instead of quietly finding less.
+- **Propagation is worth more than any threshold change.** Most residual misses
+  are repeat mentions: the model finds "Anna Bianchi" in the attendee list and
+  scores the same name below threshold eight lines later. A literal
+  case-insensitive search with word boundaries takes coverage from 92.7% to 97.4%
+  at no over-redaction cost.
+- **Place names that double as surnames are the weak spot.** Every remaining leak
+  but one is a `LOCATION`: `Basel`, `Zug`, `Preston`, `Leeds`, `Geneve`, `Lyon`,
+  `Sion`, `Firenze` — each of which also appears in the same document as somebody's
+  surname. LOCATION coverage is 75.8% against 100% for PERSON. The earlier corpus
+  had no such collisions and so reported nothing about them.
+- **The over-redaction cost is nearly all ambiguity with no checksum behind it.**
+  A four-part firmware version is indistinguishable from an IPv4 address, and an
+  eight-digit customer number is a valid Italian landline. Those two shapes account
+  for most of the 1.2%: IP precision 0.83, PHONE precision 0.83. Nothing in a
+  regex can settle either.
+
+The corpus is still small and synthetic. These numbers rank configurations against
+each other; they are not a published benchmark result, and the tool says so every
+time it prints them.
 
 ## What a Word file hides
 

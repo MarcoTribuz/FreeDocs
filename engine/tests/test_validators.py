@@ -88,3 +88,26 @@ def test_iban_is_detected_when_followed_by_other_digits(detector: ValidatorDetec
     ibans = [f for f in findings if f.entity is EntityType.IBAN]
     assert len(ibans) == 1
     assert ibans[0].text == CANARIES["IBAN"]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("Vedi https://a.example/x.", "https://a.example/x"),
+        ("Vedi https://a.example/x, poi chiudi.", "https://a.example/x"),
+        ("Portale https://a.example/ attivo", "https://a.example/"),
+        ("Riferimento (https://a.example/p) allegato", "https://a.example/p"),
+        ("Query https://a.example/s?q=1&r=2.", "https://a.example/s?q=1&r=2"),
+    ],
+)
+def test_a_url_does_not_swallow_the_punctuation_after_it(
+    detector: ValidatorDetector, text: str, expected: str
+):
+    """Running greedily to the next space took the full stop with the address.
+
+    The replacement then ate the punctuation as well, and the span never matched
+    the corpus annotation, which is how this was found. A trailing slash is part
+    of the URL and has to survive.
+    """
+    urls = [f for f in detector.detect(text) if f.entity is EntityType.URL]
+    assert [f.text for f in urls] == [expected]

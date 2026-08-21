@@ -121,3 +121,50 @@ def test_predictions_outside_the_text_do_not_crash_the_mask():
     )
     assert result.coverage == 0.0
     assert result.over_redacted_chars == 0
+
+
+# -- report-only entities are scored apart ------------------------------------
+
+JOB = gold("direttore", 0, EntityType.JOB_TITLE)
+
+
+def test_coverage_ignores_entities_the_policy_never_removes():
+    """A found job title has not made the document safer, so it cannot flatter.
+
+    JOB_TITLE is REPORT_ONLY: the policy flags it and leaves it in place. Counting
+    it as covered was inflating the headline with work the pipeline does not do.
+    """
+    text = "direttore Mario Rossi a Lugano"
+    person = gold("Mario Rossi", 10, EntityType.PERSON)
+    result = evaluate(
+        [CorpusDocument("it.txt", "it", text, (JOB, person))],
+        Fixed(found("direttore", 0, EntityType.JOB_TITLE)),
+    )
+    # One removable entity, missed. Finding only the job title must not rescue it.
+    assert result.removable_gold == 1
+    assert result.coverage == 0.0
+    assert result.report_only_gold == 1
+    assert result.report_only_recall == 1.0
+
+
+def test_a_missed_report_only_entity_is_not_counted_as_a_leak():
+    text = "direttore Mario Rossi a Lugano"
+    person = gold("Mario Rossi", 10, EntityType.PERSON)
+    result = evaluate(
+        [CorpusDocument("it.txt", "it", text, (JOB, person))],
+        Fixed(found("Mario Rossi", 10, EntityType.PERSON)),
+    )
+    assert result.coverage == 1.0
+    assert result.report_only_recall == 0.0
+
+
+def test_coverage_over_everything_stays_available_for_comparison():
+    """Older runs quoted the all-entity figure; it is kept rather than rewritten."""
+    text = "direttore Mario Rossi a Lugano"
+    person = gold("Mario Rossi", 10, EntityType.PERSON)
+    result = evaluate(
+        [CorpusDocument("it.txt", "it", text, (JOB, person))],
+        Fixed(found("Mario Rossi", 10, EntityType.PERSON)),
+    )
+    assert result.coverage == 1.0
+    assert result.coverage_all == 0.5

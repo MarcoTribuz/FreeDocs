@@ -1,30 +1,129 @@
-Meeting minutes - confidential
+Meeting note - confidential
 
-Present: [PERSON:Michael Turner] ([JOB_TITLE:head of sales]), [PERSON:Rachel Owens] and
-[PERSON:David Whitfield] for [ORGANISATION:Realise Consulting AG].
+Present: [PERSON:James Whitfield] ([JOB_TITLE:head of finance]),
+[PERSON:Helen Carter] and [PERSON:Robert Nash] for
+[ORGANISATION:Meridian Advisory Ltd], [ADDRESS:14 Kingsway, London WC2B 6LH].
 
-The client [ORGANISATION:Northgate Freight Ltd], registered at
-[ADDRESS:14 Kingsway, London WC2B 6LH], has confirmed the contract renewal. The
-main contact is [PERSON:Helen Marsh], reachable at
-[EMAIL:h.marsh@northgate-freight.example] or on [PHONE:+44 20 7946 0321].
+The client [ORGANISATION:Northgate Freight Ltd], based at
+[ADDRESS:Unit 7 Ashford Park, Manchester M15 4TQ], has renewed the contract.
+Main contact [PERSON:Helen Carter], reachable at
+[EMAIL:h.carter@meridian-advisory.example] or on [PHONE:+44 20 7946 0321].
 
-Administrative details:
-Company UID: [CH_UID:CHE-116.281.710]
-AHV number of the seconded employee: [CH_AHV:756.1234.5678.97]
-Account for payments: [IBAN:CH93 0076 2011 6238 5295 7]
+The Swiss branch reported that the AHV number [CH_AHV:756.1234.5678.97] of the
+seconded employee [PERSON:Robert Nash] is wrong in the payroll records.
 
-The [LOCATION:Zurich] branch will take over the project from March.
-[JOB_TITLE:Technical lead] [PERSON:Simon Clarke] will be seconded to
-[LOCATION:Vienna] for six months, with expenses paid to
-[IBAN:AT61 1904 3002 3457 3201].
+Payments go to [IBAN:CH93 0076 2011 6238 5295 7] and the company identification
+number is [CH_UID:CHE-116.281.710]. The [LOCATION:Zurich] office takes over the
+engagement in April, and the [JOB_TITLE:technical lead] [PERSON:Alan Pritchard]
+will relocate to [LOCATION:Geneva] for six months.
 
-[PERSON:Rachel Owens] noted that the billing address
-[ADDRESS:Bahnhofstrasse 12, 8001 Zurich] is out of date in the system.
+Billing: [ORGANISATION:Meridian Advisory Ltd], phone [PHONE:+44 161 496 0114],
+[EMAIL:accounts@meridian-advisory.example]. Test server [IP_ADDRESS:10.42.7.19].
 
-Opposing counsel [ORGANISATION:Hartley and Vance LLP] of [LOCATION:Manchester]
-will handle the contract review. Contact:
-[EMAIL:reception@hartleyvance.example], phone [PHONE:+44 161 236 4488].
+Order number 90210 dated 03.03.2024, 250 units, delivery expected in May.
 
-The test server stays reachable at [IP_ADDRESS:10.42.7.19] until sign-off.
-Order 90210 dated 03.03.2024, 250 units, delivery in April.
-The quotation was approved without changes.
+
+Personnel file - confidential
+
+Subject: appointment as [JOB_TITLE:systems analyst].
+
+Candidate: [PERSON:Fiona Brennan], resident at
+[ADDRESS:22 Harbour Road, Bristol BS1 5TY], reachable at
+[EMAIL:fiona.brennan@mailbox.example] and [PHONE:+44 117 925 8840].
+Swiss social security number [CH_AHV:756.2476.8193.55].
+
+The contract was countersigned by the [JOB_TITLE:head of human resources]
+[PERSON:Duncan Hargreaves], AHV [CH_AHV:756.7051.9238.47]. Place of work is the
+[LOCATION:Edinburgh] office, with regular travel to [LOCATION:Lugano].
+
+Salary paid to [IBAN:GB29 NWBK 6016 1331 9268 19], expenses reimbursed to the
+Dutch account [IBAN:NL91 ABNA 0417 1643 00].
+
+Note: the account number given on the first form, GB29 NWBK 6016 1331 9268 11,
+fails its check digits and has been rejected. The same applies to the AHV number
+756.1234.5678.90, which does not validate.
+
+File 2024/00841. Probation ends 30.09.2024.
+
+
+Invoice - internal copy
+
+Issuer: [ORGANISATION:Meridian Advisory Ltd], [ADDRESS:14 Kingsway, London WC2B 6LH]
+
+Recipient: [ORGANISATION:Harbour Point Properties Ltd]
+[ADDRESS:5 Quayside, Newcastle NE1 3DE]
+Swiss identification number [CH_UID:CHE-347.560.199]
+
+Contact: [PERSON:Priya Raghavan], [JOB_TITLE:head of procurement],
+[EMAIL:p.raghavan@harbourpoint.example], [PHONE:+44 191 232 7710].
+
+Invoice lines:
+Item 4532567890123451 - architecture consulting - 12 days
+Item 8891204471 - internal training - 4 days
+Item 90210-B - software licences - 1 year
+
+The corporate card [CREDIT_CARD:6011000990136073] is held by
+[PERSON:Priya Raghavan]. The balance will be settled to
+[IBAN:DE04 6007 0070 0123 4567 89].
+
+Dispute opened by the [JOB_TITLE:administrative director]
+[PERSON:Gordon Selby], AHV [CH_AHV:756.6394.8271.57].
+
+Net amount 48,250.00 GBP, VAT at 20 per cent.
+Payment reference 11982730451 dated 12.06.2025.
+
+
+Technical report - confidential
+
+The fault was raised by [PERSON:Marcus Preston],
+[JOB_TITLE:systems administrator] at the [LOCATION:Preston] site, reachable at
+[EMAIL:m.preston@meridian-advisory.example] and [PHONE:+44 113 496 0122].
+
+The affected servers are [IP_ADDRESS:192.168.14.7] and [IP_ADDRESS:10.42.7.19],
+visible on the portal [URL:https://monitor.meridian-advisory.example/incidents].
+The replaced network card had the address [MAC_ADDRESS:00:1B:44:11:3A:B7].
+
+Also involved were [PERSON:Diane Reading] from the [LOCATION:Reading] office and
+the [JOB_TITLE:security officer] [PERSON:Callum York].
+
+Firmware version 2.14.6.3 according to the register, to be aligned to 11.0.3.
+Maintenance window 04.11.2024, from 22.00 to 02.00.
+Ticket 5454545454545451 in the legacy system, migrated to number 90210.
+
+The supplier [ORGANISATION:Technet Systems Ltd], Swiss identification number
+[CH_UID:CHE-451.627.387], invoiced the work. Payment to
+[IBAN:AT52 1200 0234 5678 9012].
+
+Signed: [PERSON:Marcus Preston], [LOCATION:London].
+
+
+Supplier register - confidential extract
+
+Active supplier: [ORGANISATION:Pennine Metalwork Ltd],
+[ADDRESS:9 Foundry Lane, Sheffield S9 2LR], Swiss identification number
+[CH_UID:CHE-129.308.459]. Contact [PERSON:Gareth Lowell],
+[JOB_TITLE:plant manager], [EMAIL:g.lowell@pennine-metal.example],
+[PHONE:+44 114 272 5588].
+
+Suspended supplier: [ORGANISATION:Midland Paper Mills Ltd], Swiss identification
+number [CH_UID:CHE-238.471.076], registered at
+[ADDRESS:210 Canal Street, Birmingham B1 2JT].
+Administrative contact [EMAIL:admin@midlandpaper.example].
+
+Order portal: [URL:https://suppliers.meridian-advisory.example/portal/login]
+Technical documentation: [URL:http://wiki.meridian-advisory.example/logistics]
+
+Network equipment recorded at the [LOCATION:Leeds] warehouse:
+primary switch [MAC_ADDRESS:3C:22:FB:8A:41:0D] on [IP_ADDRESS:172.16.4.2]
+standby switch [MAC_ADDRESS:A4:83:E7:2C:9F:16] on [IP_ADDRESS:172.16.4.3]
+
+Payment cards issued:
+[PERSON:Gareth Lowell] - [CREDIT_CARD:5454545454545454]
+[PERSON:Diane Reading] - [CREDIT_CARD:4023600000000002]
+
+The identification number on the old contract, CHE-129.308.450, fails its check
+digit and has been corrected. The card 5454545454545455 was declined as well.
+
+Customer number 05129830 - not an identification number, only eight digits.
+Batch number 756123456789 in the warehouse system.
+Land registry reference 20156-210-9 for the Birmingham building.

@@ -100,11 +100,12 @@ def build_registry(spec: str = "l1") -> DetectorRegistry:
 
 
 #: What the user loses when the NER layer is unavailable. Measured on the corpus:
-#: L1 alone covers 36.9% of gold entities, L1 with GLiNER2 covers 99.0%.
+#: L1 alone covers 51.2% of the removable gold entities, L1 with GLiNER2 and
+#: propagation covers 97.4%.
 NO_NER_NOTE = (
     "the NER layer is not installed, so names, organisations, locations, "
     "addresses and job titles are NOT being detected - install the 'ner' extra; "
-    "measured coverage falls from 99% to 37% without it"
+    "measured coverage falls from 97% to 51% without it"
 )
 
 

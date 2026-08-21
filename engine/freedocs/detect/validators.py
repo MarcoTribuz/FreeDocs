@@ -172,7 +172,12 @@ def build_rules() -> list[Rule]:
         Rule(
             entity=EntityType.URL,
             name="url",
-            pattern=re.compile(r"\bhttps?://[^\s<>\"')]+", re.IGNORECASE),
+            # The last character may not be sentence punctuation. Running greedily
+            # to the next space swallowed the full stop after a URL at the end of a
+            # sentence, so the replacement ate the punctuation with the address and
+            # the exact span never matched the annotation. A trailing '/' is part of
+            # the URL and stays.
+            pattern=re.compile(r"\bhttps?://[^\s<>\"')]*[^\s<>\"'),.;:!?]", re.IGNORECASE),
             validate=_always,
         ),
         Rule(

@@ -117,7 +117,9 @@ def test_shipped_corpus_annotates_the_entities_the_ner_layer_exists_for():
         EntityType.CH_AHV,
         EntityType.CH_UID,
         EntityType.EMAIL,
-        EntityType.PHONE,
+        EntityType.IT_CODICE_FISCALE,
+        EntityType.IT_PARTITA_IVA,
+        EntityType.CREDIT_CARD,
     ],
 )
 def test_shipped_corpus_identifiers_are_found_by_the_validators(entity: EntityType):
@@ -125,6 +127,9 @@ def test_shipped_corpus_identifiers_are_found_by_the_validators(entity: EntityTy
 
     An identifier the validator rejects would make L1 look worse than it is, and
     the whole point of the corpus is to measure rather than guess.
+
+    PHONE is deliberately absent: see the test below. These are the types L1 owns
+    from pattern to checksum, so for them a miss really is a corpus defect.
     """
     pytest.importorskip("stdnum")
     from freedocs.detect.validators import ValidatorDetector
@@ -136,4 +141,26 @@ def test_shipped_corpus_identifiers_are_found_by_the_validators(entity: EntityTy
             assert (gold.span.start, gold.span.end) in found, (
                 f"{document.name}: {gold.text!r} is annotated as {entity.value} but "
                 "the validator layer does not accept it"
+            )
+
+
+def test_annotated_phone_numbers_are_real_numbers():
+    """PHONE is checked for validity, not for detection, and the difference matters.
+
+    The guard that matters is that a canary is a genuine number: an invented one is
+    rejected, never detected, never leaks, and passes every test while proving
+    nothing. Whether L1 *matches* it is a separate question with a real answer —
+    the corpus carries `+39 0444 512 337`, which phonenumbers calls valid and
+    STRICT_GROUPING declines, because the Italian plan groups the subscriber part
+    as `512337`. That gap is a measured result about the detector, so asserting it
+    away here would hide the very thing the corpus exists to show.
+    """
+    phonenumbers = pytest.importorskip("phonenumbers")
+
+    for document in load_corpus():
+        for gold in document.entities_of(EntityType.PHONE):
+            parsed = phonenumbers.parse(gold.text, None)
+            assert phonenumbers.is_valid_number(parsed), (
+                f"{document.name}: {gold.text!r} is annotated as a phone number but "
+                "is not a valid one"
             )

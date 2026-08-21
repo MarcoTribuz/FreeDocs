@@ -22,6 +22,14 @@ So the primary metrics here are coverage-based and label-blind:
 
 Conventional exact precision/recall/F1 per entity type is reported alongside,
 because it is what makes two models comparable to published figures.
+
+One more split matters. Some entity types are ``REPORT_ONLY``: the policy flags
+them and never removes them, because deleting a date or a job title hides residual
+risk instead of surfacing it. Scoring those under "share fully removed" says
+nothing true in either direction — a model that finds every job title has not made
+the document safer, and one that finds none has not leaked. They were nearly a
+tenth of the corpus and were silently inflating the headline, so coverage is
+reported over the removable entities and the report-only ones are counted apart.
 """
 
 from __future__ import annotations
@@ -30,6 +38,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
 from ..core.findings import Finding
+from ..core.policy import REPORT_ONLY
 from .corpus import CorpusDocument, GoldEntity
 
 
@@ -95,6 +104,13 @@ class Evaluation:
     total_chars: int = 0
     per_entity: dict[str, EntityScore] = field(default_factory=dict)
     per_language: dict[str, tuple[int, int]] = field(default_factory=dict)
+    #: Gold entities the policy would actually remove, and how many of those were
+    #: covered. Tracked separately because a REPORT_ONLY entity cannot leak: it is
+    #: never removed by design, so counting it as covered or as a leak is noise.
+    removable_gold: int = 0
+    removable_covered: int = 0
+    report_only_gold: int = 0
+    report_only_covered: int = 0
 
     @property
     def covered_total(self) -> int:
@@ -102,8 +118,22 @@ class Evaluation:
 
     @property
     def coverage(self) -> float:
-        """The headline safety number: share of gold entities fully removed."""
+        """Share of *removable* gold entities fully removed. The safety number.
+
+        Over the removable subset rather than everything, because the alternative
+        lets a model score well on entities the tool was never going to touch.
+        """
+        return self.removable_covered / self.removable_gold if self.removable_gold else 0.0
+
+    @property
+    def coverage_all(self) -> float:
+        """The same over every annotation, kept for comparison with older runs."""
         return self.covered_total / self.gold_total if self.gold_total else 0.0
+
+    @property
+    def report_only_recall(self) -> float:
+        """Share of flag-only entities found. Not safety: whether the flag appears."""
+        return self.report_only_covered / self.report_only_gold if self.report_only_gold else 0.0
 
     @property
     def over_redaction_rate(self) -> float:
@@ -160,11 +190,18 @@ def evaluate(
             bump(label, "gold")
             if (gold.span.start, gold.span.end, label) in exact_pairs:
                 bump(label, "exact")
-            if _is_covered(mask, gold):
+            covered = _is_covered(mask, gold)
+            if covered:
                 bump(label, "covered")
             else:
                 leaked_here += 1
                 result.leaks.append((document.language, gold))
+            if gold.entity in REPORT_ONLY:
+                result.report_only_gold += 1
+                result.report_only_covered += covered
+            else:
+                result.removable_gold += 1
+                result.removable_covered += covered
         for finding in findings:
             bump(finding.entity.value, "predicted")
 
@@ -200,10 +237,13 @@ def format_evaluation(result: Evaluation, title: str) -> str:
         f"{result.predicted_total} predictions",
         "",
         f"  coverage        {result.coverage:6.1%}   "
-        f"({result.covered_total}/{result.gold_total} gold entities fully removed)",
-        f"  leaks           {len(result.leaks):6d}   gold entities left partly or wholly intact",
+        f"({result.removable_covered}/{result.removable_gold} removable entities fully removed)",
+        f"  leaks           {result.removable_gold - result.removable_covered:6d}   "
+        "removable entities left partly or wholly intact",
         f"  over-redaction  {result.over_redaction_rate:6.1%}   "
         f"({result.over_redacted_chars} chars removed that were not confidential)",
+        f"  flag-only found {result.report_only_recall:6.1%}   "
+        f"({result.report_only_covered}/{result.report_only_gold} reported, never removed)",
         f"  exact micro-F1  {result.exact_f1:6.3f}   span and label both correct",
         "",
         f"  {'entity':<22} {'gold':>5} {'pred':>5} {'cover':>7} {'P':>6} {'R':>6} {'F1':>6}",
@@ -224,7 +264,10 @@ def format_evaluation(result: Evaluation, title: str) -> str:
 
     if result.leaks:
         lines.append("")
-        lines.append("  leaked entities")
+        lines.append("  entities not fully covered")
         for language, gold in result.leaks:
-            lines.append(f"    {language:<4} {gold.entity.value:<22} {gold.text!r}")
+            # Marked rather than dropped: a missed job title is worth seeing, but
+            # calling it a leak would be wrong — the policy never removes one.
+            note = "  (flag only, not a leak)" if gold.entity in REPORT_ONLY else ""
+            lines.append(f"    {language:<4} {gold.entity.value:<22} {gold.text!r}{note}")
     return "\n".join(lines)

@@ -1,29 +1,130 @@
-Besprechungsprotokoll - vertraulich
+Aktennotiz - vertraulich
 
-Teilnehmer: [PERSON:Andreas Meier] ([JOB_TITLE:Leiter Vertrieb]), [PERSON:Sabine Hofmann]
-und [PERSON:Thomas Brunner] von [ORGANISATION:Realise Consulting AG].
+Teilnehmer: [PERSON:Thomas Muller] ([JOB_TITLE:Leiter Finanzen]),
+[PERSON:Sabine Keller] und [PERSON:Andreas Weber] von
+[ORGANISATION:Alpin Treuhand AG], [ADDRESS:Bahnhofstrasse 12, 8001 Zurich].
 
-Die Kundin [ORGANISATION:Nordwind Logistik GmbH] mit Sitz in
-[ADDRESS:Hauptstrasse 87, 8004 Zuerich] hat die Vertragsverlaengerung bestaetigt.
-Ansprechpartnerin ist [PERSON:Claudia Vogt], erreichbar unter
-[EMAIL:c.vogt@nordwind-logistik.example] oder [PHONE:+41 44 512 33 77].
+Der Kunde [ORGANISATION:Nordwind Logistik GmbH] mit Sitz in
+[ADDRESS:Industriestrasse 45, 4053 Basel] hat den Vertrag verlangert.
+Ansprechpartnerin ist [PERSON:Sabine Keller], erreichbar unter
+[EMAIL:s.keller@alpintreuhand.example] und [PHONE:+41 44 668 18 00].
 
-Administrative Angaben:
-UID der Gesellschaft: [CH_UID:CHE-116.281.710]
-AHV-Nummer des entsandten Mitarbeiters: [CH_AHV:756.1234.5678.97]
-Konto fuer Zahlungen: [IBAN:CH93 0076 2011 6238 5295 7]
+Die AHV-Nummer [CH_AHV:756.1234.5678.97] des entsandten Mitarbeiters
+[PERSON:Andreas Weber] ist im System falsch erfasst.
 
-Die Niederlassung in [LOCATION:Basel] uebernimmt das Projekt ab Maerz. Der
-[JOB_TITLE:technische Leiter] [PERSON:Peter Schneider] wechselt fuer sechs Monate nach
-[LOCATION:Bern]. Spesen gehen auf [IBAN:DE89 3704 0044 0532 0130 00].
+Zahlungen erfolgen auf [IBAN:CH93 0076 2011 6238 5295 7], die
+Unternehmens-Identifikationsnummer lautet [CH_UID:CHE-116.281.710].
+Die Niederlassung [LOCATION:Bern] ubernimmt die Betreuung ab April, der
+[JOB_TITLE:technische Leiter] [PERSON:Markus Baumann] wechselt nach
+[LOCATION:Winterthur].
 
-[PERSON:Sabine Hofmann] hat darauf hingewiesen, dass die Rechnungsadresse
-[ADDRESS:Bahnhofplatz 3, 3011 Bern] im System veraltet ist.
+Rechnungsstelle: [ORGANISATION:Alpin Treuhand AG], Telefon [PHONE:+41 31 320 40 50],
+[EMAIL:buchhaltung@alpintreuhand.example]. Testserver [IP_ADDRESS:10.42.7.19].
 
-Die Gegenpartei [ORGANISATION:Kanzlei Wagner und Partner] aus
-[LOCATION:Muenchen] uebernimmt die Vertragspruefung. Kontakt:
-[EMAIL:sekretariat@kanzlei-wagner.example], Telefon [PHONE:+49 89 4711 2200].
+Bestellnummer 90210 vom 03.03.2024, 250 Stuck, Lieferung im Mai geplant.
 
-Der Testserver bleibt bis zur Abnahme unter [IP_ADDRESS:10.42.7.19] erreichbar.
-Bestellung 90210 vom 03.03.2024, 250 Stueck, Lieferung im April.
-Das Angebot wurde ohne Aenderungen genehmigt.
+
+Personaldossier - vertraulich
+
+Betreff: Anstellung als [JOB_TITLE:Systemanalystin].
+
+Bewerberin: [PERSON:Claudia Frei], wohnhaft [ADDRESS:Lindenweg 8, 3012 Bern],
+AHV [CH_AHV:756.4819.2375.67]. Kontakt [EMAIL:claudia.frei@post.example],
+[PHONE:+41 31 301 22 11].
+
+Der Vertrag wurde vom [JOB_TITLE:Personalleiter] [PERSON:Stefan Zimmermann]
+gegengezeichnet, AHV [CH_AHV:756.5930.1742.81]. Arbeitsort ist die Filiale
+[LOCATION:Zug], mit gelegentlichen Einsatzen in [LOCATION:Lugano].
+
+Lohnzahlung auf [IBAN:CH39 0024 3123 4567 8901 2], Spesen auf das deutsche
+Konto [IBAN:DE46 1005 0000 1234 5678 90].
+
+Hinweis: die im ersten Formular angegebene AHV-Nummer 756.1234.5678.90 ist
+ungultig und wurde zuruckgewiesen. Ebenso die IBAN
+CH93 0076 2011 6238 5295 9, die die Prufsumme nicht erfullt.
+
+Dossier 2024/00841. Ende der Probezeit 30.09.2024.
+
+
+Rechnung - interne Kopie
+
+Aussteller: [ORGANISATION:Alpin Treuhand AG], [ADDRESS:Bahnhofstrasse 12, 8001 Zurich]
+UID [CH_UID:CHE-105.213.041]
+
+Empfanger: [ORGANISATION:Seeblick Immobilien AG]
+[ADDRESS:Seestrasse 101, 8700 Kusnacht]
+UID [CH_UID:CHE-812.495.032]
+
+Kontakt: [PERSON:Ursula Hofer], [JOB_TITLE:Einkaufsleiterin],
+[EMAIL:u.hofer@seeblick-immobilien.example], [PHONE:+41 44 910 55 66].
+AHV [CH_AHV:756.2476.8193.55].
+
+Positionen:
+Artikel 4532567890123451 - Architekturberatung - 12 Tage
+Artikel 8891204471 - interne Schulung - 4 Tage
+Artikel 90210-B - Softwarelizenzen - 1 Jahr
+
+Die Firmenkarte [CREDIT_CARD:5454545454545454] lautet auf
+[PERSON:Ursula Hofer]. Der Restbetrag geht auf
+[IBAN:CH32 0048 3550 4321 2345 6].
+
+Beanstandung eroffnet durch den [JOB_TITLE:Verwaltungsdirektor]
+[PERSON:Rolf Steiner], AHV [CH_AHV:756.7051.9238.47].
+
+Nettobetrag 48 250,00 CHF, Mehrwertsteuer 8,1 Prozent.
+Zahlungsreferenz 11982730451 vom 12.06.2025.
+
+
+Technische Meldung - vertraulich
+
+Die Storung wurde von [PERSON:Peter Frankfurt] gemeldet,
+[JOB_TITLE:Systemadministrator] am Standort [LOCATION:Frankfurt].
+Erreichbar unter [EMAIL:p.frankfurt@alpintreuhand.example] und
+[PHONE:+41 58 219 44 12].
+
+Betroffen sind die Server [IP_ADDRESS:192.168.14.7] und [IP_ADDRESS:10.42.7.19],
+einsehbar im Portal [URL:https://monitor.alpintreuhand.example/vorfaelle].
+Die ersetzte Netzwerkkarte hatte die Adresse [MAC_ADDRESS:00:1B:44:11:3A:B7].
+
+Mitgearbeitet hat [PERSON:Karin Basel] vom Standort [LOCATION:Basel], zusammen
+mit dem [JOB_TITLE:Sicherheitsverantwortlichen] [PERSON:Daniel Zurich].
+
+Firmware-Version 2.14.6.3 laut Register, anzugleichen auf 11.0.3.
+Wartungsfenster 04.11.2024, von 22.00 bis 02.00 Uhr.
+Ticket 5454545454545451 im Altsystem, migriert auf Nummer 90210.
+
+Der Lieferant [ORGANISATION:Technetz Systeme GmbH], UID
+[CH_UID:CHE-903.712.840], hat den Einsatz verrechnet. Zahlung auf
+[IBAN:CH63 0900 0000 2500 9779 8].
+
+Unterzeichnet: [PERSON:Peter Frankfurt], [LOCATION:Zurich].
+
+
+Lieferantenverzeichnis - vertraulicher Auszug
+
+Aktiver Lieferant: [ORGANISATION:Metallbau Ostschweiz AG],
+[ADDRESS:Gewerbestrasse 9, 9000 St. Gallen], UID [CH_UID:CHE-451.627.387].
+Ansprechpartner [PERSON:Bruno Widmer], [JOB_TITLE:Werkleiter],
+[EMAIL:b.widmer@metallbau-ost.example], [PHONE:+41 71 222 33 44].
+
+Gesperrter Lieferant: [ORGANISATION:Papierwerk Mittelland AG], UID
+[CH_UID:CHE-347.560.199], Sitz [ADDRESS:Fabrikweg 210, 5000 Aarau].
+Administrativer Kontakt [EMAIL:verwaltung@papierwerk-mittelland.example].
+
+Bestellportal: [URL:https://lieferanten.alpintreuhand.example/portal/zugang]
+Technische Dokumentation: [URL:http://wiki.alpintreuhand.example/logistik]
+
+Im Lager [LOCATION:Zug] erfasste Netzwerkgerate:
+Hauptswitch [MAC_ADDRESS:3C:22:FB:8A:41:0D] auf [IP_ADDRESS:172.16.4.2]
+Ersatzswitch [MAC_ADDRESS:A4:83:E7:2C:9F:16] auf [IP_ADDRESS:172.16.4.3]
+
+Zugeteilte Zahlungskarten:
+[PERSON:Bruno Widmer] - [CREDIT_CARD:3530111333300000]
+[PERSON:Karin Basel] - [CREDIT_CARD:6011000990136073]
+
+Die im alten Vertrag genannte UID CHE-451.627.380 erfullt die Prufziffer nicht
+und wurde korrigiert. Die Karte 3530111333300008 wurde ebenfalls abgelehnt.
+
+Kundennummer 05129830 - keine UID, nur acht Ziffern.
+Chargennummer 756123456789 im Lagersystem.
+Grundbuchreferenz 20156-210-9 des Gebaudes in Aarau.

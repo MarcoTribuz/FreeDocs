@@ -17,15 +17,21 @@ from .pipeline import ScrubResult
 #: this one has a known, bounded scope.
 #:
 #: The measured figures come from ``freedocs benchmark`` over the labelled corpus
-#: in ``corpus/``: 103 gold entities across four languages. Quoting a number the
-#: tool can reproduce on demand is the point; quoting a number nobody measured is
-#: how a caveat becomes marketing.
+#: in ``corpus/``: 378 gold entities across four languages, 342 of them types the
+#: policy removes. Quoting a number the tool can reproduce on demand is the point;
+#: quoting a number nobody measured is how a caveat becomes marketing.
+#:
+#: The figure went *down* when the corpus grew from 103 entities to 378, which is
+#: the corpus doing its job rather than a regression. Update it from a benchmark
+#: run, never by rounding up.
 CAVEATS = [
     "Direct identifiers are removed; re-identification from combinations of "
     "remaining details (role, dates, locations) is still possible.",
     "Detection is not exhaustive. On the project's own labelled corpus the full "
-    "layer stack covers 99% of confidential entities, which still means some are "
-    "missed, and a real document is harder than a test one.",
+    "layer stack covers 97% of the confidential entities it removes, which still "
+    "means some are missed, and a real document is harder than a test one.",
+    "Place names are the weakest category, especially where a place is also "
+    "somebody's surname in the same document.",
     "Review the output before sending it anywhere.",
 ]
 

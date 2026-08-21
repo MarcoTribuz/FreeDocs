@@ -23,7 +23,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (334 tests, ~49s with model+OCR)
+uv run pytest -q                       # full suite (429 tests, ~75s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -255,6 +255,23 @@ codice fiscale values tried during M0 were invalid. The same applies to the
 corpus: `test_corpus.py` asserts that every annotated identifier is actually
 accepted by L1, so a bad value cannot make a detector look worse than it is.
 
+**But "L1 rejects it" and "the value is fake" are different failures.** That test
+used to cover PHONE, and it forbade a case worth having: `+39 0444 512 337` is a
+valid Italian number that `STRICT_GROUPING` declines, because the numbering plan
+groups the subscriber part as `512337`. Asserting it away would hide a real gap in
+L1 — one GLiNER2 in fact closes, which is the layering working and is now visible.
+So phone canaries are checked with `phonenumbers.is_valid_number` (is the value
+real?) and the detection assertion is kept for the types L1 owns from pattern to
+checksum, where a miss really is a corpus defect.
+
+**Coverage is scored over the entities the policy removes.** `REPORT_ONLY` types
+are flagged and never deleted, so "share fully removed" is meaningless for them in
+both directions: finding every job title makes no document safer, and missing one
+leaks nothing. They were 36 of 378 annotations and were inflating the headline.
+`metrics.py` counts them apart (`report_only_recall`) and marks them in the
+not-covered list so nobody reads one as a leak. `coverage_all` is kept for
+comparison with figures published before the split.
+
 **Quality is measured, not asserted.** Format tests pin the registry to L1 via
 `tests/conftest.l1_scrubber()`, because they are about write-back and a model in
 the loop makes them slow and threshold-sensitive. Detection quality lives in
@@ -266,6 +283,27 @@ in a unit test: the next model would "fail" while being better.
 every number after it is wrong — and then the benchmark measures the annotation
 instead of the model. An unknown label is an error, not a skip: a dropped
 annotation gets scored as a detector hallucination.
+
+**The corpus has to be able to make something fail.** It is 378 entities over
+twenty documents, up from 103 over four, and growing it moved the headline from
+99.0% to 97.4% — the instrument getting sharper, not a regression. What the small
+one could not report: LOCATION coverage is 75.8% against PERSON's 100%, because
+every remaining leak but one is a place name that also appears as somebody's
+surname in the same document (`Basel`, `Preston`, `Lyon`, `Firenze`). Keep those
+collisions when editing the corpus; they are the finding.
+
+Unannotated text is scored as over-redaction, so **an adversarial case must be a
+realistic string a checksum rejects, never a valid identifier relabelled as
+ordinary text.** Three of the traps first written here reused the same digits as an
+annotated identifier elsewhere, which made one string both confidential and not.
+The good ones: identifiers with a broken check digit (all correctly refused), a
+four-part firmware version indistinguishable from an IPv4 address, and an
+eight-digit customer number that is a valid Italian landline. The last two are why
+IP and PHONE precision sit at 0.83, and no regex can settle either.
+
+`evaluate()` calls `detect()` directly, so `Policy.min_confidence` is **not**
+applied. The benchmark measures the detector, not the pipeline. Do not tune a
+corpus trap against a threshold that is not in the loop.
 
 **Redaction removes, it does not cover.** `formats/pdf_text.py` uses PyMuPDF
 `apply_redactions()` and always a full rewrite (`garbage=4, clean=True,

@@ -31,3 +31,116 @@ Il server di test resta [IP_ADDRESS:10.42.7.19] fino al collaudo.
 
 Ordine numero 90210 del 03.03.2024, 250 pezzi, consegna prevista in aprile.
 Il preventivo e stato approvato senza modifiche.
+
+
+Pratica risorse umane - riservata
+
+Oggetto: assunzione a tempo indeterminato.
+
+Candidato: [PERSON:Silvia Ferrari], nata a [LOCATION:Napoli], residente in
+[ADDRESS:Corso Umberto I 118, 80138 Napoli]. Codice fiscale
+[IT_CODICE_FISCALE:FRRSLV83M47F839I], AVS [CH_AHV:756.8745.2369.15].
+Contatti: [EMAIL:silvia.ferrari@posta.example], [PHONE:+39 081 552 3390].
+
+Assunta come [JOB_TITLE:analista di sistemi] presso la sede di
+[LOCATION:Chiasso]. Il contratto e stato controfirmato dal
+[JOB_TITLE:direttore del personale] [PERSON:Giovanni Moretti], codice fiscale
+[IT_CODICE_FISCALE:MRTGNN66B21L219T].
+
+Accredito dello stipendio su [IBAN:IT32 M030 1503 2000 0000 0123 457].
+Rimborso trasferte sul conto svizzero [IBAN:CH77 0038 9144 1287 3902 1].
+
+Il collega [PERSON:Andrea Ricci] ([IT_CODICE_FISCALE:RCCNDR88P30D969H]) segue
+l'inserimento. Numero interno [PHONE:+41 91 911 22 33].
+
+Nota: il documento di identita fornito riporta un codice fiscale con carattere
+di controllo errato, RSSMRA85T10A562T, ed e stato respinto dallo sportello.
+Anche l'IBAN indicato nel primo modulo, IT60 X054 2811 1010 0000 0123 999,
+non supera la verifica e va richiesto di nuovo.
+
+Protocollo 2024/00841. Scadenza periodo di prova 30.09.2024.
+
+
+Fattura - copia interna
+
+Emittente: [ORGANISATION:Realise Consulting SA], [ADDRESS:Bahnhofstrasse 12, 8001 Zurigo]
+UID [CH_UID:CHE-105.213.041]
+
+Destinatario: [ORGANISATION:Adriatica Logistica SpA]
+[ADDRESS:Zona Industriale 7, 70126 Bari]
+Partita IVA [IT_PARTITA_IVA:12345670017]
+
+Referente: [PERSON:Chiara Galli], [JOB_TITLE:responsabile acquisti],
+[EMAIL:c.galli@adriatica-logistica.example], [PHONE:+39 080 531 4477].
+Codice fiscale [IT_CODICE_FISCALE:GLLCHR95L65G273K].
+
+Righe di fattura:
+Articolo 4532567890123451 - consulenza architetturale - 12 giornate
+Articolo 8891204471 - formazione interna - 4 giornate
+Articolo 90210-B - licenze software - 1 annualita
+
+La carta aziendale usata per l'anticipo e la [CREDIT_CARD:4532567890123455],
+intestata a [PERSON:Chiara Galli]. Il pagamento del saldo arrivera su
+[IBAN:IT70 B030 6909 6061 0000 0012 345].
+
+Contestazione aperta dal [JOB_TITLE:direttore amministrativo]
+[PERSON:Paolo Martinelli], [IT_CODICE_FISCALE:MRTPLA71E14F205Y].
+
+Totale imponibile 48 250,00 EUR. Aliquota 22 per cento.
+Riferimento bonifico 11982730451 del 12.06.2025.
+
+
+Segnalazione tecnica - riservata
+
+Il guasto e stato aperto da [PERSON:Roberto Firenze], [JOB_TITLE:sistemista],
+che lavora nella sede di [LOCATION:Firenze]. Il suo indirizzo di posta e
+[EMAIL:r.firenze@realise.example] e il numero diretto [PHONE:+41 58 219 44 12].
+
+I server coinvolti sono [IP_ADDRESS:192.168.14.7] e [IP_ADDRESS:10.42.7.19],
+raggiungibili dal portale [URL:https://monitor.realise.example/incidenti].
+La scheda di rete sostituita aveva indirizzo [MAC_ADDRESS:00:1B:44:11:3A:B7].
+
+Ha collaborato [PERSON:Elena Milano] della sede di [LOCATION:Milano], insieme al
+[JOB_TITLE:responsabile sicurezza] [PERSON:Davide Genova].
+
+Versione del firmware 2.14.6.3 secondo il registro, da allineare alla 11.0.3.
+Finestra di manutenzione 04.11.2024, dalle 22.00 alle 02.00.
+Ticket 5454545454545451 nel vecchio sistema, migrato al numero 90210.
+
+Il fornitore [ORGANISATION:Tecnoreti Sistemi Srl], partita IVA
+[IT_PARTITA_IVA:02983740123], ha fatturato l'intervento. Pagamento su
+[IBAN:CH63 0900 0000 2500 9779 8].
+
+Firmato: [PERSON:Roberto Firenze], [LOCATION:Lugano].
+
+
+Registro fornitori - estratto riservato
+
+Fornitore attivo: [ORGANISATION:Metalmeccanica Veneta Srl],
+[ADDRESS:Via dell'Artigianato 9, 36100 Vicenza], partita IVA
+[IT_PARTITA_IVA:05129830880]. Referente [PERSON:Stefano Vitale],
+[JOB_TITLE:direttore di stabilimento], [EMAIL:s.vitale@mmveneta.example],
+[PHONE:+39 0444 512 337].
+
+Fornitore sospeso: [ORGANISATION:Cartotecnica Lombarda SpA], partita IVA
+[IT_PARTITA_IVA:07364511001], sede [ADDRESS:Viale Certosa 210, 20156 Milano].
+Contatto amministrativo [EMAIL:amministrazione@cartolombarda.example].
+
+Portale ordini: [URL:https://fornitori.realise.example/portale/accesso]
+Documentazione tecnica: [URL:http://wiki.realise.example/logistica]
+
+Apparati di rete censiti nel magazzino di [LOCATION:Chiasso]:
+switch principale [MAC_ADDRESS:3C:22:FB:8A:41:0D] su [IP_ADDRESS:172.16.4.2]
+switch di riserva [MAC_ADDRESS:A4:83:E7:2C:9F:16] su [IP_ADDRESS:172.16.4.3]
+
+Carte di pagamento assegnate:
+[PERSON:Stefano Vitale] - [CREDIT_CARD:3742454554000121]
+[PERSON:Elena Milano] - [CREDIT_CARD:4023600000000002]
+
+La partita IVA riportata sul vecchio contratto, 05129830881, non supera il
+controllo Luhn ed e stata corretta. Anche la carta 3742454554000129 e stata
+rifiutata dal circuito.
+
+Codice cliente 05129830 - non e una partita IVA, sono otto cifre.
+Numero di lotto 756123456789 nel gestionale di magazzino.
+Riferimento catastale 20156-210-9 del fabbricato di Milano.
