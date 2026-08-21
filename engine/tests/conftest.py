@@ -49,6 +49,12 @@ CANARIES: dict[str, str] = {
     "IP_ADDRESS": "192.168.13.37",
     "MAC_ADDRESS": "00:1B:44:11:3A:B7",
     "URL": "https://intranet.example.com/hr/salaries",
+    "DE_IDNR": "36574261809",
+    "DE_STNR": "4151081508156",
+    "DE_VAT": "DE136695976",
+    "AT_UID": "ATU13585627",
+    "AT_TIN": "59-119/9013",
+    "AT_VNR": "1237 010180",
 }
 
 #: What each canary is: the ``EntityType`` name, and the issuing country when the
@@ -66,6 +72,12 @@ CANARY_TYPES: dict[str, tuple[str, str | None]] = {
     "IP_ADDRESS": ("IP_ADDRESS", None),
     "MAC_ADDRESS": ("MAC_ADDRESS", None),
     "URL": ("URL", None),
+    "DE_IDNR": ("TAX_ID", "de"),
+    "DE_STNR": ("TAX_ID", "de"),
+    "DE_VAT": ("VAT_ID", "de"),
+    "AT_UID": ("VAT_ID", "at"),
+    "AT_TIN": ("TAX_ID", "at"),
+    "AT_VNR": ("NATIONAL_ID", "at"),
 }
 
 
@@ -78,6 +90,12 @@ NEAR_MISSES: list[str] = [
     "CHE-116.281.711",  # UID failing its mod-11 check
     "4111 1111 1111 1112",  # card failing Luhn
     "999.999.999.999",  # not a v4 address
+    "36574261800",  # German IdNr, last digit changed
+    "4151181508156",  # German Steuernummer failing its check
+    "DE136695970",  # German USt-IdNr failing its check
+    "ATU13585620",  # Austrian UID failing its check
+    "591199010",  # Austrian Abgabenkontonummer failing its check
+    "1237 010181",  # Austrian Versicherungsnummer failing its check
 ]
 
 
@@ -107,6 +125,18 @@ def document(canaries: dict[str, str]) -> str:
             f"Contatto: {canaries['EMAIL']}",
             f"Server interno {canaries['IP_ADDRESS']} MAC {canaries['MAC_ADDRESS']}",
             f"Dettagli su {canaries['URL']}",
+            "",
+            # The German block is here for the keywords, not for realism. Six of
+            # the rules below full confidence only reach it through a word in
+            # their own language, and a fixture that never supplies one would
+            # exercise the wrong branch on every format test that uses this.
+            "Zweigstelle Deutschland / Osterreich",
+            f"Steuerliche Identifikationsnummer: {canaries['DE_IDNR']}",
+            f"Steuernummer: {canaries['DE_STNR']}",
+            f"USt-IdNr.: {canaries['DE_VAT']}",
+            f"UID Osterreich: {canaries['AT_UID']}",
+            f"Abgabenkontonummer: {canaries['AT_TIN']}",
+            f"Sozialversicherungsnummer: {canaries['AT_VNR']}",
             "",
         ]
     )

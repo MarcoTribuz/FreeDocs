@@ -105,3 +105,115 @@ CARD_CODES = (
     "cvv",
     "cvc",
 )
+
+
+#: Personal tax numbers, and the Italian codice fiscale, which is both.
+TAX_STEMS = (
+    # Italian
+    "codice fiscale",
+    # English
+    "tax number",
+    "tax id",
+    "tax reference",
+    "taxpayer",
+    # German (DE, AT)
+    "steuernummer",
+    "steuerliche identifikationsnummer",
+    "identifikationsnummer",
+    "steuer-id",
+    "abgabenkontonummer",
+    "steuerpflichtig",
+    # French
+    "numero fiscal",
+    "identifiant fiscal",
+    # Spanish and Portuguese
+    "identificacion fiscal",
+    "contribuinte",
+    # Polish
+    "identyfikacji podatkowej",
+    # Swedish
+    "skatt",
+)
+
+TAX_CODES = (
+    "cf",
+    "cod.fisc",
+    "stnr",
+    "st.-nr",
+    "st-nr",
+    "idnr",
+    "tin",
+    "utr",
+    "nif",
+    "nip",
+)
+
+#: Personal identity and social-security numbers.
+NATIONAL_STEMS = (
+    # German (CH, AT, DE)
+    "sozialversicherungsnummer",
+    "versicherungsnummer",
+    # English
+    "social security",
+    "national insurance",
+    "national id",
+    "identity number",
+    # French
+    "securite sociale",
+    "numero national",
+    # Italian
+    "previdenza",
+    # Dutch
+    "burgerservicenummer",
+    "rijksregisternummer",
+    "sofinummer",
+    # Spanish
+    "identidad",
+    # Swedish
+    "personnummer",
+)
+
+NATIONAL_CODES = (
+    "avs",
+    "ahv",
+    "svnr",
+    "vnr",
+    "vsnr",
+    "ssn",
+    "nir",
+    "bsn",
+    "niss",
+    "pesel",
+    "nhs",
+    "dni",
+    "nie",
+)
+
+#: Company and trade-register identifiers.
+COMPANY_STEMS = (
+    "handelsregister",
+    "firmenbuchnummer",
+    "unternehmens-identifikationsnummer",
+    "company number",
+    "registration number",
+    "camera di commercio",
+    "kamer van koophandel",
+    "organisationsnummer",
+)
+
+COMPANY_CODES = (
+    "uid",
+    "ide",
+    "idi",
+    "fn",
+    "siren",
+    "siret",
+    "rcs",
+    "kvk",
+    "regon",
+    "krs",
+    "orgnr",
+    "cif",
+    "nipc",
+    "rea",
+)

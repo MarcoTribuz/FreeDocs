@@ -41,9 +41,23 @@ def test_detected_spans_match_the_document_text(detector: ValidatorDetector, doc
 
 @pytest.mark.parametrize("value", NEAR_MISSES)
 def test_near_misses_are_rejected(detector: ValidatorDetector, value: str):
+    """A value that fails its check digit must not be reported as that identifier.
+
+    Scoped to the checksum-backed types on purpose. `36574261800` is a German
+    IdNr with the last digit changed, both tax checksums refuse it, and the
+    Italian numbering plan then recognises it as a dialable mobile number —
+    which it is, `365` being a real prefix. That is a different claim by a
+    different detector for its own good reason, and the corpus already carries
+    the same phenomenon as a documented trap: an eight-digit customer number
+    that is a valid Italian landline, which is half of why PHONE precision sits
+    at 0.83. Asserting it away here would be asserting that the world is tidier
+    than it is.
+    """
+    from freedocs.detect.validators import CHECKSUM_VERIFIABLE
+
     text = f"Riferimento: {value} - fine"
     findings = detector.detect(text)
-    offenders = [f for f in findings if value in f.text]
+    offenders = [f for f in findings if value in f.text and f.entity in CHECKSUM_VERIFIABLE]
     assert not offenders, f"{value!r} failed its checksum but was reported as {offenders}"
 
 

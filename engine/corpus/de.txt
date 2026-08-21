@@ -128,3 +128,45 @@ und wurde korrigiert. Die Karte 3530111333300008 wurde ebenfalls abgelehnt.
 Kundennummer 05129830 - keine UID, nur acht Ziffern.
 Chargennummer 756123456789 im Lagersystem.
 Grundbuchreferenz 20156-210-9 des Gebaudes in Aarau.
+
+
+Niederlassungsakte DACH - vertraulich
+
+Die Tochtergesellschaft [ORGANISATION:Nordwind Logistik Deutschland GmbH],
+[ADDRESS:Hafenstrasse 118, 20359 Hamburg], wird ab Juli konsolidiert.
+Geschaftsfuhrer ist [PERSON:Hendrik Vogel], [JOB_TITLE:Niederlassungsleiter],
+erreichbar unter [EMAIL:h.vogel@nordwind-logistik.example] und
+[PHONE:+49 40 3070 1180].
+
+Steuerliche Identifikationsnummer von [PERSON:Hendrik Vogel]:
+[TAX_ID:36 574 261 809]. Die Steuernummer des Betriebs lautet
+[TAX_ID:9755015729469], die USt-IdNr. [VAT_ID:DE136695976].
+
+Die Buchhaltung fuhrt [PERSON:Miriam Sanders], [JOB_TITLE:Bilanzbuchhalterin],
+IdNr [TAX_ID:35721419680], [EMAIL:m.sanders@nordwind-logistik.example].
+Zahlungen an [IBAN:DE46 1005 0000 1234 5678 90].
+
+Die osterreichische Schwester [ORGANISATION:Alpin Spedition GmbH] in
+[ADDRESS:Linzer Strasse 74, 5020 Salzburg] fuhrt die UID [VAT_ID:ATU13585627].
+Abgabenkontonummer [TAX_ID:59-119/9013]. Kontakt
+[EMAIL:office@alpin-spedition.example], [PHONE:+43 662 887 4410].
+
+Sozialversicherungsnummer der entsandten [JOB_TITLE:Disponentin]
+[PERSON:Elisabeth Gruber]: [NATIONAL_ID:9087 090387]. Ihr Vorgesetzter
+[PERSON:Wolfgang Steiner] ist unter SVNR [NATIONAL_ID:3720 090394] gemeldet,
+Wohnsitz [ADDRESS:Getreidegasse 21, 5020 Salzburg].
+
+Weitere Beteiligte: [PERSON:Anneliese Hamburg] aus dem Standort
+[LOCATION:Hamburg], IdNr [TAX_ID:74183779524], und [PERSON:Josef Linz] aus
+[LOCATION:Linz], SVNR [NATIONAL_ID:8969 260582].
+
+Zweite Betriebsstelle: UID [VAT_ID:ATU66042908], USt-IdNr.
+[VAT_ID:DE269064852], Steuernummer [TAX_ID:5818072810726].
+
+Die im Entwurf genannte IdNr 36574261800 erfullt die Prufziffer nicht, ebenso
+die Steuernummer 4151181508156, die USt-IdNr. DE136695970, die UID ATU13585620
+und die Abgabenkontonummer 591199010. Alle wurden zuruckgewiesen.
+
+Auftragsnummer 4471209388 im Altsystem, Wareneingang 20240715.
+Zollposition 8708 9997 00 laut Tarif, Palettenmass 1200 800 144.
+Interne Kostenstelle 30-412/2201, Budgetzeile 0885 vom 15.07.2024.
