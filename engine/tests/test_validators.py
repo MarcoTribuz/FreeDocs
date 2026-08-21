@@ -329,3 +329,20 @@ def test_narrowing_the_countries_narrows_the_numbering_plans():
         if f.entity is EntityType.PHONE
     ]
     assert not findings, "the Italian plan should not be consulted for a Swiss-only run"
+
+
+def test_the_supported_countries_and_the_rules_agree():
+    """Every country with a rule must be listed, and the extras explained.
+
+    `SUPPORTED_COUNTRIES` drives the CLI's validation, the RPC `capabilities`
+    answer and the chips in the window, so a country with rules that is missing
+    from it is unreachable, and one in it with no rules has to be there for a
+    reason. The United States is the only such case: a numbering plan and the
+    model, no checksum. See the labels in backends/gliner_backend.
+    """
+    from freedocs.detect.validators import SUPPORTED_COUNTRIES, build_rules
+
+    with_rules = {rule.country for rule in build_rules() if rule.country}
+    assert with_rules <= set(SUPPORTED_COUNTRIES)
+    assert set(SUPPORTED_COUNTRIES) - with_rules == {"us"}
+    assert list(SUPPORTED_COUNTRIES) == sorted(SUPPORTED_COUNTRIES)

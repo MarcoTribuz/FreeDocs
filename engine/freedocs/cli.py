@@ -16,6 +16,7 @@ from .core.errors import MissingDependency
 from .core.findings import EntityType
 from .core.policy import Action, Policy
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
+from .detect.validators import SUPPORTED_COUNTRIES
 from .formats.pdf import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import Scrubber, build_registry, default_registry
@@ -59,6 +60,18 @@ def _build_parser() -> argparse.ArgumentParser:
         help="leave this entity type untouched; repeatable",
     )
     scrub.add_argument(
+        "--countries",
+        default=None,
+        metavar="CODES",
+        help=(
+            "comma-separated ISO country codes to look for identifiers and "
+            "national phone numbers from, e.g. 'ch,it,de'. Defaults to every "
+            "supported country: naming them is a way to raise precision, never "
+            "a requirement, because the wrong list produces a file the user "
+            "believes is clean. Try 'freedocs countries'."
+        ),
+    )
+    scrub.add_argument(
         "--allow-leaks",
         action="store_true",
         help="write the output even if verification finds surviving values",
@@ -98,9 +111,15 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("files", nargs="+", type=Path)
     inspect.add_argument("--min-confidence", type=float, default=0.5)
     inspect.add_argument("--detectors", default=None)
+    inspect.add_argument("--countries", default=None, metavar="CODES")
 
     entities = sub.add_parser("entities", help="list the entity types this build detects")
     entities.set_defaults(files=[])
+
+    countries = sub.add_parser(
+        "countries", help="list the countries whose identifiers this build knows"
+    )
+    countries.set_defaults(files=[])
 
     models = sub.add_parser(
         "review-models", help="list the local Ollama models available for --review"
@@ -133,9 +152,37 @@ def _build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument(
         "--language", action="append", default=[], help="restrict to this language; repeatable"
     )
+    benchmark.add_argument(
+        "--countries",
+        default=None,
+        metavar="CODES",
+        help=(
+            "measure with only these countries enabled, so the cost of adding "
+            "one is a command rather than an experiment"
+        ),
+    )
     benchmark.set_defaults(files=[])
 
     return parser
+
+
+def _countries(args: argparse.Namespace) -> list[str] | None:
+    """None for every country, which is what no flag means.
+
+    An empty selection is refused rather than read as "no countries": a typo in
+    the value would otherwise silently disable the whole checksum layer, and this
+    is the one option where being wrong looks exactly like working.
+    """
+    raw = getattr(args, "countries", None)
+    if raw is None:
+        return None
+    names = [part.strip().lower() for part in raw.split(",") if part.strip()]
+    if not names:
+        raise SystemExit("--countries was empty; omit it to use every supported country")
+    unknown = sorted(set(names) - set(SUPPORTED_COUNTRIES))
+    if unknown:
+        raise SystemExit(f"unknown country code(s) {', '.join(unknown)}; try 'freedocs countries'")
+    return names
 
 
 def _policy(args: argparse.Namespace) -> Policy:
@@ -163,7 +210,8 @@ def _reviewer(args: argparse.Namespace) -> LlmReviewer | None:
 
 def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
     spec = getattr(args, "detectors", None)
-    registry = build_registry(spec) if spec else default_registry()
+    countries = _countries(args)
+    registry = build_registry(spec, countries=countries) if spec else default_registry(countries)
     return Scrubber(
         policy=_policy(args), registry=registry, strict=strict, reviewer=_reviewer(args)
     )
@@ -239,6 +287,27 @@ def _cmd_entities(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_countries(_: argparse.Namespace) -> int:
+    """The countries, and what each one actually gets.
+
+    Printed rather than just listed, because "supported" means two different
+    things here: twelve countries have identifiers a checksum confirms, and the
+    United States is in the list for its numbering plan and the model alone.
+    Leaving the reader to infer that from an undifferentiated list would be
+    letting them believe a US social security number is checksum-confirmed.
+    """
+    from .detect.validators import MissingDependency, build_rules
+
+    try:
+        rules = build_rules()
+    except MissingDependency:
+        rules = []
+    for code in SUPPORTED_COUNTRIES:
+        named = sorted({rule.entity.value for rule in rules if rule.country == code})
+        print(f"{code}  {', '.join(named) if named else 'phone numbers and the NER layer only'}")
+    return EXIT_OK
+
+
 def _cmd_review_models(args: argparse.Namespace) -> int:
     host = getattr(args, "review_host", None) or DEFAULT_HOST
     try:
@@ -276,10 +345,13 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
             print(f"no corpus documents for {sorted(wanted)}", file=sys.stderr)
             return EXIT_USAGE
 
+    countries = _countries(args)
     specs = [part.strip() for part in (args.detectors or "").split(",") if part.strip()]
     for name in specs or [None]:
         try:
-            registry = build_registry(name) if name else default_registry()
+            registry = (
+                build_registry(name, countries=countries) if name else default_registry(countries)
+            )
             # evaluate() is inside the guard too: backends load their model on
             # first prediction, so a missing dependency surfaces here rather than
             # at construction, and an uncaught one would print a traceback and
@@ -308,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
         "scrub": _cmd_scrub,
         "inspect": _cmd_inspect,
         "entities": _cmd_entities,
+        "countries": _cmd_countries,
         "review-models": _cmd_review_models,
         "benchmark": _cmd_benchmark,
     }

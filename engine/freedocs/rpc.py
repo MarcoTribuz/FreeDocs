@@ -39,6 +39,7 @@ from .detect.llm_review import (
     RemoteHostRefused,
     available_models,
 )
+from .detect.validators import SUPPORTED_COUNTRIES
 from .formats.pdf import ScannedPdfNotSupported, tessdata_path
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import LAYER_SPECS, Scrubber, build_registry, default_registry
@@ -94,10 +95,21 @@ class Session:
 
     # -- state -----------------------------------------------------------------
 
-    def registry(self, spec: str | None) -> object:
-        if self._registry is None or self._registry_spec != spec:
-            self._registry = build_registry(spec) if spec else default_registry()
-            self._registry_spec = spec
+    def registry(self, spec: str | None, countries: tuple[str, ...] | None = None) -> object:
+        """One registry per configuration, kept for the life of the session.
+
+        The key has to be the whole configuration, not just the spec string.
+        Loading GLiNER2 takes seconds and running it takes milliseconds, so the
+        cache is what makes one long-lived process worth having — but a key that
+        ignored `countries` would answer the second request of a session with the
+        first request's country selection and never say so.
+        """
+        key = (spec, countries)
+        if self._registry is None or self._registry_spec != key:
+            self._registry = (
+                build_registry(spec, countries=countries) if spec else default_registry(countries)
+            )
+            self._registry_spec = key
         return self._registry
 
     # -- methods ---------------------------------------------------------------
@@ -113,6 +125,10 @@ class Session:
             "version": _version(),
             "formats": sorted(_supported_extensions()),
             "detector_specs": list(LAYER_SPECS),
+            # Sent rather than duplicated in the window, for the same reason as
+            # review_host: which countries this build covers is the engine's
+            # answer, and two lists would be two answers that can disagree.
+            "countries": list(SUPPORTED_COUNTRIES),
             "layers": [type(detector).__name__ for detector in registry.detectors],
             "limitations": list(registry.notes),
             "ocr_available": tessdata_path() is not None,
@@ -162,7 +178,7 @@ class Session:
         """What would be removed from one file, without writing anything."""
         path = _require_path(params, "path")
         policy = _policy_from(params)
-        registry = self.registry(params.get("detectors"))
+        registry = self.registry(params.get("detectors"), _countries_from(params))
 
         handler = _open(path)
         stream = _extract(handler, path)
@@ -178,7 +194,12 @@ class Session:
             "path": str(path),
             "format": handler.name,
             "characters": len(stream.text),
-            "warnings": list(handler.warnings),
+            # The registry's notes belong here too. A preview taken with the
+            # checksum layer narrowed to two countries looks exactly like a
+            # preview taken with all thirteen, and the difference is the whole
+            # point of the option — the scrub path already carries them through
+            # ScrubResult.warnings.
+            "warnings": [*handler.warnings, *registry.notes],  # type: ignore[attr-defined]
             "findings": [
                 {
                     "start": finding.span.start,
@@ -207,7 +228,9 @@ class Session:
 
         scrubber = Scrubber(
             policy=_policy_from(params),
-            registry=self.registry(params.get("detectors")),  # type: ignore[arg-type]
+            registry=self.registry(  # type: ignore[arg-type]
+                params.get("detectors"), _countries_from(params)
+            ),
             strict=not bool(params.get("allow_leaks")),
             reviewer=_reviewer_from(params),
         )
@@ -295,6 +318,28 @@ def _require_path(params: dict[str, Any], key: str, *, must_exist: bool = True) 
     if must_exist and not path.exists():
         raise RpcError(INVALID_REQUEST, f"{path} does not exist")
     return path
+
+
+def _countries_from(params: dict[str, Any]) -> tuple[str, ...] | None:
+    """None when the caller said nothing, which means every supported country.
+
+    A present-but-empty list is refused rather than read as "none of them": over
+    this pipe that is what a caller sends when its own state got lost, and the
+    result would be a scrub with the whole checksum layer switched off and a file
+    the user believes is clean.
+    """
+    raw = params.get("countries")
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not all(isinstance(name, str) for name in raw):
+        raise RpcError(INVALID_REQUEST, "'countries' must be a list of country codes")
+    names = tuple(name.strip().lower() for name in raw if name.strip())
+    if not names:
+        raise RpcError(INVALID_REQUEST, "'countries' was empty; omit it to use all of them")
+    unknown = sorted(set(names) - set(SUPPORTED_COUNTRIES))
+    if unknown:
+        raise RpcError(INVALID_REQUEST, f"unknown country code(s): {', '.join(unknown)}")
+    return names
 
 
 def _policy_from(params: dict[str, Any]) -> Policy:

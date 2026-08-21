@@ -24,6 +24,8 @@ export interface Capabilities {
 	/** What this build cannot do. Rendered, never hidden. */
 	limitations: string[];
 	ocr_available: boolean;
+	/** Countries whose identifiers this build knows. The engine's list, not ours. */
+	countries: string[];
 	/** Local Ollama models available for the optional review. Empty when Ollama is absent. */
 	review_models: string[];
 	/** Where the engine looks for Ollama. Prefilled from here, never hardcoded here. */
@@ -100,6 +102,12 @@ export interface ScrubOptions {
 	minConfidence?: number;
 	detectors?: string | null;
 	allowLeaks?: boolean;
+	/**
+	 * Countries to look for identifiers and national phone numbers from.
+	 * Omitted means every supported one, which is the safe default: a wrong
+	 * selection produces a file the user believes is clean.
+	 */
+	countries?: string[];
 	/** Ollama model to review the scrubbed text with. Advisory; changes no output. */
 	review?: string | null;
 	/** Which Ollama to ask. Omitted means the engine's own default. */
@@ -192,6 +200,10 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	if (options.minConfidence !== undefined) params.min_confidence = options.minConfidence;
 	if (options.detectors) params.detectors = options.detectors;
 	if (options.allowLeaks) params.allow_leaks = true;
+	// Only when it is a real narrowing. Sending every country is the same request
+	// as sending none, and the engine refuses an empty list rather than reading it
+	// as "no countries" — see _countries_from.
+	if (options.countries?.length) params.countries = options.countries;
 	if (options.review) params.review = options.review;
 	// Only alongside a model: a host on its own configures nothing, and sending it
 	// anyway would make an unused field look like it had an effect.
