@@ -127,3 +127,53 @@ digit and has been corrected. The card 5454545454545455 was declined as well.
 Customer number 05129830 - not an identification number, only eight digits.
 Batch number 756123456789 in the warehouse system.
 Land registry reference 20156-210-9 for the Birmingham building.
+
+
+European subsidiaries register - confidential
+
+Consolidation pack for the [ORGANISATION:Northwind Group] subsidiaries, prepared
+by [PERSON:Priya Raman], [JOB_TITLE:group controller],
+[EMAIL:p.raman@northwind-group.example], [PHONE:+44 20 7183 8750].
+
+Spain: [ORGANISATION:Northwind Iberia SL], [ADDRESS:Calle Serrano 41, 28001 Madrid].
+CIF [COMPANY_ID:H31947856]. The [JOB_TITLE:site manager] is
+[PERSON:Alejandro Ortega], DNI [NATIONAL_ID:54362315K], and the
+[JOB_TITLE:logistics lead] [PERSON:Marta Ferreira] holds NIE
+[NATIONAL_ID:X2482300W]. Contact [EMAIL:a.ortega@northwind-iberia.example].
+
+Portugal: [ORGANISATION:Northwind Atlantico Lda], [ADDRESS:Rua do Ouro 112, 1100-063 Lisboa].
+NIF [TAX_ID:501964843]. The [JOB_TITLE:plant supervisor] [PERSON:Joao Pereira]
+holds cartao de cidadao [NATIONAL_ID:945321277VA0].
+
+Netherlands: [ORGANISATION:Northwind Benelux BV], [ADDRESS:Keizersgracht 204, 1016 DX Amsterdam].
+BTW-nummer [VAT_ID:NL004495445B01]. Burgerservicenummer of the
+[JOB_TITLE:warehouse coordinator] [PERSON:Sanne de Vries]:
+[NATIONAL_ID:368711523], reachable at [EMAIL:s.devries@northwind-benelux.example].
+
+Poland: [ORGANISATION:Northwind Polska sp. z o.o.], [ADDRESS:ulica Prosta 51, 00-838 Warszawa].
+NIP [VAT_ID:4360730412], REGON [COMPANY_ID:192598184]. PESEL of the
+[JOB_TITLE:transport planner] [PERSON:Agnieszka Kowalska]:
+[NATIONAL_ID:44051401359].
+
+Sweden: [ORGANISATION:Northwind Norden AB], [ADDRESS:Kungsgatan 18, 111 35 Stockholm].
+Organisationsnummer [COMPANY_ID:644279-1601], VAT [VAT_ID:SE283768775101].
+Personnummer of the [JOB_TITLE:regional buyer] [PERSON:Erik Lindqvist]:
+[NATIONAL_ID:750615-2508].
+
+United Kingdom: [ORGANISATION:Northwind Britain Ltd],
+[ADDRESS:14 Kingsway, London WC2B 6LH]. VAT number [VAT_ID:GB590021668],
+Unique Taxpayer Reference [TAX_ID:1260969511]. The NHS number of
+[PERSON:Fiona Brennan] on the medical file is [NATIONAL_ID:205 401 1258].
+
+Second-tier entries: CIF [COMPANY_ID:W2902877F], NIF [TAX_ID:213456788],
+BSN [NATIONAL_ID:155335984], NIP [VAT_ID:2375873401], REGON
+[COMPANY_ID:123456785], personnummer [NATIONAL_ID:650108-8352], UTR
+[TAX_ID:8809957167], VAT [VAT_ID:GB638406333].
+
+Rejected at entry, none satisfying its check digit: DNI 15881399N, NIE
+Y9879730K, CIF B1417075J, NIF 645568151, BSN 884472940, NIP 6897684697, REGON
+880932081, personnummer 901014-8701, UTR 2731778486, VAT GB488766344 and
+cartao de cidadao 002978753EH7.
+
+Consignment 4471209382 booked against cost centre 30-412/2201.
+Pallet dimensions 1200 800 144, gross weight 250 kg, delivery due in May.

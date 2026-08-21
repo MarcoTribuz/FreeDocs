@@ -164,3 +164,71 @@ def test_annotated_phone_numbers_are_real_numbers():
                 f"{document.name}: {gold.text!r} is annotated as a phone number but "
                 "is not a valid one"
             )
+
+
+#: L1 findings that sit entirely outside every annotation and would still be
+#: acted on at the default threshold. Each one is a deliberate corpus trap that a
+#: checksum genuinely accepts, so the list is the measured cost of the detector
+#: rather than a defect — but it has to be a *closed* list, because a new trap
+#: that some other country's checksum happens to accept looks exactly like this.
+#:
+#: That is not a hypothetical. `192598180` was written as a rejected Polish
+#: REGON and is a valid Portuguese NIF; `4360730410` was a rejected Polish NIP
+#: and is a valid British UTR. Across twelve countries sharing digit lengths,
+#: changing the last digit no longer produces a value nothing accepts, and a trap
+#: has to be checked against every rule.
+KNOWN_UNANNOTATED = {
+    # A four-part firmware version is indistinguishable from an IPv4 address.
+    ("ipv4", "2.14.6.3"),
+    # Eight and eleven digit customer numbers that the Italian numbering plan
+    # recognises as dialable. Half of why PHONE precision sits at 0.83.
+    ("phonenumbers-IT", "05129830"),
+    ("phonenumbers-IT", "05129830881"),
+    # A German IdNr with a broken check digit, which is also a valid Italian
+    # mobile number. See test_near_misses_are_rejected.
+    ("phonenumbers-IT", "36574261800"),
+}
+
+
+def test_no_unexpected_identifier_is_found_outside_the_annotations():
+    """A trap the checksums accept is a corpus defect, not a detector failure."""
+    pytest.importorskip("stdnum")
+    from freedocs.detect.validators import ValidatorDetector
+
+    detector = ValidatorDetector()
+    surprises = set()
+    for document in load_corpus():
+        for finding in detector.detect(document.text):
+            if finding.confidence < 0.5:
+                continue  # below the default threshold: never acted on
+            if any(
+                gold.span.start < finding.span.end and finding.span.start < gold.span.end
+                for gold in document.entities
+            ):
+                continue  # overlaps an annotation, so it is not over-redaction
+            key = (finding.detector, finding.text)
+            if key not in KNOWN_UNANNOTATED:
+                surprises.add((document.name, *key))
+    assert not surprises, (
+        "unannotated values a checksum accepted: either annotate them or pick a "
+        f"trap no rule accepts — {sorted(surprises)}"
+    )
+
+
+def test_no_identifier_span_starts_or_ends_on_whitespace():
+    """The span is what write-back replaces, so a stray space is a corruption.
+
+    The Polish NIP pattern made the `PL` prefix and its separator independently
+    optional, so a match could begin on the space before the digits — and the
+    replacement would have eaten it, fusing the placeholder to the previous word.
+    """
+    pytest.importorskip("stdnum")
+    from freedocs.detect.validators import ValidatorDetector
+
+    detector = ValidatorDetector()
+    for document in load_corpus():
+        for finding in detector.detect(document.text):
+            assert finding.text == finding.text.strip(), (
+                f"{document.name}: {finding.detector} produced {finding.text!r}, "
+                "whose span covers whitespace that is not part of the value"
+            )

@@ -182,6 +182,22 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
     be_nn = _require("stdnum.be.nn")
     be_bis = _require("stdnum.be.bis")
     be_vat = _require("stdnum.be.vat")
+    es_dni = _require("stdnum.es.dni")
+    es_nie = _require("stdnum.es.nie")
+    es_cif = _require("stdnum.es.cif")
+    pt_nif = _require("stdnum.pt.nif")
+    pt_cc = _require("stdnum.pt.cc")
+    nl_bsn = _require("stdnum.nl.bsn")
+    nl_btw = _require("stdnum.nl.btw")
+    pl_pesel = _require("stdnum.pl.pesel")
+    pl_nip = _require("stdnum.pl.nip")
+    pl_regon = _require("stdnum.pl.regon")
+    se_pnr = _require("stdnum.se.personnummer")
+    se_orgnr = _require("stdnum.se.orgnr")
+    se_vat = _require("stdnum.se.vat")
+    gb_vat = _require("stdnum.gb.vat")
+    gb_nhs = _require("stdnum.gb.nhs")
+    gb_utr = _require("stdnum.gb.utr")
 
     # Order matters because the registry resolves overlaps by layer and then by
     # span length. IBAN has to be nominated before the digit soup inside it can
@@ -388,6 +404,165 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             name="be-vat",
             pattern=re.compile(r"\bBE[\s]?0?\d{9}\b", re.IGNORECASE),
             validate=lambda m: bool(be_vat.is_valid(_compact(m))),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="es",
+            name="es-dni",
+            pattern=re.compile(r"\b\d{8}[-\s]?[A-Z]\b", re.IGNORECASE),
+            validate=lambda m: bool(es_dni.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=MEDIUM_CHECK,  # accepts 3.83%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="es",
+            name="es-nie",
+            pattern=re.compile(r"\b[XYZ][-\s]?\d{7}[-\s]?[A-Z]\b", re.IGNORECASE),
+            validate=lambda m: bool(es_nie.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=MEDIUM_CHECK,  # accepts 3.86%
+        ),
+        Rule(
+            entity=EntityType.COMPANY_ID,
+            country="es",
+            name="es-cif",
+            pattern=re.compile(r"\b[ABCDEFGHJNPQRSUVW][-\s]?\d{7}[-\s]?[A-Z0-9]\b", re.IGNORECASE),
+            validate=lambda m: bool(es_cif.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+            context=keywords.COMPANY_STEMS,
+            context_codes=keywords.COMPANY_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 5.79%
+        ),
+        Rule(
+            entity=EntityType.TAX_ID,
+            country="pt",
+            name="pt-nif",
+            # Also the Portuguese VAT number: one number does both jobs there.
+            pattern=re.compile(r"\b\d{3}[\s.]?\d{3}[\s.]?\d{3}\b"),
+            validate=lambda m: bool(pt_nif.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.TAX_STEMS,
+            context_codes=keywords.TAX_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 8.81%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="pt",
+            name="pt-cc",
+            pattern=re.compile(r"\b\d{8}[\s]?\d[\s]?[A-Z]{2}\d\b", re.IGNORECASE),
+            validate=lambda m: bool(pt_cc.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 9.76%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="nl",
+            name="nl-bsn",
+            pattern=re.compile(r"\b\d{4}[\s.]?\d{2}[\s.]?\d{3}\b"),
+            validate=lambda m: bool(nl_bsn.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 9.04%
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="nl",
+            name="nl-btw",
+            pattern=re.compile(r"\bNL[\s]?\d{9}B\d{2}\b", re.IGNORECASE),
+            validate=lambda m: bool(nl_btw.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="pl",
+            name="pl-pesel",
+            pattern=re.compile(r"\b\d{11}\b"),
+            validate=lambda m: bool(pl_pesel.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=MEDIUM_CHECK,  # accepts 1.64%
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="pl",
+            name="pl-nip",
+            pattern=re.compile(
+                r"\b(?:PL[\s]?)?\d{3}[-\s]?\d{3}[-\s]?\d{2}[-\s]?\d{2}\b", re.IGNORECASE
+            ),
+            validate=lambda m: bool(pl_nip.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+            context=keywords.VAT_STEMS,
+            context_codes=keywords.VAT_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 9.11%
+        ),
+        Rule(
+            entity=EntityType.COMPANY_ID,
+            country="pl",
+            name="pl-regon",
+            pattern=re.compile(r"\b\d{9}\b"),
+            validate=lambda m: bool(pl_regon.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.COMPANY_STEMS,
+            context_codes=keywords.COMPANY_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 10.01%
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="se",
+            name="se-personnummer",
+            # Birth date then a four-digit serial. The company number has the
+            # same shape and its own check, so both rules see every candidate.
+            pattern=re.compile(r"\b\d{6}[-+\s]?\d{4}\b"),
+            validate=lambda m: bool(se_pnr.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=STRONG_CHECK,  # accepts 0.35%
+        ),
+        Rule(
+            entity=EntityType.COMPANY_ID,
+            country="se",
+            name="se-orgnr",
+            pattern=re.compile(r"\b\d{6}[-+\s]?\d{4}\b"),
+            validate=lambda m: bool(se_orgnr.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.COMPANY_STEMS,
+            context_codes=keywords.COMPANY_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 10.32%
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="se",
+            name="se-vat",
+            pattern=re.compile(r"\bSE[\s]?\d{12}\b", re.IGNORECASE),
+            validate=lambda m: bool(se_vat.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.VAT_ID,
+            country="gb",
+            name="gb-vat",
+            pattern=re.compile(r"\bGB[\s]?\d{3}[\s]?\d{4}[\s]?\d{2}\b", re.IGNORECASE),
+            validate=lambda m: bool(gb_vat.is_valid(_compact(m).upper())),  # type: ignore[attr-defined]
+        ),
+        Rule(
+            entity=EntityType.NATIONAL_ID,
+            country="gb",
+            name="gb-nhs",
+            # Printed 3-3-4, which is also how a North American phone number is
+            # printed. STRICT_GROUPING keeps the phone matcher off most of them,
+            # and the weak check digit keeps this rule below the threshold.
+            pattern=re.compile(r"\b\d{3}[-\s]?\d{3}[-\s]?\d{4}\b"),
+            validate=lambda m: bool(gb_nhs.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.NATIONAL_STEMS,
+            context_codes=keywords.NATIONAL_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 8.77%
+        ),
+        Rule(
+            entity=EntityType.TAX_ID,
+            country="gb",
+            name="gb-utr",
+            pattern=re.compile(r"\b\d{10}\b"),
+            validate=lambda m: bool(gb_utr.is_valid(_compact(m))),  # type: ignore[attr-defined]
+            context=keywords.TAX_STEMS,
+            context_codes=keywords.TAX_CODES,
+            confidence_without_context=WEAK_CHECK,  # accepts 10.42%
         ),
     ]
 

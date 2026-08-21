@@ -173,6 +173,8 @@ NATIONAL_STEMS = (
     "bisnummer",
     # Spanish
     "identidad",
+    # Portuguese
+    "cidadao",
     # Swedish
     "personnummer",
 )

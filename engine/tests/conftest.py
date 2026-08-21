@@ -62,6 +62,15 @@ CANARIES: dict[str, str] = {
     "FR_TVA": "FR40303265045",
     "BE_NN": "85.07.30-033 28",
     "BE_VAT": "BE403019261",
+    "ES_DNI": "54362315K",
+    "ES_CIF": "H31947856",
+    "PT_NIF": "501964843",
+    "NL_BSN": "368711523",
+    "NL_BTW": "NL004495445B01",
+    "PL_PESEL": "44051401359",
+    "SE_PNR": "750615-2508",
+    "GB_VAT": "GB590021668",
+    "GB_UTR": "1260969511",
 }
 
 #: What each canary is: the ``EntityType`` name, and the issuing country when the
@@ -92,6 +101,15 @@ CANARY_TYPES: dict[str, tuple[str, str | None]] = {
     "FR_TVA": ("VAT_ID", "fr"),
     "BE_NN": ("NATIONAL_ID", "be"),
     "BE_VAT": ("VAT_ID", "be"),
+    "ES_DNI": ("NATIONAL_ID", "es"),
+    "ES_CIF": ("COMPANY_ID", "es"),
+    "PT_NIF": ("TAX_ID", "pt"),
+    "NL_BSN": ("NATIONAL_ID", "nl"),
+    "NL_BTW": ("VAT_ID", "nl"),
+    "PL_PESEL": ("NATIONAL_ID", "pl"),
+    "SE_PNR": ("NATIONAL_ID", "se"),
+    "GB_VAT": ("VAT_ID", "gb"),
+    "GB_UTR": ("TAX_ID", "gb"),
 }
 
 
@@ -117,6 +135,18 @@ NEAR_MISSES: list[str] = [
     "FR40303265040",  # French TVA failing its key
     "85.07.30-033 20",  # Belgian rijksregisternummer failing its check
     "BE403019260",  # Belgian BTW failing its check
+    # Verified against *every* rule, not only their own country's. A value broken
+    # for one checksum can be valid for another once twelve countries share the
+    # same digit lengths: a rejected Polish REGON turned out to be a valid
+    # Portuguese NIF, and a rejected Polish NIP a valid British UTR.
+    "15881399N",  # Spanish DNI failing its letter
+    "B1417075J",  # Spanish CIF failing its check
+    "645568151",  # Portuguese NIF failing its check
+    "884472940",  # Dutch BSN failing its eleven-test
+    "6897684697",  # Polish NIP failing its check
+    "901014-8701",  # Swedish personnummer failing its Luhn
+    "2731778486",  # British UTR failing its check
+    "GB488766344",  # British VAT failing its check
 ]
 
 
@@ -167,6 +197,17 @@ def document(canaries: dict[str, str]) -> str:
             f"Numero de TVA: {canaries['FR_TVA']}",
             f"Rijksregisternummer: {canaries['BE_NN']}",
             f"BTW-nummer: {canaries['BE_VAT']}",
+            "",
+            "European subsidiaries",
+            f"DNI: {canaries['ES_DNI']}",
+            f"CIF: {canaries['ES_CIF']}",
+            f"NIF: {canaries['PT_NIF']}",
+            f"Burgerservicenummer: {canaries['NL_BSN']}",
+            f"BTW: {canaries['NL_BTW']}",
+            f"PESEL: {canaries['PL_PESEL']}",
+            f"Personnummer: {canaries['SE_PNR']}",
+            f"VAT number: {canaries['GB_VAT']}",
+            f"Unique Taxpayer Reference: {canaries['GB_UTR']}",
             "",
         ]
     )
