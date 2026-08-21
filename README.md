@@ -367,7 +367,7 @@ either way, and deleting a slide renumbers the deck.
 
 ## Anonymisation, not pseudonymisation
 
-Values are replaced with typed placeholders — `[PERSONA_1]`, `[IBAN_2]` — that
+Values are replaced with typed placeholders — `[PERSON_1]`, `[IBAN_2]` — that
 are stable within a document, so the text still reads coherently. The mapping
 lives in memory for one run and is destroyed in a `finally` block, including when
 a stage raises. Nothing is written to disk, so there is no key to leak.

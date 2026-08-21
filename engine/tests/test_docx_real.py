@@ -211,4 +211,4 @@ def test_the_full_stack_also_removes_the_name(source: Path):
     document = docx_module.Document(io.BytesIO(output))
     body = "\n".join(p.text for p in document.paragraphs)
     assert "Mario Rossi" not in body
-    assert "[PERSONA_1]" in body
+    assert "[PERSON_1]" in body

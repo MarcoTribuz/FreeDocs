@@ -26,7 +26,7 @@ class AttributeLocator:
     """An anchor pointing at an XML attribute rather than element text.
 
     ``sanitise`` exists because some attributes are not free text. An Excel sheet
-    name cannot contain ``[`` or ``]``, so writing ``[PERSONA_1]`` into one
+    name cannot contain ``[`` or ``]``, so writing ``[PERSON_1]`` into one
     produces a workbook Excel refuses to open — which was exactly what happened
     before this hook was added. The constraint is format-specific, so the handler
     supplies the function and this module stays ignorant of it.

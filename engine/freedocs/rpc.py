@@ -30,7 +30,7 @@ from typing import Any, TextIO
 
 from .core.errors import MissingDependency
 from .core.findings import EntityType
-from .core.policy import REPORT_ONLY, Action, Policy
+from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, REPORT_ONLY, Action, Policy
 from .detect.llm_review import (
     DEFAULT_HOST as REVIEW_HOST,
 )
@@ -129,6 +129,11 @@ class Session:
             # review_host: which countries this build covers is the engine's
             # answer, and two lists would be two answers that can disagree.
             "countries": list(SUPPORTED_COUNTRIES),
+            # Which languages the placeholder stems come in, and which one is
+            # used when nobody chooses. Sent, not hardcoded in the window: the
+            # wording of a placeholder is a judgement and the app holds none.
+            "placeholder_languages": list(PLACEHOLDER_LOCALES),
+            "placeholder_language": DEFAULT_LOCALE,
             "layers": [type(detector).__name__ for detector in registry.detectors],
             "limitations": list(registry.notes),
             "ocr_available": tessdata_path() is not None,
@@ -352,7 +357,16 @@ def _policy_from(params: dict[str, Any]) -> Policy:
     minimum = params.get("min_confidence", 0.5)
     if not isinstance(minimum, (int, float)) or not 0.0 <= minimum <= 1.0:
         raise RpcError(INVALID_REQUEST, "'min_confidence' must be between 0 and 1")
-    return Policy(overrides=overrides, min_confidence=float(minimum))
+    locale = params.get("placeholder_language") or DEFAULT_LOCALE
+    if locale not in PLACEHOLDER_LOCALES:
+        raise RpcError(
+            INVALID_REQUEST,
+            f"unknown placeholder language {locale!r}; expected one of "
+            f"{', '.join(PLACEHOLDER_LOCALES)}",
+        )
+    return Policy(
+        overrides=overrides, min_confidence=float(minimum), placeholder_locale=str(locale)
+    )
 
 
 def _reviewer_from(params: dict[str, Any]) -> LlmReviewer | None:

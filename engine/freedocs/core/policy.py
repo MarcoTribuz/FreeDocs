@@ -42,31 +42,100 @@ REPORT_ONLY: frozenset[EntityType] = frozenset(
     {EntityType.JOB_TITLE, EntityType.AGE, EntityType.POSTCODE, EntityType.DATE}
 )
 
-#: Human-facing placeholder stems, in Italian to match the primary audience.
-PLACEHOLDER_LABELS: dict[EntityType, str] = {
-    EntityType.PERSON: "PERSONA",
-    EntityType.ORGANISATION: "AZIENDA",
-    EntityType.LOCATION: "LUOGO",
-    EntityType.ADDRESS: "INDIRIZZO",
-    EntityType.EMAIL: "EMAIL",
-    EntityType.PHONE: "TELEFONO",
-    EntityType.IBAN: "IBAN",
-    EntityType.CREDIT_CARD: "CARTA",
-    # Neutral rather than Italian, unlike the rest of this table: one stem now
-    # stands for twelve countries' worth of numbers, and "CF" or "AVS" would name
-    # the wrong one on eleven of them. The country is in the report instead.
-    EntityType.NATIONAL_ID: "NATIONAL_ID",
-    EntityType.TAX_ID: "TAX_ID",
-    EntityType.VAT_ID: "VAT_ID",
-    EntityType.COMPANY_ID: "COMPANY_ID",
-    EntityType.IP_ADDRESS: "IP",
-    EntityType.MAC_ADDRESS: "MAC",
-    EntityType.URL: "URL",
-    EntityType.DATE: "DATA",
-    EntityType.JOB_TITLE: "RUOLO",
-    EntityType.AGE: "ETA",
-    EntityType.POSTCODE: "CAP",
+#: Placeholder stems per locale, and English is the default on purpose.
+#:
+#: The reader of a scrubbed document is usually a language model, and the stem is
+#: the only thing telling it what used to be there. English is what every such
+#: model reads best, and it is also the only choice that does not name one
+#: audience while the tool covers thirteen countries: `[CF_1]` in a German
+#: contract is a label from the wrong country, and `[PERSONA_1]` in an English
+#: one reads as a woman's name.
+#:
+#: A locale that omits a type falls back to English, so adding a language means
+#: translating what is worth translating and nothing else. The country-issued
+#: types are not translated at all: one stem stands for twelve countries' worth
+#: of numbers, and every national name for it would be wrong on eleven of them.
+#: The country goes in the report.
+PLACEHOLDER_LABELS: dict[str, dict[EntityType, str]] = {
+    "en": {
+        EntityType.PERSON: "PERSON",
+        EntityType.ORGANISATION: "ORGANISATION",
+        EntityType.LOCATION: "LOCATION",
+        EntityType.ADDRESS: "ADDRESS",
+        EntityType.EMAIL: "EMAIL",
+        EntityType.PHONE: "PHONE",
+        EntityType.IBAN: "IBAN",
+        EntityType.CREDIT_CARD: "CARD",
+        EntityType.NATIONAL_ID: "NATIONAL_ID",
+        EntityType.TAX_ID: "TAX_ID",
+        EntityType.VAT_ID: "VAT_ID",
+        EntityType.COMPANY_ID: "COMPANY_ID",
+        EntityType.IP_ADDRESS: "IP",
+        EntityType.MAC_ADDRESS: "MAC",
+        EntityType.URL: "URL",
+        EntityType.DATE: "DATE",
+        EntityType.JOB_TITLE: "ROLE",
+        EntityType.AGE: "AGE",
+        EntityType.POSTCODE: "POSTCODE",
+    },
+    "it": {
+        EntityType.PERSON: "PERSONA",
+        EntityType.ORGANISATION: "AZIENDA",
+        EntityType.LOCATION: "LUOGO",
+        EntityType.ADDRESS: "INDIRIZZO",
+        EntityType.PHONE: "TELEFONO",
+        EntityType.CREDIT_CARD: "CARTA",
+        EntityType.DATE: "DATA",
+        EntityType.JOB_TITLE: "RUOLO",
+        EntityType.AGE: "ETA",
+        EntityType.POSTCODE: "CAP",
+    },
+    "de": {
+        EntityType.PERSON: "PERSON",
+        EntityType.ORGANISATION: "FIRMA",
+        EntityType.LOCATION: "ORT",
+        EntityType.ADDRESS: "ADRESSE",
+        EntityType.PHONE: "TELEFON",
+        EntityType.CREDIT_CARD: "KARTE",
+        EntityType.DATE: "DATUM",
+        EntityType.JOB_TITLE: "ROLLE",
+        EntityType.AGE: "ALTER",
+        EntityType.POSTCODE: "PLZ",
+    },
+    "fr": {
+        EntityType.PERSON: "PERSONNE",
+        EntityType.ORGANISATION: "SOCIETE",
+        EntityType.LOCATION: "LIEU",
+        EntityType.ADDRESS: "ADRESSE",
+        EntityType.PHONE: "TELEPHONE",
+        EntityType.CREDIT_CARD: "CARTE",
+        EntityType.DATE: "DATE",
+        EntityType.JOB_TITLE: "ROLE",
+        EntityType.AGE: "AGE",
+        EntityType.POSTCODE: "CODE_POSTAL",
+    },
 }
+
+#: The locale used when nobody chooses, and the fallback for a partial one.
+DEFAULT_LOCALE = "en"
+
+PLACEHOLDER_LOCALES: tuple[str, ...] = tuple(sorted(PLACEHOLDER_LABELS))
+
+
+def placeholder_labels(locale: str = DEFAULT_LOCALE) -> dict[EntityType, str]:
+    """The stems for ``locale``, completed from English.
+
+    Resolved once per run rather than looked up per finding, so a placeholder
+    cannot change wording halfway through a document.
+    """
+    if locale not in PLACEHOLDER_LABELS:
+        raise ValueError(
+            f"unknown placeholder locale {locale!r}; expected one of "
+            f"{', '.join(PLACEHOLDER_LOCALES)}"
+        )
+    resolved = dict(PLACEHOLDER_LABELS[DEFAULT_LOCALE])
+    resolved.update(PLACEHOLDER_LABELS[locale])
+    return resolved
 
 
 @dataclass(frozen=True)
@@ -76,6 +145,10 @@ class Policy:
     default_action: Action = Action.REDACT
     overrides: dict[EntityType, Action] = field(default_factory=dict)
     min_confidence: float = 0.5
+    #: Language of the placeholder stems. English by default: the reader of a
+    #: scrubbed document is usually a language model, and it is the only choice
+    #: that does not name one audience out of thirteen countries.
+    placeholder_locale: str = DEFAULT_LOCALE
 
     def action_for(self, finding: Finding) -> Action:
         if finding.confidence < self.min_confidence:
@@ -106,7 +179,8 @@ class SurrogateAllocator:
     :meth:`close`, which is what makes the scrub irreversible.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, labels: dict[EntityType, str] | None = None) -> None:
+        self._stems = labels if labels is not None else placeholder_labels()
         self._labels: dict[tuple[EntityType, str], str] = {}
         self._counters: Counter[EntityType] = Counter()
         self._closed = False
@@ -119,7 +193,7 @@ class SurrogateAllocator:
         if existing is not None:
             return existing
         self._counters[entity] += 1
-        stem = PLACEHOLDER_LABELS.get(entity, entity.value)
+        stem = self._stems.get(entity, entity.value)
         label = f"[{stem}_{self._counters[entity]}]"
         self._labels[key] = label
         return label
