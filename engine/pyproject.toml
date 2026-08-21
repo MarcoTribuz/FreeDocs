@@ -50,6 +50,25 @@ freedocs = "freedocs.cli:main"
 # never a socket: it reads and writes files named by whoever is on the other end.
 freedocs-rpc = "freedocs.rpc:serve"
 
+# On Linux the default PyPI `torch` wheel drags in the CUDA stack as real
+# dependencies: measured against the versions in uv.lock, 2196 MB of wheels
+# (nvidia-cublas 423, cudnn 366, cufft 214, nccl 206, cusolver 201, triton 198,
+# cusparselt 170, cusparse 146, and the rest) on top of torch's own 527 MB. This
+# engine runs the encoder on the CPU and never issues a kernel, so every byte of
+# that ships to be downloaded and never executed.
+#
+# macOS and Windows are left alone deliberately: their PyPI wheels are already
+# CPU-only, which is why the CUDA dependencies in the lock carry
+# `sys_platform == 'linux'`. Narrowing the marker to the platform that has the
+# problem keeps three of the four builds resolving exactly as they did.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
