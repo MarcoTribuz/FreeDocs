@@ -13,7 +13,7 @@ finds none, leaving the final call to :class:`~freedocs.core.policy.Policy`.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 
 from ..core.errors import MissingDependency
@@ -48,6 +48,10 @@ class Rule:
     name: str
     pattern: re.Pattern[str]
     validate: Callable[[str], bool]
+    #: ISO 3166-1 alpha-2, lowercase. None means the identifier is not tied to a
+    #: country: an IBAN, a card number and an email address are the same
+    #: everywhere. Only country-tied rules can be switched off by ``countries``.
+    country: str | None = None
     #: Words that, appearing near a match, make it much more likely to be real.
     context: tuple[str, ...] = ()
     #: Confidence when no context word is nearby. 1.0 means the checksum alone
@@ -97,12 +101,17 @@ def _valid_ipv4(text: str) -> bool:
     return len(parts) == 4 and all(part.isdigit() and int(part) <= 255 for part in parts)
 
 
-def build_rules() -> list[Rule]:
+def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
     """Assemble the rule set, ordered so specific identifiers win over generic ones.
 
-    Order matters because the registry resolves overlaps by layer and length: an
-    IBAN must be nominated before the digit soup inside it can be mistaken for a
-    card number.
+    ``countries`` keeps only the rules tied to those countries, leaving the
+    country-neutral ones (IBAN, card, email, URL, IP, MAC) always in. Passing
+    None keeps everything, which is the default everywhere: a caller who has to
+    name its countries to be safe would produce a silent leak by naming the wrong
+    ones.
+
+    Filtering a list preserves its order, so the ordering constraint below stays
+    satisfied by construction however narrow the selection.
     """
     codicefiscale = _require("stdnum.it.codicefiscale")
     iva = _require("stdnum.it.iva")
@@ -111,7 +120,12 @@ def build_rules() -> list[Rule]:
     iban_mod = _require("stdnum.iban")
     luhn = _require("stdnum.luhn")
 
-    return [
+    # Order matters because the registry resolves overlaps by layer and then by
+    # span length. IBAN has to be nominated before the digit soup inside it can
+    # be read as a card number, and the broad generic patterns have to come after
+    # the national ones for the same reason. Three blocks say that out loud;
+    # leaving it implicit in list position is how a later insertion breaks it.
+    global_first = [
         Rule(
             entity=EntityType.IBAN,
             name="iban-mod97",
@@ -126,8 +140,12 @@ def build_rules() -> list[Rule]:
             shrink_to_fit=True,
             min_length=15,
         ),
+    ]
+
+    national = [
         Rule(
             entity=EntityType.CH_AHV,
+            country="ch",
             name="ch-ahv-ean13",
             # Every Swiss AHV number starts with the 756 country prefix.
             pattern=re.compile(r"\b756[.\s]?\d{4}[.\s]?\d{4}[.\s]?\d{2}\b"),
@@ -135,18 +153,21 @@ def build_rules() -> list[Rule]:
         ),
         Rule(
             entity=EntityType.CH_UID,
+            country="ch",
             name="ch-uid",
             pattern=re.compile(r"\bCHE[-\s]?\d{3}[.\s]?\d{3}[.\s]?\d{3}\b", re.IGNORECASE),
             validate=lambda m: bool(ch_uid.is_valid(_compact(m))),  # type: ignore[attr-defined]
         ),
         Rule(
             entity=EntityType.IT_CODICE_FISCALE,
+            country="it",
             name="it-codice-fiscale-cin",
             pattern=re.compile(r"\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b", re.IGNORECASE),
             validate=lambda m: bool(codicefiscale.is_valid(m.upper())),  # type: ignore[attr-defined]
         ),
         Rule(
             entity=EntityType.IT_PARTITA_IVA,
+            country="it",
             name="it-partita-iva-luhn11",
             pattern=re.compile(r"\b(?:IT)?\d{11}\b", re.IGNORECASE),
             validate=lambda m: bool(iva.is_valid(_compact(m))),  # type: ignore[attr-defined]
@@ -155,6 +176,9 @@ def build_rules() -> list[Rule]:
             context=("partita iva", "p.iva", "piva", "vat", "iva", "codice impresa"),
             confidence_without_context=0.55,
         ),
+    ]
+
+    global_last = [
         Rule(
             entity=EntityType.CREDIT_CARD,
             name="credit-card-luhn",
@@ -194,16 +218,32 @@ def build_rules() -> list[Rule]:
         ),
     ]
 
+    rules = [*global_first, *national, *global_last]
+    if countries is None:
+        return rules
+    wanted = {country.casefold() for country in countries}
+    return [rule for rule in rules if rule.country is None or rule.country in wanted]
+
 
 @dataclass
 class ValidatorDetector:
     """Runs the checksum-backed rules over a flat text stream."""
 
     layer: Layer = field(default=Layer.VALIDATOR, init=False)
-    rules: list[Rule] = field(default_factory=build_rules)
+    #: Countries whose identifiers to look for, or None for every country the
+    #: rule set covers. Ignored when ``rules`` is passed explicitly, because a
+    #: caller handing over a rule list has already made the choice.
+    countries: tuple[str, ...] | None = None
+    #: Left None so it can be derived from ``countries``; a default_factory runs
+    #: before the other fields are readable, so it cannot see the selection.
+    rules: list[Rule] | None = None
     #: Regions to try when parsing phone numbers. Swiss first, then Italian.
     phone_regions: tuple[str, ...] = ("CH", "IT")
     detect_phones: bool = True
+
+    def __post_init__(self) -> None:
+        if self.rules is None:
+            self.rules = build_rules(self.countries)
 
     def detect(self, text: str) -> list[Finding]:
         findings = list(self._rule_findings(text))
@@ -212,7 +252,7 @@ class ValidatorDetector:
         return findings
 
     def _rule_findings(self, text: str) -> Iterator[Finding]:
-        for rule in self.rules:
+        for rule in self.rules or ():
             for match in rule.pattern.finditer(text):
                 accepted = rule.find_valid(match.group(0))
                 if accepted is None:

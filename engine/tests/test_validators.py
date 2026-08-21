@@ -111,3 +111,61 @@ def test_a_url_does_not_swallow_the_punctuation_after_it(
     """
     urls = [f for f in detector.detect(text) if f.entity is EntityType.URL]
     assert [f.text for f in urls] == [expected]
+
+
+# -- narrowing the rule set by country ----------------------------------------
+
+
+def test_narrowing_to_a_country_keeps_the_country_neutral_rules():
+    """An IBAN, a card number and an email address are the same everywhere.
+
+    Only the country-tied rules may be switched off, or narrowing the selection
+    would quietly stop detecting things that have nothing to do with the choice.
+    """
+    from freedocs.detect.validators import build_rules
+
+    narrowed = build_rules(["it"])
+    assert {rule.country for rule in narrowed} == {None, "it"}
+    neutral = {rule.name for rule in build_rules([])}
+    assert neutral == {rule.name for rule in narrowed if rule.country is None}
+    assert "iban-mod97" in neutral
+
+
+def test_narrowing_preserves_rule_order():
+    """Order is load-bearing: IBAN must be nominated before the digits inside it.
+
+    Filtering a list cannot reorder it, and this pins that property so a future
+    rewrite into a dict or a per-country registry cannot silently lose it.
+    """
+    from freedocs.detect.validators import build_rules
+
+    everything = [rule.name for rule in build_rules()]
+    for selection in ([], ["ch"], ["it"], ["ch", "it"]):
+        kept = [rule.name for rule in build_rules(selection)]
+        assert kept == [name for name in everything if name in set(kept)]
+
+
+def test_a_country_is_matched_case_insensitively():
+    from freedocs.detect.validators import build_rules
+
+    assert [rule.name for rule in build_rules(["CH"])] == [
+        rule.name for rule in build_rules(["ch"])
+    ]
+
+
+def test_narrowing_the_detector_stops_finding_the_other_country(document: str):
+    """The Swiss canary must disappear when only Italy is asked for."""
+    italian_only = ValidatorDetector(countries=("it",))
+    entities = {f.entity for f in italian_only.detect(document)}
+    assert EntityType.IT_CODICE_FISCALE in entities
+    assert EntityType.CH_AHV not in entities
+    assert EntityType.IBAN in entities
+
+
+def test_an_explicit_rule_list_wins_over_the_country_selection():
+    """A caller handing over rules has already made the choice."""
+    from freedocs.detect.validators import build_rules
+
+    only_iban = [rule for rule in build_rules() if rule.name == "iban-mod97"]
+    detector = ValidatorDetector(rules=only_iban, countries=("de",))
+    assert detector.rules == only_iban
