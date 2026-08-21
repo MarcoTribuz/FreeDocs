@@ -1,9 +1,14 @@
-"""The six stages, in order, for one document.
+"""The stages, in order, for one document.
 
-    router -> extract -> detect -> policy -> write-back -> verify
+    router -> extract -> detect -> policy -> write-back -> verify -> [review]
 
 Only this module knows the order. Handlers know their format, detectors know
 their patterns, and neither knows about the other.
+
+The review is in brackets because it is optional and changes nothing: it reads the
+scrubbed text and reports what a human should look at. It is skipped when
+verification failed, since nothing is written in that case and there would be no
+file to review.
 
 The allocator is closed in a ``finally`` block, so the placeholder-to-original
 mapping is destroyed even when a stage raises. That is deliberate: a crashed run
@@ -19,6 +24,7 @@ from .core.errors import MissingDependency
 from .core.findings import Finding
 from .core.policy import Action, Policy, SurrogateAllocator
 from .core.stream import Edit
+from .detect.llm_review import LlmReviewer, ReviewOutcome
 from .detect.registry import DetectorRegistry
 from .detect.validators import ValidatorDetector
 from .formats.base import FormatHandler, HiddenItem
@@ -46,6 +52,9 @@ class ScrubResult:
     source_chars: int
     #: Compromises the format handler had to make. Never silently dropped.
     warnings: list[str] = field(default_factory=list)
+    #: The optional review of the scrubbed text. ``None`` when nobody asked for
+    #: one, which is not the same as a review that found nothing.
+    review: ReviewOutcome | None = None
 
     @property
     def removed(self) -> list[Finding]:
@@ -124,6 +133,10 @@ class Scrubber:
     #: default because a caller who forgets to inspect ``verify.ok`` would
     #: otherwise ship a leaking file.
     strict: bool = True
+    #: Optional L3 review of the scrubbed text. Off by default: it takes tens of
+    #: seconds, it needs a local model nobody is obliged to have, and it changes
+    #: nothing in the output. It is a second opinion for a human, not a stage.
+    reviewer: LlmReviewer | None = None
 
     def scrub_file(self, path: Path) -> ScrubResult:
         return self.scrub(handler_for(path))
@@ -159,10 +172,26 @@ class Scrubber:
             # Handler compromises and detector-configuration gaps land in the
             # same place: both are things the output does not show on its own.
             warnings=list(handler.warnings) + list(self.registry.notes),
+            review=self._review(verify),
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)
         return result
+
+    def _review(self, verify: VerifyResult) -> ReviewOutcome | None:
+        """Ask the reviewer about the scrubbed text, if there is one to ask.
+
+        Runs on the text ``verify`` already re-extracted from the output: that is
+        both the right text — what a reader of the scrubbed file would see — and
+        one already paid for, since re-extracting a scanned PDF would mean OCRing
+        every page a third time.
+
+        Skipped when verification failed. Nothing is written in that case, so a
+        review would spend tens of seconds on a file that does not exist.
+        """
+        if self.reviewer is None or not verify.ok:
+            return None
+        return self.reviewer.review_outcome(verify.extracted)
 
     def _decide(self, findings: list[Finding], allocator: SurrogateAllocator) -> list[Decision]:
         decisions: list[Decision] = []

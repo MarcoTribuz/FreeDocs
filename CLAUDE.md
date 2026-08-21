@@ -9,10 +9,11 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M7 complete.** The engine handles plain text, PDF (born-digital
-and scanned), `docx`, `xlsx` and `pptx`, with checksum, NER and value-propagation
-detection over it/de/fr/en. A Tauri app in `app/` drives it over a JSON pipe. What
-remains is M8, the opt-in Ollama review pass.
+**Current state: M8 complete — the plan in the plan file is finished.** The engine
+handles plain text, PDF (born-digital and scanned), `docx`, `xlsx` and `pptx`, with
+checksum, NER and value-propagation detection over it/de/fr/en. A Tauri app in
+`app/` drives it over a JSON pipe, and an opt-in local-LLM pass reviews the output.
+Anything further is new work, not a remaining milestone.
 
 ## Commands
 
@@ -153,8 +154,9 @@ same characters.
   kept installable so the comparison stays reproducible.
 - **L2.5** (`detect/propagate.py`, shipped): copies each confirmed value to its
   other occurrences. Runs after overlap resolution, then resolves again.
-- **L3** (M8): opt-in Ollama pass over the *already anonymised* text, flagging
-  leftovers and quasi-identifiers. Advisory only.
+- **L3** (`detect/llm_review.py`, shipped, off by default): an Ollama pass over the
+  *already anonymised* text, flagging leftovers and quasi-identifiers. Advisory
+  only, and not part of the registry — it produces no spans and drives no edits.
 
 Do not add a language-detection step to make Presidio viable. It was measured:
 running all four languages and merging is what pushes its PERSON precision to
@@ -177,6 +179,34 @@ Two mechanisms in `Rule` exist because of specific bugs, not as decoration:
 Phone detection uses `phonenumbers` with `Leniency.STRICT_GROUPING`. Do not
 loosen it: under `VALID` the Italian numbering plan reads `03.03.2024` as a phone
 number, and business documents are full of dates.
+
+### The review layer
+
+It is **not a detector** and must not become one. It has no offsets, and the
+anchors are the only route from a finding to a run or a rectangle. It runs after
+`verify`, on the text `verify` already re-extracted from the output — re-extracting
+a scanned PDF would mean OCRing every page a third time, and `VerifyResult.extracted`
+exists for exactly that reason.
+
+Three properties to preserve:
+
+- **`ReviewOutcome.ran` is separate from an empty `concerns` list.** "Ollama was
+  not running" and "the reviewer had no objection" are different facts, and the
+  second is reassuring. Collapsing them lets a silently skipped review read as a
+  clean bill of health.
+- **A non-loopback host is refused** without an explicit `allow_remote`. This is a
+  tool whose premise is that documents do not leave the machine; a review host on
+  the network is a decision, not a default. `_is_local` deliberately does not
+  resolve hostnames — whether one still points at loopback tomorrow is not this
+  code's call.
+- **An unreachable Ollama is reported, never raised.** `review_outcome` converts
+  `OllamaUnavailable` into a stated fact, because a missing advisory layer must not
+  fail a scrub that otherwise worked.
+
+The response schema is passed to Ollama and enforced server-side, so "the model
+ignored the format" cannot happen; `_parse_concerns` is defence, not parsing. Its
+quotes come from the *scrubbed* text, which is why they are safe to print and to
+put in the report.
 
 ## Invariants
 

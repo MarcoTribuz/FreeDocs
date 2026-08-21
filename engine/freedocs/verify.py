@@ -56,6 +56,11 @@ class VerifyResult:
     checked_values: int
     skipped_short: int
     output_chars: int
+    #: The text re-extracted from the output, kept so the optional review layer
+    #: does not have to extract it again. For a scanned PDF that would mean a
+    #: second OCR pass over every page, which is seconds per page for a result
+    #: this function already has in hand.
+    extracted: str = ""
 
     @property
     def ok(self) -> bool:
@@ -130,4 +135,5 @@ def verify_output(
         checked_values=checked,
         skipped_short=skipped,
         output_chars=len(stream.text),
+        extracted=stream.text,
     )

@@ -33,6 +33,8 @@
 	/** Entity types the user has chosen to leave alone. */
 	let kept = $state<Set<string>>(new Set());
 	let minConfidence = $state(0.5);
+	/** Empty means no review. Off by default: it is slow and changes nothing. */
+	let reviewModel = $state('');
 
 	// Collected here rather than returned from onMount: an async callback cannot
 	// hand Svelte a cleanup function, and both subscriptions are set up after an
@@ -130,7 +132,9 @@
 		problem = null;
 		results = [];
 		try {
-			results = (await scrub(files, target, { keep: [...kept], minConfidence })).results;
+			results = (
+				await scrub(files, target, { keep: [...kept], minConfidence, review: reviewModel || null })
+			).results;
 		} catch (error) {
 			problem = describe(error);
 		} finally {
@@ -223,6 +227,15 @@
 					/>
 					<span class="mono">{minConfidence.toFixed(2)}</span>
 				</label>
+				{#if caps?.review_models.length}
+					<label>
+						Review afterwards
+						<select bind:value={reviewModel}>
+							<option value="">no</option>
+							{#each caps.review_models as model}<option value={model}>{model}</option>{/each}
+						</select>
+					</label>
+				{/if}
 				<button onclick={runScrub} disabled={busy !== null || totalFindings === 0}>
 					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} file(s)`}
 				</button>
@@ -316,6 +329,23 @@
 							{#each result.warnings ?? [] as warning}
 								<p class="warnline">{warning}</p>
 							{/each}
+							{#if result.review}
+								<!-- Advisory. The quotes come from the scrubbed text, so showing
+								     them reveals nothing the output does not already. -->
+								<h4>Second opinion</h4>
+								<p class="muted">{result.review.summary}</p>
+								{#if result.review.concerns.length}
+									<ul class="concerns">
+										{#each result.review.concerns as concern}
+											<li>
+												<span class="kind">{concern.kind.replace('_', ' ')}</span>
+												<code>{concern.quote}</code>
+												<span class="why">{concern.why}</span>
+											</li>
+										{/each}
+									</ul>
+								{/if}
+							{/if}
 						{:else}
 							<p class="failed-msg">Nothing was written. {result.error?.message}</p>
 						{/if}
@@ -496,6 +526,34 @@
 		flex-wrap: wrap;
 		gap: 0.75rem;
 	}
+	.concerns {
+		list-style: none;
+		padding: 0;
+		margin: 0.4rem 0 0;
+	}
+	.concerns li {
+		margin: 0.45rem 0;
+		padding-left: 0.6rem;
+		border-left: 2px solid rgba(200, 140, 0, 0.5);
+	}
+	.kind {
+		display: inline-block;
+		font-size: 0.72rem;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		opacity: 0.7;
+		margin-right: 0.4rem;
+	}
+	.why {
+		display: block;
+		font-size: 0.85rem;
+		opacity: 0.75;
+	}
+	select {
+		font: inherit;
+		padding: 0.25rem;
+	}
+
 	.counts em {
 		opacity: 0.6;
 		font-style: normal;

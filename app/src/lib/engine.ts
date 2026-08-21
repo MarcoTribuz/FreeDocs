@@ -24,7 +24,27 @@ export interface Capabilities {
 	/** What this build cannot do. Rendered, never hidden. */
 	limitations: string[];
 	ocr_available: boolean;
+	/** Local Ollama models available for the optional review. Empty when Ollama is absent. */
+	review_models: string[];
 	caveats: string[];
+}
+
+export interface Concern {
+	kind: 'leftover' | 'quasi_identifier' | 'context' | string;
+	/** From the *scrubbed* text, so showing it reveals nothing the output does not. */
+	quote: string;
+	why: string;
+}
+
+export interface Review {
+	model: string;
+	/** False when the review could not run. Not the same as finding nothing. */
+	ran: boolean;
+	unavailable: string | null;
+	/** The document was longer than the reviewer reads, so this covers its start. */
+	partial: boolean;
+	summary: string;
+	concerns: Concern[];
 }
 
 export interface Finding {
@@ -61,6 +81,8 @@ export interface ScrubResult {
 	flagged?: number;
 	warnings?: string[];
 	hidden_removed?: HiddenItem[];
+	/** Null when no review was requested. */
+	review?: Review | null;
 	report?: unknown;
 	error?: { code: number; message: string; data?: unknown };
 }
@@ -76,6 +98,8 @@ export interface ScrubOptions {
 	minConfidence?: number;
 	detectors?: string | null;
 	allowLeaks?: boolean;
+	/** Ollama model to review the scrubbed text with. Advisory; changes no output. */
+	review?: string | null;
 }
 
 /**
@@ -153,6 +177,7 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	if (options.minConfidence !== undefined) params.min_confidence = options.minConfidence;
 	if (options.detectors) params.detectors = options.detectors;
 	if (options.allowLeaks) params.allow_leaks = true;
+	if (options.review) params.review = options.review;
 	return params;
 }
 

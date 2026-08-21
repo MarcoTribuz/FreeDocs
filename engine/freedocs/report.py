@@ -58,6 +58,11 @@ def build_report(result: ScrubResult) -> dict[str, Any]:
             for item in result.hidden_removed
         ],
         "warnings": list(result.warnings),
+        # The review quotes the *scrubbed* text, so its quotes are not
+        # confidential values — they are what survived redaction, which is the
+        # whole point of showing them. Absent entirely when no review was asked
+        # for, so a reader cannot mistake "not run" for "nothing found".
+        "review": _review_section(result),
         "verification": {
             "passed": result.verify.ok,
             "values_checked": result.verify.checked_values,
@@ -72,6 +77,22 @@ def build_report(result: ScrubResult) -> dict[str, Any]:
             ],
         },
         "caveats": CAVEATS,
+    }
+
+
+def _review_section(result: ScrubResult) -> dict[str, Any] | None:
+    review = result.review
+    if review is None:
+        return None
+    return {
+        "model": review.model,
+        "ran": review.ran,
+        "unavailable": review.unavailable,
+        "partial": review.truncated,
+        "concerns": [
+            {"kind": concern.kind, "quote": concern.quote, "why": concern.why}
+            for concern in review.concerns
+        ],
     }
 
 
@@ -97,4 +118,10 @@ def format_console(result: ScrubResult) -> str:
 
     lines.extend(f"  warning: {message}" for message in result.warnings)
     lines.append(f"  verify: {result.verify.summary()}")
+
+    if result.review is not None:
+        lines.append(f"  review: {result.review.summary()}")
+        # Printed in full rather than counted: a quasi-identifier is only
+        # actionable if you can see which words it is.
+        lines.extend(f"    {concern.describe()}" for concern in result.review.concerns)
     return "\n".join(lines)

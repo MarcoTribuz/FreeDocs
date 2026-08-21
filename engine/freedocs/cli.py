@@ -15,6 +15,7 @@ from pathlib import Path
 from .core.errors import MissingDependency
 from .core.findings import EntityType
 from .core.policy import Action, Policy
+from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .formats.pdf import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import Scrubber, build_registry, default_registry
@@ -67,6 +68,29 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="layers to use: l1, ner, all, or all:presidio (default: every available layer)",
     )
+    scrub.add_argument(
+        "--review",
+        metavar="MODEL",
+        default=None,
+        help=(
+            "after scrubbing, ask a local Ollama model to read the result and "
+            "flag leftovers and quasi-identifiers. Advisory: it never changes the "
+            "output. Try 'freedocs review-models' for what is installed."
+        ),
+    )
+    scrub.add_argument(
+        "--review-host",
+        default=None,
+        help="Ollama base URL (default: http://127.0.0.1:11434)",
+    )
+    scrub.add_argument(
+        "--review-remote",
+        action="store_true",
+        help=(
+            "permit a review host that is not on this machine. The scrubbed text "
+            "is sent to it, so this is deliberately not the default."
+        ),
+    )
 
     inspect = sub.add_parser(
         "inspect", help="report what would be removed, without writing anything"
@@ -77,6 +101,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     entities = sub.add_parser("entities", help="list the entity types this build detects")
     entities.set_defaults(files=[])
+
+    models = sub.add_parser(
+        "review-models", help="list the local Ollama models available for --review"
+    )
+    models.add_argument("--review-host", default=None)
+    models.set_defaults(files=[])
 
     benchmark = sub.add_parser(
         "benchmark", help="measure detector quality against the labelled corpus"
@@ -111,10 +141,25 @@ def _policy(args: argparse.Namespace) -> Policy:
     return Policy(overrides=overrides, min_confidence=args.min_confidence)
 
 
+def _reviewer(args: argparse.Namespace) -> LlmReviewer | None:
+    model = getattr(args, "review", None)
+    if not model:
+        return None
+    host = getattr(args, "review_host", None) or DEFAULT_HOST
+    try:
+        return LlmReviewer(
+            model=model, host=host, allow_remote=bool(getattr(args, "review_remote", False))
+        )
+    except RemoteHostRefused as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
     spec = getattr(args, "detectors", None)
     registry = build_registry(spec) if spec else default_registry()
-    return Scrubber(policy=_policy(args), registry=registry, strict=strict)
+    return Scrubber(
+        policy=_policy(args), registry=registry, strict=strict, reviewer=_reviewer(args)
+    )
 
 
 def _cmd_scrub(args: argparse.Namespace) -> int:
@@ -187,6 +232,20 @@ def _cmd_entities(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_review_models(args: argparse.Namespace) -> int:
+    host = getattr(args, "review_host", None) or DEFAULT_HOST
+    models = available_models(host)
+    if not models:
+        print(
+            f"no models available at {host}. Is Ollama running, and has anything been pulled?",
+            file=sys.stderr,
+        )
+        return EXIT_UNSUPPORTED
+    for model in models:
+        print(model)
+    return EXIT_OK
+
+
 def _cmd_benchmark(args: argparse.Namespace) -> int:
     from .evaluation.corpus import CorpusError, load_corpus
     from .evaluation.metrics import evaluate, format_evaluation
@@ -235,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
         "scrub": _cmd_scrub,
         "inspect": _cmd_inspect,
         "entities": _cmd_entities,
+        "review-models": _cmd_review_models,
         "benchmark": _cmd_benchmark,
     }
     return handlers[args.command](args)

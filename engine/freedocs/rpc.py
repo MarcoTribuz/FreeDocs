@@ -31,6 +31,14 @@ from typing import Any, TextIO
 from .core.errors import MissingDependency
 from .core.findings import EntityType
 from .core.policy import REPORT_ONLY, Action, Policy
+from .detect.llm_review import (
+    DEFAULT_HOST as REVIEW_HOST,
+)
+from .detect.llm_review import (
+    LlmReviewer,
+    RemoteHostRefused,
+    available_models,
+)
 from .formats.pdf import ScannedPdfNotSupported, tessdata_path
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import LAYER_SPECS, Scrubber, build_registry, default_registry
@@ -108,6 +116,10 @@ class Session:
             "layers": [type(detector).__name__ for detector in registry.detectors],
             "limitations": list(registry.notes),
             "ocr_available": tessdata_path() is not None,
+            # Offered so the app can present a real choice instead of a free-text
+            # box that 404s. Empty when Ollama is not running, which is the
+            # honest answer to "what can I review with".
+            "review_models": available_models(),
             "caveats": list(CAVEATS),
         }
 
@@ -177,6 +189,7 @@ class Session:
             policy=_policy_from(params),
             registry=self.registry(params.get("detectors")),  # type: ignore[arg-type]
             strict=not bool(params.get("allow_leaks")),
+            reviewer=_reviewer_from(params),
         )
 
         results: list[dict[str, Any]] = []
@@ -229,6 +242,7 @@ class Session:
                 {"part": item.part, "kind": item.kind, "detail": item.detail}
                 for item in result.hidden_removed
             ],
+            "review": _review_payload(result),
             "report": build_report(result),
         }
 
@@ -274,6 +288,45 @@ def _policy_from(params: dict[str, Any]) -> Policy:
     if not isinstance(minimum, (int, float)) or not 0.0 <= minimum <= 1.0:
         raise RpcError(INVALID_REQUEST, "'min_confidence' must be between 0 and 1")
     return Policy(overrides=overrides, min_confidence=float(minimum))
+
+
+def _reviewer_from(params: dict[str, Any]) -> LlmReviewer | None:
+    """Build the optional reviewer, or None when nobody asked for one."""
+    model = params.get("review")
+    if not model:
+        return None
+    try:
+        return LlmReviewer(
+            model=str(model),
+            host=str(params.get("review_host") or REVIEW_HOST),
+            allow_remote=bool(params.get("review_remote")),
+        )
+    except RemoteHostRefused as exc:
+        # A request error, not a failure of the file: the caller asked for
+        # something this tool will not do without saying so explicitly.
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
+
+
+def _review_payload(result: Any) -> dict[str, Any] | None:
+    """The review as data, or None when there was none.
+
+    The quotes are from the *scrubbed* text, so they are not confidential values:
+    they are what survived, which is exactly what the user needs to see.
+    """
+    review = result.review
+    if review is None:
+        return None
+    return {
+        "model": review.model,
+        "ran": review.ran,
+        "unavailable": review.unavailable,
+        "partial": review.truncated,
+        "summary": review.summary(),
+        "concerns": [
+            {"kind": concern.kind, "quote": concern.quote, "why": concern.why}
+            for concern in review.concerns
+        ],
+    }
 
 
 def _open(path: Path) -> Any:

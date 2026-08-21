@@ -7,10 +7,11 @@ Give it a file — plain text today, PDF and Office formats as the milestones la
 and it returns the same format with direct identifiers removed, plus a report of
 what went and a verification pass proving none of it survived.
 
-**Status: M7.** The engine works end to end on plain text, PDF (born-digital and
-scanned) and all three Office formats, with checksum-backed and model-backed
-detection across Italian, German, French and English. A Tauri desktop app drives
-it. See [Roadmap](#roadmap).
+**Status: M8 — the plan is complete.** The engine handles plain text, PDF
+(born-digital and scanned) and all three Office formats, with checksum-backed and
+model-backed detection across Italian, German, French and English. A Tauri desktop
+app drives it, and an optional local-LLM pass reviews the result. See
+[Roadmap](#roadmap).
 
 ## Why another one of these
 
@@ -72,7 +73,7 @@ Detection is layered:
 - **L3 — LLM review via Ollama, opt-in.** A second pass over the *already
   anonymised* text, flagging leftovers and quasi-identifiers. Not the primary
   detector: a generative model does not return reliable offsets, so it cannot
-  drive edits into a binary file.
+  drive edits into a binary file. See [The second opinion](#the-second-opinion).
 
 ## Measured, not estimated
 
@@ -239,6 +240,49 @@ model would run under `onnxruntime` at roughly 15 MB. Exporting GLiNER2 to ONNX
 needs re-benchmarking to prove the numbers above still hold, so it is a measured
 optimisation rather than a refactor to do blind.
 
+## The second opinion
+
+```bash
+uv run freedocs review-models                          # what Ollama has pulled
+uv run freedocs scrub doc.docx -o out/ --review qwen3-coder:latest
+```
+
+Off by default. It takes tens of seconds, it needs a local model nobody is obliged
+to have, and it changes nothing in the output.
+
+What it is for is the one thing nothing else in this project can do. The checksum
+and NER layers cover 99% of the corpus at 0.3% over-redaction, and what they cannot
+fix is not a missed span — it is a document with every name removed that still says
+"the only female partner in the Lugano office, hired in March 2019". No single
+redaction repairs that. A reader can notice it; a span-based detector cannot.
+
+Asked of a real local model, on a document whose every direct identifier was
+already a placeholder, it returned exactly that:
+
+```
+[quasi_identifier] "l'unica donna partner dell'ufficio di Lugano"
+    -> role plus location identifies one person
+[quasi_identifier] '84 anni, residente a Bedigliora (312 abitanti)'
+    -> age plus a town of 312 people
+```
+
+Three properties it holds to:
+
+- **It never edits.** The output is already written when the review runs. Its
+  findings are for a human, and the report says so.
+- **A skipped review does not look like a clean one.** `ReviewOutcome.ran` is
+  separate from an empty list of concerns, because "Ollama was not running" and
+  "the reviewer had no objection" are different facts and the second is reassuring.
+- **A non-loopback host is refused** unless the caller passes `--review-remote`.
+  Ollama is local by default and nothing leaves the machine, which is the only
+  basis on which this layer belongs in this tool. Pointing `OLLAMA_HOST` at a GPU
+  box has to be a decision, not an accident — and the refusal says why: scrubbed is
+  not the same as harmless, since the review exists precisely because
+  quasi-identifiers survive a scrub.
+
+It reads the first 12 000 characters. A model handed forty pages returns
+generalities, and the report says when only part was covered.
+
 ## Scans: redacting pixels, not glyphs
 
 On a scanned page there are no glyphs to delete — the text *is* the image. The
@@ -353,7 +397,7 @@ because it gets sent.
 | M5 | `pptx`: notes, hidden slides, off-canvas shapes, chart data | done |
 | M6 | Scanned PDF: OCR plus redaction on word bounding boxes | done |
 | M7 | Tauri desktop app | done |
-| M8 | L3 Ollama review, opt-in | next |
+| M8 | L3 Ollama review, opt-in | done |
 
 ## Licence
 
