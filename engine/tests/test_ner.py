@@ -170,3 +170,20 @@ def test_empty_text_never_reaches_the_backend():
 def test_overlap_constant_is_smaller_than_the_chunk():
     """Otherwise chunking would never advance."""
     assert 0 < CHUNK_OVERLAP < MAX_CHUNK_CHARS
+
+
+def test_every_label_the_gliner_backend_asks_for_has_a_mapping():
+    """An unmapped label is dropped silently, so asking for one achieves nothing.
+
+    `DEFAULT_LABEL_MAP` is consulted by casefolded label string and a miss is a
+    `continue`, which is right — a backend may return labels nobody asked for —
+    but it means adding a label to the backend without adding it here costs
+    inference time and yields not one finding. The Presidio backend already asks
+    for `NRP` with no mapping and no `EntityType` to map it to, which is the
+    shape of the bug this prevents on the default backend.
+    """
+    from freedocs.detect.backends.gliner_backend import DEFAULT_LABELS
+    from freedocs.detect.ner import DEFAULT_LABEL_MAP
+
+    unmapped = [label for label in DEFAULT_LABELS if label.casefold() not in DEFAULT_LABEL_MAP]
+    assert not unmapped, f"labels requested but never mapped to an EntityType: {unmapped}"

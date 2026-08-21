@@ -130,6 +130,16 @@ DEFAULT_LABEL_MAP: dict[str, EntityType] = {
     "postcode": EntityType.POSTCODE,
     "zip code": EntityType.POSTCODE,
     "ip address": EntityType.IP_ADDRESS,
+    # Country-issued numbers a model may name but no checksum here can settle.
+    # They arrive without a country, which is exactly why `confirms` gives no
+    # opinion on them rather than dropping them: see validators.COUNTRY_ISSUED.
+    "social security number": EntityType.NATIONAL_ID,
+    "national identification number": EntityType.NATIONAL_ID,
+    "national id": EntityType.NATIONAL_ID,
+    "tax identification number": EntityType.TAX_ID,
+    "tax number": EntityType.TAX_ID,
+    "vat number": EntityType.VAT_ID,
+    "company registration number": EntityType.COMPANY_ID,
 }
 
 
