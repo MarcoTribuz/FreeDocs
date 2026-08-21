@@ -129,6 +129,20 @@ def _is_local(host: str) -> bool:
         return False
 
 
+#: The half of the refusal that is the same whoever is asking. Two places refuse a
+#: non-loopback host — the reviewer, and the model listing — and they must not drift
+#: into giving different reasons for one rule.
+_REMOTE_REFUSAL = (
+    "Pass allow_remote=True if that is what you want. Note that scrubbed is not the "
+    "same as harmless: the review exists precisely because quasi-identifiers survive "
+    "a scrub."
+)
+
+
+def _refuse_remote(host: str, because: str) -> RemoteHostRefused:
+    return RemoteHostRefused(f"{host} is not on this machine. {because} {_REMOTE_REFUSAL}")
+
+
 @dataclass(frozen=True)
 class Concern:
     """One observation from the review. Advisory: nothing is removed for it."""
@@ -186,12 +200,7 @@ class LlmReviewer:
 
     def __post_init__(self) -> None:
         if not _is_local(self.host) and not self.allow_remote:
-            raise RemoteHostRefused(
-                f"{self.host} is not on this machine. The review sends the scrubbed "
-                "text to it, so pass allow_remote=True if that is what you want. "
-                "Note that scrubbed is not the same as harmless: the review exists "
-                "precisely because quasi-identifiers survive a scrub."
-            )
+            raise _refuse_remote(self.host, "The review sends the scrubbed text to it.")
 
     def review(self, text: str) -> list[Concern]:
         """Return what the model objects to, or an empty list.
@@ -289,12 +298,23 @@ def _parse_concerns(content: str) -> list[Concern]:
     return out
 
 
-def available_models(host: str = DEFAULT_HOST, timeout: float = 10.0) -> list[str]:
+def available_models(
+    host: str = DEFAULT_HOST, timeout: float = 10.0, *, allow_remote: bool = False
+) -> list[str]:
     """Models this Ollama has pulled, so a caller can offer a real choice.
 
     Returns an empty list rather than raising when Ollama is absent: the answer to
-    "which models can I review with" is legitimately "none".
+    "which models can I review with" is legitimately "none". Unreachable is not the
+    same as refused, and only the second raises.
+
+    The host guard is the same one :class:`LlmReviewer` applies, for two reasons.
+    Listing a remote host's models would offer a choice the scrub then refuses,
+    which reads as a bug rather than as the rule it is. And a listing is still a
+    request to a machine that is not this one — no document text in it, but the
+    decision to talk off-box at all is the user's to make explicitly.
     """
+    if not _is_local(host) and not allow_remote:
+        raise _refuse_remote(host, "Asking it which models it has means talking to it.")
     try:
         with urllib.request.urlopen(f"{host.rstrip('/')}/api/tags", timeout=timeout) as response:
             body = json.loads(response.read().decode("utf-8"))

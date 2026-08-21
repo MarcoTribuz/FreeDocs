@@ -49,11 +49,25 @@ checks on Python 3.10 and 3.12. Keep both green: 3.10 is the declared floor in
 
 ```bash
 cd app && npm install
-npm run tauri dev      # engine comes from engine/.venv, no bundle needed
+npm run tauri dev      # see the note below before trusting which engine it used
 CI=true npm run tauri build   # needs engine/dist/freedocs-engine to exist first
 
 cd engine && uv run --with pyinstaller python packaging/build.py
 ```
+
+**`tauri dev` does not necessarily run the engine you just edited.** `locate()` in
+`src-tauri/src/engine.rs` prefers a bundled resource over the repository venv, and
+a bundle left in `target/debug/freedocs-engine/` from an earlier
+`packaging/build.py` wins. Symptom: the window is missing a feature the Python
+gained after that bundle was built, which looks like a frontend bug and is not one.
+Either delete that directory or set `FREEDOCS_ENGINE` to
+`engine/.venv/bin/freedocs-rpc`, which beats both.
+
+Two smaller things that cost time: `cargo` is often absent from a non-interactive
+shell's PATH, and `tauri dev` dies with the shell that started it, so it needs
+detaching to survive. And the engine is one long-lived process — after editing
+`rpc.py` the running sidecar still has the old code, so restart the app rather than
+reloading the webview.
 
 The app holds **no rules**. Every judgement about what is confidential, what gets
 removed and what the user is warned about lives in Python. Two places deciding
@@ -198,7 +212,16 @@ Three properties to preserve:
   tool whose premise is that documents do not leave the machine; a review host on
   the network is a decision, not a default. `_is_local` deliberately does not
   resolve hostnames — whether one still points at loopback tomorrow is not this
-  code's call.
+  code's call. `available_models` applies the same guard and shares the message
+  through `_refuse_remote`: listing a host the scrub would then refuse reads as a
+  bug, and two wordings for one rule is two rules to reason about. Unreachable
+  still returns `[]` rather than raising — refused is loud, absent is quiet.
+- **Where Ollama lives is configuration, not a rule.** `capabilities` reports the
+  default host so the app can prefill it instead of holding a second copy, and the
+  `review_models` method answers for one named host. Without it an Ollama on a
+  non-default port left the window showing an empty list with no way to correct it.
+  `allow_remote` stays reachable over the pipe with no control in the window: the
+  opt-in belongs to a caller that states it, not to a checkbox.
 - **An unreachable Ollama is reported, never raised.** `review_outcome` converts
   `OllamaUnavailable` into a stated fact, because a missing advisory layer must not
   fail a scrub that otherwise worked.

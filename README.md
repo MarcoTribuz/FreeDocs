@@ -280,8 +280,21 @@ Three properties it holds to:
   not the same as harmless, since the review exists precisely because
   quasi-identifiers survive a scrub.
 
+  Listing a host's models is refused on the same terms, from the same message.
+  Offering a choice that the scrub then rejects reads as a bug rather than as the
+  rule it is, and asking a machine which models it has is still talking to it.
+
 It reads the first 12 000 characters. A model handed forty pages returns
 generalities, and the report says when only part was covered.
+
+The window exposes the host and the model, not the guard. Where Ollama listens is
+a runtime question — an instance on another port used to leave the app showing an
+empty list with no way to correct it, which reads as "this build cannot review"
+when the truth is "look somewhere else". The `review_models` RPC method answers
+for one specific host, and the app prefills the default from `capabilities`
+rather than keeping a second copy of the address. Allowing an off-machine host
+stays a pipe-level parameter with no control in the window: it is reachable
+deliberately, from the CLI or from a caller that says so.
 
 ## Scans: redacting pixels, not glyphs
 

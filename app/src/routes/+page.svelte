@@ -16,6 +16,7 @@
 		entities,
 		inspect,
 		onNotify,
+		reviewModels,
 		scrub
 	} from '$lib/engine';
 
@@ -35,6 +36,30 @@
 	let minConfidence = $state(0.5);
 	/** Empty means no review. Off by default: it is slow and changes nothing. */
 	let reviewModel = $state('');
+	/**
+	 * Where to look for Ollama, and what was found there.
+	 *
+	 * Kept separate from `caps.review_models` rather than editing that in place:
+	 * the capabilities are what the engine reported at startup, and overwriting
+	 * them would lose the ability to tell "the default host has nothing" from
+	 * "the host I typed has nothing".
+	 */
+	let reviewHost = $state('');
+	let models = $state<string[] | null>(null);
+	let modelsProblem = $state<string | null>(null);
+	let modelsBusy = $state(false);
+	/**
+	 * Open when there is a choice to make.
+	 *
+	 * Seeded once from the startup report rather than bound to it: expanding a panel
+	 * the user has just collapsed is worse than the click it saves. Closed when
+	 * Ollama has nothing, because an empty control is a distraction, and the label
+	 * stays visible either way — being invisible was the original complaint.
+	 */
+	let settingsOpen = $state(false);
+
+	/** What the dropdown offers: the typed host's answer, else the startup one. */
+	const offeredModels = $derived(models ?? caps?.review_models ?? []);
 
 	// Collected here rather than returned from onMount: an async callback cannot
 	// hand Svelte a cleanup function, and both subscriptions are set up after an
@@ -56,11 +81,11 @@
 		unsubscribes.push(
 			await onNotify({
 				progress: (value) => (progress = value),
-				ready: (value) => (caps = value)
+				ready: adoptCaps
 			})
 		);
 		try {
-			caps = await capabilities();
+			adoptCaps(await capabilities());
 			entityList = (await entities()).entities;
 		} catch (error) {
 			problem = describe(error);
@@ -70,6 +95,39 @@
 				if (event.payload.type === 'drop') addFiles(event.payload.paths);
 			})
 		);
+	}
+
+	/**
+	 * Take the engine's report, and seed the review host from it the first time.
+	 *
+	 * Seeded rather than defaulted in this file: the address Ollama listens on is
+	 * the engine's business, and a second copy here is a second thing to be wrong.
+	 * Only when the field is untouched, so a re-announced `ready` cannot discard
+	 * what the user typed.
+	 */
+	function adoptCaps(value: Capabilities) {
+		const first = caps === null;
+		caps = value;
+		if (!reviewHost) reviewHost = value.review_host;
+		if (first) settingsOpen = value.review_models.length > 0;
+	}
+
+	/** Ask a specific Ollama what it has, and say so where the host was typed. */
+	async function refreshModels() {
+		modelsBusy = true;
+		modelsProblem = null;
+		try {
+			const found = (await reviewModels(reviewHost)).models;
+			models = found;
+			// A model the new host does not have would otherwise stay selected and
+			// fail at scrub time, pointing at the wrong thing entirely.
+			if (reviewModel && !found.includes(reviewModel)) reviewModel = '';
+		} catch (error) {
+			models = [];
+			modelsProblem = describe(error);
+		} finally {
+			modelsBusy = false;
+		}
 	}
 
 	function describe(error: unknown): string {
@@ -133,7 +191,12 @@
 		results = [];
 		try {
 			results = (
-				await scrub(files, target, { keep: [...kept], minConfidence, review: reviewModel || null })
+				await scrub(files, target, {
+					keep: [...kept],
+					minConfidence,
+					review: reviewModel || null,
+					reviewHost
+				})
 			).results;
 		} catch (error) {
 			problem = describe(error);
@@ -197,6 +260,55 @@
 			{/if}
 		{/if}
 
+		{#if caps}
+			<!-- Outside the file list on purpose: this was only reachable once a
+			     document was loaded, so an empty window looked like a build with no
+			     review layer at all. -->
+			<details class="settings" bind:open={settingsOpen}>
+				<summary>Second opinion (Ollama)</summary>
+				<p class="muted">
+					A local model reads the scrubbed text and says what still worries it. Advisory: it
+					changes nothing in the output.
+				</p>
+				<div class="row">
+					<label>
+						Host
+						<input
+							type="text"
+							class="mono host"
+							spellcheck="false"
+							bind:value={reviewHost}
+							oninput={() => {
+								// The old list came from the old host. Keeping it on screen
+								// would credit this host with models it may not have.
+								models = null;
+								modelsProblem = null;
+							}}
+						/>
+					</label>
+					<button onclick={refreshModels} disabled={modelsBusy || !reviewHost}>
+						{modelsBusy ? 'Looking…' : 'Find models'}
+					</button>
+					<label>
+						Model
+						<select bind:value={reviewModel}>
+							<option value="">no review</option>
+							{#each offeredModels as model}<option value={model}>{model}</option>{/each}
+						</select>
+					</label>
+				</div>
+				{#if modelsProblem}
+					<p class="warnline">{modelsProblem}</p>
+				{:else if offeredModels.length === 0}
+					<p class="warnline">
+						No models at {reviewHost}. Is Ollama running there, and has anything been pulled?
+					</p>
+				{:else}
+					<p class="muted">{offeredModels.length} model(s) available.</p>
+				{/if}
+			</details>
+		{/if}
+
 		<section
 			class="dropzone"
 			class:busy={busy !== null}
@@ -227,14 +339,10 @@
 					/>
 					<span class="mono">{minConfidence.toFixed(2)}</span>
 				</label>
-				{#if caps?.review_models.length}
-					<label>
-						Review afterwards
-						<select bind:value={reviewModel}>
-							<option value="">no</option>
-							{#each caps.review_models as model}<option value={model}>{model}</option>{/each}
-						</select>
-					</label>
+				{#if reviewModel}
+					<!-- Stated next to the button that acts on it: the choice was made
+					     further up the page and is easy to forget by the time you scrub. -->
+					<span class="pill">review: {reviewModel}</span>
 				{/if}
 				<button onclick={runScrub} disabled={busy !== null || totalFindings === 0}>
 					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} file(s)`}
@@ -442,6 +550,48 @@
 	.alert.error {
 		background: rgba(200, 60, 60, 0.12);
 		border: 1px solid rgba(200, 60, 60, 0.4);
+	}
+
+	.settings {
+		border: 1px solid rgba(127, 127, 127, 0.25);
+		border-radius: 0.5rem;
+		padding: 0.6rem 1rem;
+		margin-bottom: 1rem;
+	}
+	.settings summary {
+		cursor: pointer;
+		font-size: 0.85rem;
+		text-transform: uppercase;
+		letter-spacing: 0.06em;
+		opacity: 0.7;
+	}
+	.settings p {
+		margin: 0.5rem 0;
+		font-size: 0.85rem;
+	}
+	.settings .row {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		flex-wrap: wrap;
+		margin: 0.6rem 0;
+	}
+	.settings label {
+		display: flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-size: 0.85rem;
+	}
+	input[type='text'] {
+		font: inherit;
+		padding: 0.3rem 0.45rem;
+		border-radius: 0.35rem;
+		border: 1px solid rgba(127, 127, 127, 0.4);
+		background: rgba(127, 127, 127, 0.08);
+		color: inherit;
+	}
+	.host {
+		width: 16rem;
 	}
 
 	.dropzone {

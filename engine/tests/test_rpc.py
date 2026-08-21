@@ -147,6 +147,64 @@ def test_capabilities_states_its_limitations(session: Session):
     assert isinstance(capabilities["ocr_available"], bool)
 
 
+def test_capabilities_names_the_host_it_would_review_against(session: Session):
+    """The app prefills from this rather than keeping its own copy of the address."""
+    capabilities = result_of(session, "capabilities")
+    assert capabilities["review_host"].startswith("http://127.0.0.1")
+    assert isinstance(capabilities["review_models"], list)
+
+
+# -- review_models ------------------------------------------------------------
+
+
+def test_review_models_answers_for_the_host_it_was_given(session: Session):
+    """Empty is a real answer; the point is that it says which host it means.
+
+    Deliberately a port nothing listens on: this is about the response shape and
+    about unreachable not being an error, so it must not depend on whether the
+    machine running the suite happens to have Ollama.
+    """
+    found = result_of(session, "review_models", host="http://127.0.0.1:1")
+    assert found["host"] == "http://127.0.0.1:1"
+    assert found["models"] == []
+
+
+def test_review_models_falls_back_to_the_default_host(session: Session):
+    found = result_of(session, "review_models")
+    assert found["host"].startswith("http://127.0.0.1")
+
+
+def test_review_models_refuses_a_host_off_this_machine(session: Session):
+    """Listing a host the scrub would then refuse reads as a bug, not as the rule."""
+    error = error_of(session, "review_models", host="http://ollama.example.com:11434")
+    assert error["code"] == INVALID_REQUEST
+    assert "not on this machine" in error["message"]
+
+
+def test_the_refusal_explains_itself_where_the_host_was_typed(session: Session):
+    error = error_of(session, "review_models", host="http://10.0.0.5:11434")
+    assert "quasi-identifiers survive a scrub" in error["message"]
+
+
+def test_review_models_passes_an_explicit_remote_opt_in_through(session: Session, monkeypatch):
+    """The pipe allows it explicitly. The window has no control for it by design.
+
+    Stubbed rather than dialled: a real connection to an off-machine address sits
+    on the timeout for ten seconds, and what is being checked here is that the
+    flag reaches the guard, not that the internet works.
+    """
+    seen: dict = {}
+
+    def fake_models(host, timeout=10.0, *, allow_remote=False):
+        seen.update(host=host, allow_remote=allow_remote)
+        return ["stub:latest"]
+
+    monkeypatch.setattr("freedocs.rpc.available_models", fake_models)
+    found = result_of(session, "review_models", host="http://10.0.0.5:11434", allow_remote=True)
+    assert seen == {"host": "http://10.0.0.5:11434", "allow_remote": True}
+    assert found["models"] == ["stub:latest"]
+
+
 def test_entities_marks_the_report_only_ones(session: Session):
     entities = result_of(session, "entities")["entities"]
     by_name = {item["name"]: item for item in entities}

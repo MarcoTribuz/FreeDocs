@@ -120,8 +120,28 @@ class Session:
             # box that 404s. Empty when Ollama is not running, which is the
             # honest answer to "what can I review with".
             "review_models": available_models(),
+            # The default the app should prefill, sent rather than hardcoded there:
+            # where Ollama lives is a judgement, and the app holds no judgements.
+            "review_host": REVIEW_HOST,
             "caveats": list(CAVEATS),
         }
+
+    def review_models(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Which models one particular Ollama has pulled.
+
+        Separate from :meth:`capabilities` because the host is a runtime choice.
+        An Ollama on a non-default port used to leave the app showing an empty
+        list with no way to correct it, which reads as "this build cannot review"
+        when the truth is "look somewhere else".
+        """
+        host = str(params.get("host") or REVIEW_HOST)
+        try:
+            models = available_models(host, allow_remote=bool(params.get("allow_remote")))
+        except RemoteHostRefused as exc:
+            # The same treatment `scrub` gives it: the caller asked for something
+            # this tool will not do until it is asked explicitly.
+            raise RpcError(INVALID_REQUEST, str(exc)) from exc
+        return {"host": host, "models": models}
 
     def entities(self) -> dict[str, Any]:
         """Every entity type, and whether it is removed or only flagged."""
@@ -371,6 +391,7 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
     return {
         "capabilities": lambda _params: session.capabilities(),
         "entities": lambda _params: session.entities(),
+        "review_models": session.review_models,
         "inspect": session.inspect,
         "scrub": session.scrub,
     }

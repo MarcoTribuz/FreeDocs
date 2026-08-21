@@ -201,6 +201,59 @@ def test_available_models_returns_empty_rather_than_raising():
     assert available_models("http://127.0.0.1:1", timeout=0.5) == []
 
 
+def test_listing_a_remote_host_is_refused_too():
+    """Offering models the scrub would then refuse reads as a bug, not as the rule.
+
+    Unreachable and refused are different: the test above proves the first stays a
+    quiet empty list, and this one proves the second is loud.
+    """
+    with pytest.raises(RemoteHostRefused, match="not on this machine"):
+        available_models("http://10.0.0.5:11434")
+
+
+def test_listing_a_remote_host_is_allowed_when_asked_for_explicitly(monkeypatch):
+    """No network here: the guard is what is under test, not the connection."""
+    monkeypatch.setattr(
+        "freedocs.detect.llm_review.urllib.request.urlopen",
+        lambda *a, **k: (_ for _ in ()).throw(OSError("no route")),
+    )
+    assert available_models("http://10.0.0.5:11434", allow_remote=True) == []
+
+
+def test_the_cli_reports_a_refused_host_instead_of_a_traceback(capsys):
+    """`review-models --review-host` names a host the guard may reject.
+
+    Once listing became guarded this command could raise through argparse, which
+    is a stack trace where an explanation belongs.
+    """
+    from freedocs.cli import main
+
+    code = main(["review-models", "--review-host", "http://10.0.0.5:11434"])
+    assert code != 0
+    complaint = capsys.readouterr().err
+    assert "not on this machine" in complaint
+    # The shared message speaks of allow_remote, which is not a command-line flag.
+    assert "--review-remote" in complaint
+
+
+def test_the_cli_can_be_told_the_remote_host_is_intended(capsys, monkeypatch):
+    monkeypatch.setattr("freedocs.cli.available_models", lambda host, **kw: ["stub:latest"])
+    from freedocs.cli import main
+
+    assert main(["review-models", "--review-host", "http://10.0.0.5:11434", "--review-remote"]) == 0
+    assert "stub:latest" in capsys.readouterr().out
+
+
+def test_both_refusals_give_the_same_reason():
+    """One rule, so one explanation. Two wordings would be two rules to reason about."""
+    with pytest.raises(RemoteHostRefused) as listing:
+        available_models("http://gpu.example.com")
+    with pytest.raises(RemoteHostRefused) as reviewing:
+        LlmReviewer(model="m", host="http://gpu.example.com")
+    assert "quasi-identifiers survive a scrub" in str(listing.value)
+    assert "quasi-identifiers survive a scrub" in str(reviewing.value)
+
+
 # -- in the pipeline ----------------------------------------------------------
 
 

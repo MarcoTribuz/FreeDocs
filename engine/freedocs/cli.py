@@ -106,6 +106,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "review-models", help="list the local Ollama models available for --review"
     )
     models.add_argument("--review-host", default=None)
+    # Listing is guarded like reviewing is, so the opt-in has to exist here too or
+    # --review-host would name a host this command then refuses with no way past it.
+    models.add_argument(
+        "--review-remote",
+        action="store_true",
+        help="permit listing the models of a host that is not on this machine",
+    )
     models.set_defaults(files=[])
 
     benchmark = sub.add_parser(
@@ -234,7 +241,14 @@ def _cmd_entities(_: argparse.Namespace) -> int:
 
 def _cmd_review_models(args: argparse.Namespace) -> int:
     host = getattr(args, "review_host", None) or DEFAULT_HOST
-    models = available_models(host)
+    try:
+        models = available_models(host, allow_remote=bool(getattr(args, "review_remote", False)))
+    except RemoteHostRefused as exc:
+        # A stated refusal, not a crash: the message explains the rule, which a
+        # traceback would bury. The switch is named here because the shared message
+        # speaks of `allow_remote`, and no such thing exists on a command line.
+        print(f"{exc} From here that means --review-remote.", file=sys.stderr)
+        return EXIT_UNSUPPORTED
     if not models:
         print(
             f"no models available at {host}. Is Ollama running, and has anything been pulled?",

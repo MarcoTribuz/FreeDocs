@@ -26,6 +26,8 @@ export interface Capabilities {
 	ocr_available: boolean;
 	/** Local Ollama models available for the optional review. Empty when Ollama is absent. */
 	review_models: string[];
+	/** Where the engine looks for Ollama. Prefilled from here, never hardcoded here. */
+	review_host: string;
 	caveats: string[];
 }
 
@@ -100,6 +102,8 @@ export interface ScrubOptions {
 	allowLeaks?: boolean;
 	/** Ollama model to review the scrubbed text with. Advisory; changes no output. */
 	review?: string | null;
+	/** Which Ollama to ask. Omitted means the engine's own default. */
+	reviewHost?: string | null;
 }
 
 /**
@@ -156,6 +160,17 @@ export function entities(): Promise<{ entities: EntityInfo[] }> {
 	return request<{ entities: EntityInfo[] }>('entities');
 }
 
+/**
+ * Which models one particular Ollama has.
+ *
+ * The engine refuses a host that is not this machine, and the refusal explains
+ * itself, so the window can show that answer where the host was typed rather than
+ * silently reporting no models.
+ */
+export function reviewModels(host: string): Promise<{ host: string; models: string[] }> {
+	return request<{ host: string; models: string[] }>('review_models', { host });
+}
+
 export function inspect(path: string, options: ScrubOptions = {}): Promise<Inspection> {
 	return request<Inspection>('inspect', toParams({ path }, options));
 }
@@ -178,6 +193,9 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	if (options.detectors) params.detectors = options.detectors;
 	if (options.allowLeaks) params.allow_leaks = true;
 	if (options.review) params.review = options.review;
+	// Only alongside a model: a host on its own configures nothing, and sending it
+	// anyway would make an unused field look like it had an effect.
+	if (options.review && options.reviewHost) params.review_host = options.reviewHost;
 	return params;
 }
 
