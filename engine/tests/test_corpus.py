@@ -114,11 +114,11 @@ def test_shipped_corpus_annotates_the_entities_the_ner_layer_exists_for():
     "entity",
     [
         EntityType.IBAN,
-        EntityType.CH_AHV,
-        EntityType.CH_UID,
+        EntityType.NATIONAL_ID,
+        EntityType.COMPANY_ID,
         EntityType.EMAIL,
-        EntityType.IT_CODICE_FISCALE,
-        EntityType.IT_PARTITA_IVA,
+        EntityType.TAX_ID,
+        EntityType.VAT_ID,
         EntityType.CREDIT_CARD,
     ],
 )

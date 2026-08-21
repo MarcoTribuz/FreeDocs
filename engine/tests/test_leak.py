@@ -56,9 +56,9 @@ def test_something_was_actually_removed(source: Path):
 
 def test_placeholders_appear_in_the_output(source: Path):
     output = l1_scrubber().scrub_file(source).output.decode("utf-8")
-    assert "[CF_1]" in output
+    assert "[TAX_ID_1]" in output
     assert "[IBAN_1]" in output
-    assert "[AVS_1]" in output
+    assert "[NATIONAL_ID_1]" in output
 
 
 def test_surrounding_text_is_untouched(source: Path):

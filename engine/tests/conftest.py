@@ -33,7 +33,11 @@ def scrubber() -> Scrubber:
     return l1_scrubber()
 
 
-#: (entity name, literal as it appears in a document)
+#: (canary name, literal as it appears in a document).
+#:
+#: The key names the canary, not the entity type. Twelve countries have a tax
+#: number and they cannot all be keyed on ``TAX_ID``, so the key stays a stable
+#: slug and ``CANARY_TYPES`` below says what each one is.
 CANARIES: dict[str, str] = {
     "IT_CODICE_FISCALE": "RSSMRA85T10A562S",
     "IT_PARTITA_IVA": "00743110157",
@@ -46,6 +50,24 @@ CANARIES: dict[str, str] = {
     "MAC_ADDRESS": "00:1B:44:11:3A:B7",
     "URL": "https://intranet.example.com/hr/salaries",
 }
+
+#: What each canary is: the ``EntityType`` name, and the issuing country when the
+#: number belongs to one. A test that only knows the literal cannot tell whether
+#: the right *type* was detected, which is the half that catches a rule wired to
+#: the wrong entity.
+CANARY_TYPES: dict[str, tuple[str, str | None]] = {
+    "IT_CODICE_FISCALE": ("TAX_ID", "it"),
+    "IT_PARTITA_IVA": ("VAT_ID", "it"),
+    "IBAN": ("IBAN", None),
+    "CH_AHV": ("NATIONAL_ID", "ch"),
+    "CH_UID": ("COMPANY_ID", "ch"),
+    "CREDIT_CARD": ("CREDIT_CARD", None),
+    "EMAIL": ("EMAIL", None),
+    "IP_ADDRESS": ("IP_ADDRESS", None),
+    "MAC_ADDRESS": ("MAC_ADDRESS", None),
+    "URL": ("URL", None),
+}
+
 
 #: Values that look like identifiers but must be rejected by the checksums.
 NEAR_MISSES: list[str] = [

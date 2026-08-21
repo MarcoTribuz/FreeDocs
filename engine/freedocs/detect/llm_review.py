@@ -78,7 +78,7 @@ RESPONSE_SCHEMA = {
 
 SYSTEM_PROMPT = """\
 You review documents that have already been anonymised by an automated tool. \
-Placeholders like [PERSONA_1], [IBAN_2] or [CF_1] mark text it removed; they are \
+Placeholders like [PERSONA_1], [IBAN_2] or [TAX_ID_1] mark text it removed; they are \
 not problems, they are the tool working.
 
 Report only what is still a re-identification risk:

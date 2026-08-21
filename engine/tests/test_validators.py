@@ -10,7 +10,7 @@ pytest.importorskip("stdnum", reason="python-stdnum is required for the L1 layer
 
 from freedocs.detect.validators import ValidatorDetector
 
-from .conftest import CANARIES, NEAR_MISSES
+from .conftest import CANARIES, CANARY_TYPES, NEAR_MISSES
 
 
 @pytest.fixture(scope="module")
@@ -18,15 +18,19 @@ def detector() -> ValidatorDetector:
     return ValidatorDetector()
 
 
-@pytest.mark.parametrize("entity,value", sorted(CANARIES.items()))
+@pytest.mark.parametrize("canary,value", sorted(CANARIES.items()))
 def test_each_canary_is_detected(
-    detector: ValidatorDetector, entity: str, value: str, document: str
+    detector: ValidatorDetector, canary: str, value: str, document: str
 ):
+    entity, country = CANARY_TYPES[canary]
     found = detector.detect(document)
     matched = [f for f in found if f.entity.value == entity]
-    assert matched, f"{entity} canary {value!r} was not detected"
+    assert matched, f"{canary} canary {value!r} was not detected as {entity}"
     # The span must cover the value, or write-back would corrupt the document.
-    assert any(value in f.text or f.text in value for f in matched)
+    covering = [f for f in matched if value in f.text or f.text in value]
+    assert covering
+    # And the finding must say which country issued it, or the report cannot.
+    assert {f.country for f in covering} == {country}
 
 
 def test_detected_spans_match_the_document_text(detector: ValidatorDetector, document: str):
@@ -50,11 +54,11 @@ def test_all_findings_are_layer_one(detector: ValidatorDetector, document: str):
 def test_partita_iva_without_context_is_low_confidence(detector: ValidatorDetector):
     """Eleven digits passing an 11-digit Luhn is weak evidence on its own."""
     bare = detector.detect(f"Riga 4 {CANARIES['IT_PARTITA_IVA']} 250 pezzi")
-    matches = [f for f in bare if f.entity is EntityType.IT_PARTITA_IVA]
+    matches = [f for f in bare if f.entity is EntityType.VAT_ID]
     assert matches and all(f.confidence < 1.0 for f in matches)
 
     with_context = detector.detect(f"Partita IVA {CANARIES['IT_PARTITA_IVA']}")
-    matches = [f for f in with_context if f.entity is EntityType.IT_PARTITA_IVA]
+    matches = [f for f in with_context if f.entity is EntityType.VAT_ID]
     assert matches and all(f.confidence == 1.0 for f in matches)
 
 
@@ -157,8 +161,8 @@ def test_narrowing_the_detector_stops_finding_the_other_country(document: str):
     """The Swiss canary must disappear when only Italy is asked for."""
     italian_only = ValidatorDetector(countries=("it",))
     entities = {f.entity for f in italian_only.detect(document)}
-    assert EntityType.IT_CODICE_FISCALE in entities
-    assert EntityType.CH_AHV not in entities
+    assert EntityType.TAX_ID in entities
+    assert EntityType.NATIONAL_ID not in entities
     assert EntityType.IBAN in entities
 
 
@@ -214,7 +218,7 @@ def test_a_context_code_does_not_fire_inside_an_ordinary_word(
     verb is not the corroboration the rule is asking for. Codes are therefore
     matched as whole words, unlike the stems above.
     """
-    matched = [f for f in detector.detect(text) if f.entity is EntityType.IT_PARTITA_IVA]
+    matched = [f for f in detector.detect(text) if f.entity is EntityType.VAT_ID]
     assert matched, "the candidate should still be nominated, only with less confidence"
     assert matched[0].confidence == pytest.approx(0.55)
 
@@ -232,5 +236,5 @@ def test_a_context_code_still_fires_when_it_stands_alone(detector: ValidatorDete
     """Including when punctuation surrounds it: `\\b` after the dot in `p.iva`
     would demand a word character that is not there, which is why the pattern
     uses lookarounds."""
-    matched = [f for f in detector.detect(text) if f.entity is EntityType.IT_PARTITA_IVA]
+    matched = [f for f in detector.detect(text) if f.entity is EntityType.VAT_ID]
     assert matched and matched[0].confidence == 1.0

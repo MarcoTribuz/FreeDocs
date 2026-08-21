@@ -9,11 +9,11 @@ The client [ORGANISATION:Northgate Freight Ltd], based at
 Main contact [PERSON:Helen Carter], reachable at
 [EMAIL:h.carter@meridian-advisory.example] or on [PHONE:+44 20 7946 0321].
 
-The Swiss branch reported that the AHV number [CH_AHV:756.1234.5678.97] of the
+The Swiss branch reported that the AHV number [NATIONAL_ID:756.1234.5678.97] of the
 seconded employee [PERSON:Robert Nash] is wrong in the payroll records.
 
 Payments go to [IBAN:CH93 0076 2011 6238 5295 7] and the company identification
-number is [CH_UID:CHE-116.281.710]. The [LOCATION:Zurich] office takes over the
+number is [COMPANY_ID:CHE-116.281.710]. The [LOCATION:Zurich] office takes over the
 engagement in April, and the [JOB_TITLE:technical lead] [PERSON:Alan Pritchard]
 will relocate to [LOCATION:Geneva] for six months.
 
@@ -30,10 +30,10 @@ Subject: appointment as [JOB_TITLE:systems analyst].
 Candidate: [PERSON:Fiona Brennan], resident at
 [ADDRESS:22 Harbour Road, Bristol BS1 5TY], reachable at
 [EMAIL:fiona.brennan@mailbox.example] and [PHONE:+44 117 925 8840].
-Swiss social security number [CH_AHV:756.2476.8193.55].
+Swiss social security number [NATIONAL_ID:756.2476.8193.55].
 
 The contract was countersigned by the [JOB_TITLE:head of human resources]
-[PERSON:Duncan Hargreaves], AHV [CH_AHV:756.7051.9238.47]. Place of work is the
+[PERSON:Duncan Hargreaves], AHV [NATIONAL_ID:756.7051.9238.47]. Place of work is the
 [LOCATION:Edinburgh] office, with regular travel to [LOCATION:Lugano].
 
 Salary paid to [IBAN:GB29 NWBK 6016 1331 9268 19], expenses reimbursed to the
@@ -52,7 +52,7 @@ Issuer: [ORGANISATION:Meridian Advisory Ltd], [ADDRESS:14 Kingsway, London WC2B 
 
 Recipient: [ORGANISATION:Harbour Point Properties Ltd]
 [ADDRESS:5 Quayside, Newcastle NE1 3DE]
-Swiss identification number [CH_UID:CHE-347.560.199]
+Swiss identification number [COMPANY_ID:CHE-347.560.199]
 
 Contact: [PERSON:Priya Raghavan], [JOB_TITLE:head of procurement],
 [EMAIL:p.raghavan@harbourpoint.example], [PHONE:+44 191 232 7710].
@@ -67,7 +67,7 @@ The corporate card [CREDIT_CARD:6011000990136073] is held by
 [IBAN:DE04 6007 0070 0123 4567 89].
 
 Dispute opened by the [JOB_TITLE:administrative director]
-[PERSON:Gordon Selby], AHV [CH_AHV:756.6394.8271.57].
+[PERSON:Gordon Selby], AHV [NATIONAL_ID:756.6394.8271.57].
 
 Net amount 48,250.00 GBP, VAT at 20 per cent.
 Payment reference 11982730451 dated 12.06.2025.
@@ -91,7 +91,7 @@ Maintenance window 04.11.2024, from 22.00 to 02.00.
 Ticket 5454545454545451 in the legacy system, migrated to number 90210.
 
 The supplier [ORGANISATION:Technet Systems Ltd], Swiss identification number
-[CH_UID:CHE-451.627.387], invoiced the work. Payment to
+[COMPANY_ID:CHE-451.627.387], invoiced the work. Payment to
 [IBAN:AT52 1200 0234 5678 9012].
 
 Signed: [PERSON:Marcus Preston], [LOCATION:London].
@@ -101,12 +101,12 @@ Supplier register - confidential extract
 
 Active supplier: [ORGANISATION:Pennine Metalwork Ltd],
 [ADDRESS:9 Foundry Lane, Sheffield S9 2LR], Swiss identification number
-[CH_UID:CHE-129.308.459]. Contact [PERSON:Gareth Lowell],
+[COMPANY_ID:CHE-129.308.459]. Contact [PERSON:Gareth Lowell],
 [JOB_TITLE:plant manager], [EMAIL:g.lowell@pennine-metal.example],
 [PHONE:+44 114 272 5588].
 
 Suspended supplier: [ORGANISATION:Midland Paper Mills Ltd], Swiss identification
-number [CH_UID:CHE-238.471.076], registered at
+number [COMPANY_ID:CHE-238.471.076], registered at
 [ADDRESS:210 Canal Street, Birmingham B1 2JT].
 Administrative contact [EMAIL:admin@midlandpaper.example].
 

@@ -261,7 +261,14 @@ def test_verification_passes(source: Path):
 
 def test_placeholders_are_written_into_the_page(source: Path):
     text = text_of(l1_scrubber().scrub_file(source).output)
-    for placeholder in ("[CF_1]", "[PIVA_1]", "[IBAN_1]", "[AVS_1]", "[UID_1]", "[EMAIL_1]"):
+    for placeholder in (
+        "[TAX_ID_1]",
+        "[VAT_ID_1]",
+        "[IBAN_1]",
+        "[NATIONAL_ID_1]",
+        "[COMPANY_ID_1]",
+        "[EMAIL_1]",
+    ):
         assert placeholder in text
 
 

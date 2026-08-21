@@ -292,7 +292,7 @@ def test_the_pivot_cache_is_redacted_not_deleted(tmp_path: Path):
     output = l1_scrubber().scrub_file(path).output
     cache = part_text(output, "xl/pivotCache/pivotCacheDefinition1.xml")
     assert cache, "the cache part must still exist"
-    assert "[AVS_1]" in cache
+    assert "[NATIONAL_ID_1]" in cache
     assert 'v="Totale"' in cache, "non-confidential cache values must be left alone"
 
 

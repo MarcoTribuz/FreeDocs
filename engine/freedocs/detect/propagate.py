@@ -78,6 +78,7 @@ def propagate_known_values(
                     layer=template.layer,
                     detector=f"{template.detector}{DETECTOR_SUFFIX}",
                     confidence=template.confidence,
+                    country=template.country,
                 )
             )
     return sorted(out, key=lambda f: (f.span.start, f.span.end))

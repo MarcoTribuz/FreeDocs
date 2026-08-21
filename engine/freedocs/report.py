@@ -39,16 +39,26 @@ CAVEATS = [
 def build_report(result: ScrubResult) -> dict[str, Any]:
     """A JSON-serialisable summary containing no confidential values."""
     by_entity: dict[str, dict[str, int]] = {}
+    # Which countries an entity type turned up for. One type now stands for many
+    # countries, so "3 tax numbers removed" no longer tells the reader whether
+    # the German ones were seen. Country codes are metadata about the document,
+    # not values out of it, so they belong here alongside the counts.
+    countries: dict[str, set[str]] = {}
     for decision in result.decisions:
+        finding = decision.finding
         bucket = by_entity.setdefault(
-            decision.finding.entity.value, {"removed": 0, "reported": 0, "kept": 0}
+            finding.entity.value, {"removed": 0, "reported": 0, "kept": 0}
         )
+        if finding.country:
+            countries.setdefault(finding.entity.value, set()).add(finding.country)
         if decision.action in {Action.REDACT, Action.SURROGATE}:
             bucket["removed"] += 1
         elif decision.action is Action.REPORT:
             bucket["reported"] += 1
         else:
             bucket["kept"] += 1
+    for entity, seen in countries.items():
+        by_entity[entity]["countries"] = sorted(seen)  # type: ignore[assignment]
 
     return {
         "source": result.source.name,

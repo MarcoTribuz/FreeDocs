@@ -141,7 +141,7 @@ def test_styles_and_theme_are_untouched(source: Path, scrubbed: bytes):
 
 def test_inline_strings_are_redacted(scrubbed: bytes):
     rows = cells(scrubbed, "Clienti")
-    assert rows[1][1] == "[CF_1]"
+    assert rows[1][1] == "[TAX_ID_1]"
     assert rows[1][2] == "[IBAN_1]"
 
 
@@ -153,7 +153,7 @@ def test_the_same_value_gets_the_same_placeholder_in_every_row(scrubbed: bytes):
 
 
 def test_the_hidden_sheet_is_redacted_too(scrubbed: bytes):
-    assert cells(scrubbed, "Sorgente")[0] == ("AVS", "[AVS_1]")
+    assert cells(scrubbed, "Sorgente")[0] == ("AVS", "[NATIONAL_ID_1]")
 
 
 # -- leaks --------------------------------------------------------------------

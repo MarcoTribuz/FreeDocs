@@ -73,7 +73,7 @@ def test_summarise_counts_per_entity():
 # -- checksum verification of model claims ------------------------------------
 
 
-def make_text(text: str, entity: EntityType, layer: Layer) -> Finding:
+def make_text(text: str, entity: EntityType, layer: Layer, country: str | None = None) -> Finding:
     return Finding(
         span=Span(0, len(text)),
         entity=entity,
@@ -81,6 +81,7 @@ def make_text(text: str, entity: EntityType, layer: Layer) -> Finding:
         layer=layer,
         detector="test",
         confidence=0.9,
+        country=country,
     )
 
 
@@ -111,3 +112,49 @@ def test_types_without_a_checksum_are_left_alone():
     """No validator covers a person's name, so there is no opinion to apply."""
     finding = make_text("Mario Rossi", EntityType.PERSON, Layer.NER)
     assert drop_unconfirmed_structured([finding]) == [finding]
+
+
+# -- checksum verification when the type belongs to a country ------------------
+
+
+def test_a_country_issued_claim_without_a_country_is_left_alone():
+    """`TAX_ID` covers twelve countries here and none of the other hundred-odd.
+
+    A Brazilian CPF a model correctly spotted passes no check digit this build
+    knows, and "nobody we cover accepts it" is not evidence against a number from
+    a country nobody taught us. Without a country there is no opinion to give.
+    """
+    pytest.importorskip("stdnum")
+    cpf = make_text("123.456.789-09", EntityType.TAX_ID, Layer.NER)
+    assert drop_unconfirmed_structured([cpf]) == [cpf]
+
+
+def test_a_country_issued_claim_with_a_country_is_checked_against_it():
+    pytest.importorskip("stdnum")
+    from .conftest import CANARIES
+
+    real = make_text(CANARIES["IT_CODICE_FISCALE"], EntityType.TAX_ID, Layer.NER, "it")
+    assert drop_unconfirmed_structured([real]) == [real]
+
+    wrong_check_digit = make_text("RSSMRA85T10A562A", EntityType.TAX_ID, Layer.NER, "it")
+    assert drop_unconfirmed_structured([wrong_check_digit]) == []
+
+
+def test_a_country_we_have_no_rule_for_yields_no_opinion():
+    """Naming a country is not the same as covering it."""
+    pytest.importorskip("stdnum")
+    finding = make_text("12345678901", EntityType.TAX_ID, Layer.NER, "br")
+    assert drop_unconfirmed_structured([finding]) == [finding]
+
+
+def test_the_country_neutral_types_still_need_no_country():
+    """Mod-97 and Luhn do not care where the number was issued.
+
+    This is the half that must not regress: the card rule is the reason this
+    whole mechanism exists, and its findings never carry a country.
+    """
+    pytest.importorskip("stdnum")
+    bogus = make_text("1500\t2300", EntityType.CREDIT_CARD, Layer.NER)
+    assert drop_unconfirmed_structured([bogus]) == []
+    dashed = make_text("CH93-0076-2011-6238-5295-7", EntityType.IBAN, Layer.NER)
+    assert drop_unconfirmed_structured([dashed]) == [dashed]

@@ -53,7 +53,7 @@ def drop_unconfirmed_structured(findings: Iterable[Finding]) -> list[Finding]:
         if finding.layer is Layer.VALIDATOR:
             kept.append(finding)
             continue
-        verdict = confirms(finding.entity, finding.text)
+        verdict = confirms(finding.entity, finding.text, finding.country)
         if verdict is False:
             continue
         kept.append(finding)

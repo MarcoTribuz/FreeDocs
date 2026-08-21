@@ -52,11 +52,13 @@ PLACEHOLDER_LABELS: dict[EntityType, str] = {
     EntityType.PHONE: "TELEFONO",
     EntityType.IBAN: "IBAN",
     EntityType.CREDIT_CARD: "CARTA",
-    EntityType.IT_CODICE_FISCALE: "CF",
-    EntityType.IT_PARTITA_IVA: "PIVA",
-    EntityType.CH_AHV: "AVS",
-    EntityType.CH_UID: "UID",
-    EntityType.CH_VAT: "IVA_CH",
+    # Neutral rather than Italian, unlike the rest of this table: one stem now
+    # stands for twelve countries' worth of numbers, and "CF" or "AVS" would name
+    # the wrong one on eleven of them. The country is in the report instead.
+    EntityType.NATIONAL_ID: "NATIONAL_ID",
+    EntityType.TAX_ID: "TAX_ID",
+    EntityType.VAT_ID: "VAT_ID",
+    EntityType.COMPANY_ID: "COMPANY_ID",
     EntityType.IP_ADDRESS: "IP",
     EntityType.MAC_ADDRESS: "MAC",
     EntityType.URL: "URL",

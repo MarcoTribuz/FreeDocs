@@ -9,11 +9,11 @@ Der Kunde [ORGANISATION:Nordwind Logistik GmbH] mit Sitz in
 Ansprechpartnerin ist [PERSON:Sabine Keller], erreichbar unter
 [EMAIL:s.keller@alpintreuhand.example] und [PHONE:+41 44 668 18 00].
 
-Die AHV-Nummer [CH_AHV:756.1234.5678.97] des entsandten Mitarbeiters
+Die AHV-Nummer [NATIONAL_ID:756.1234.5678.97] des entsandten Mitarbeiters
 [PERSON:Andreas Weber] ist im System falsch erfasst.
 
 Zahlungen erfolgen auf [IBAN:CH93 0076 2011 6238 5295 7], die
-Unternehmens-Identifikationsnummer lautet [CH_UID:CHE-116.281.710].
+Unternehmens-Identifikationsnummer lautet [COMPANY_ID:CHE-116.281.710].
 Die Niederlassung [LOCATION:Bern] ubernimmt die Betreuung ab April, der
 [JOB_TITLE:technische Leiter] [PERSON:Markus Baumann] wechselt nach
 [LOCATION:Winterthur].
@@ -29,11 +29,11 @@ Personaldossier - vertraulich
 Betreff: Anstellung als [JOB_TITLE:Systemanalystin].
 
 Bewerberin: [PERSON:Claudia Frei], wohnhaft [ADDRESS:Lindenweg 8, 3012 Bern],
-AHV [CH_AHV:756.4819.2375.67]. Kontakt [EMAIL:claudia.frei@post.example],
+AHV [NATIONAL_ID:756.4819.2375.67]. Kontakt [EMAIL:claudia.frei@post.example],
 [PHONE:+41 31 301 22 11].
 
 Der Vertrag wurde vom [JOB_TITLE:Personalleiter] [PERSON:Stefan Zimmermann]
-gegengezeichnet, AHV [CH_AHV:756.5930.1742.81]. Arbeitsort ist die Filiale
+gegengezeichnet, AHV [NATIONAL_ID:756.5930.1742.81]. Arbeitsort ist die Filiale
 [LOCATION:Zug], mit gelegentlichen Einsatzen in [LOCATION:Lugano].
 
 Lohnzahlung auf [IBAN:CH39 0024 3123 4567 8901 2], Spesen auf das deutsche
@@ -49,15 +49,15 @@ Dossier 2024/00841. Ende der Probezeit 30.09.2024.
 Rechnung - interne Kopie
 
 Aussteller: [ORGANISATION:Alpin Treuhand AG], [ADDRESS:Bahnhofstrasse 12, 8001 Zurich]
-UID [CH_UID:CHE-105.213.041]
+UID [COMPANY_ID:CHE-105.213.041]
 
 Empfanger: [ORGANISATION:Seeblick Immobilien AG]
 [ADDRESS:Seestrasse 101, 8700 Kusnacht]
-UID [CH_UID:CHE-812.495.032]
+UID [COMPANY_ID:CHE-812.495.032]
 
 Kontakt: [PERSON:Ursula Hofer], [JOB_TITLE:Einkaufsleiterin],
 [EMAIL:u.hofer@seeblick-immobilien.example], [PHONE:+41 44 910 55 66].
-AHV [CH_AHV:756.2476.8193.55].
+AHV [NATIONAL_ID:756.2476.8193.55].
 
 Positionen:
 Artikel 4532567890123451 - Architekturberatung - 12 Tage
@@ -69,7 +69,7 @@ Die Firmenkarte [CREDIT_CARD:5454545454545454] lautet auf
 [IBAN:CH32 0048 3550 4321 2345 6].
 
 Beanstandung eroffnet durch den [JOB_TITLE:Verwaltungsdirektor]
-[PERSON:Rolf Steiner], AHV [CH_AHV:756.7051.9238.47].
+[PERSON:Rolf Steiner], AHV [NATIONAL_ID:756.7051.9238.47].
 
 Nettobetrag 48 250,00 CHF, Mehrwertsteuer 8,1 Prozent.
 Zahlungsreferenz 11982730451 vom 12.06.2025.
@@ -94,7 +94,7 @@ Wartungsfenster 04.11.2024, von 22.00 bis 02.00 Uhr.
 Ticket 5454545454545451 im Altsystem, migriert auf Nummer 90210.
 
 Der Lieferant [ORGANISATION:Technetz Systeme GmbH], UID
-[CH_UID:CHE-903.712.840], hat den Einsatz verrechnet. Zahlung auf
+[COMPANY_ID:CHE-903.712.840], hat den Einsatz verrechnet. Zahlung auf
 [IBAN:CH63 0900 0000 2500 9779 8].
 
 Unterzeichnet: [PERSON:Peter Frankfurt], [LOCATION:Zurich].
@@ -103,12 +103,12 @@ Unterzeichnet: [PERSON:Peter Frankfurt], [LOCATION:Zurich].
 Lieferantenverzeichnis - vertraulicher Auszug
 
 Aktiver Lieferant: [ORGANISATION:Metallbau Ostschweiz AG],
-[ADDRESS:Gewerbestrasse 9, 9000 St. Gallen], UID [CH_UID:CHE-451.627.387].
+[ADDRESS:Gewerbestrasse 9, 9000 St. Gallen], UID [COMPANY_ID:CHE-451.627.387].
 Ansprechpartner [PERSON:Bruno Widmer], [JOB_TITLE:Werkleiter],
 [EMAIL:b.widmer@metallbau-ost.example], [PHONE:+41 71 222 33 44].
 
 Gesperrter Lieferant: [ORGANISATION:Papierwerk Mittelland AG], UID
-[CH_UID:CHE-347.560.199], Sitz [ADDRESS:Fabrikweg 210, 5000 Aarau].
+[COMPANY_ID:CHE-347.560.199], Sitz [ADDRESS:Fabrikweg 210, 5000 Aarau].
 Administrativer Kontakt [EMAIL:verwaltung@papierwerk-mittelland.example].
 
 Bestellportal: [URL:https://lieferanten.alpintreuhand.example/portal/zugang]
