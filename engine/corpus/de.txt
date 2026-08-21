@@ -177,3 +177,18 @@ Gerichtsstand ist Basel. Ein Schiedsverfahren findet in Zurich statt.
 
 Rechnungen sind in Schweizer Franken innert dreissig Tagen zahlbar; Betrage in
 Euro werden zum Kurs des Rechnungsdatums umgerechnet.
+
+Lieferantenformular - jedes Feld ausfullen und zurucksenden
+
+Vollstandiger Name:	[PERSON:Beatrix Halder]
+Funktion:	[JOB_TITLE:Leiterin Finanzen]
+Geschaftsadresse:	[ADDRESS:Sonnenrain 34, 6300 Zug]
+Zustelladresse:	[ADDRESS:Postgasse 7, 3011 Bern]
+Kontakt:	[EMAIL:b.halder@sonnenrain-zug.example]
+Zeichnungsberechtigt:	[PERSON:Urs Frei]
+Notfallkontakt:	[PERSON:Ilse Brandt]
+
+Unterzeichnet von [PERSON:Urs Frei] fur die Lieferantin.
+Gegengezeichnet von:
+
+[PERSON:Renate Oberholzer]

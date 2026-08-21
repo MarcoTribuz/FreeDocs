@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Protocol
 
 from ..core.findings import Finding, Layer
+from .addresses import fill_address_gaps
 from .organisations import fill_organisation_gaps
 from .propagate import propagate_known_values
 from .suppress import drop_jurisdiction_mentions, drop_non_identifying
@@ -105,6 +106,10 @@ class DetectorRegistry:
         # else claimed those characters, so this runs after resolution rather
         # than as another detector: see `organisations.fill_organisation_gaps`
         # for what happened when it competed on equal terms.
+        # Addresses first: the span is the largest of the three and it absorbs
+        # the city the model returned instead of the whole thing, so the
+        # organisation pass sees the characters already claimed.
+        resolved = fill_address_gaps(text, resolved)
         resolved = drop_non_identifying(fill_organisation_gaps(text, resolved))
         if not self.propagate:
             return resolved

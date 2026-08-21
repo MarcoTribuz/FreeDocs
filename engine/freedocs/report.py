@@ -28,7 +28,7 @@ CAVEATS = [
     "Direct identifiers are removed; re-identification from combinations of "
     "remaining details (role, dates, locations) is still possible.",
     "Detection is not exhaustive. On the project's own labelled corpus the full "
-    "layer stack covers 98% of the confidential entities it removes, which still "
+    "layer stack covers 99% of the confidential entities it removes, which still "
     "means some are missed, and a real document is harder than a test one.",
     "Place names are the weakest category, especially where a place is also "
     "somebody's surname in the same document.",
