@@ -24,6 +24,7 @@ archivi. Da correggere entro fine mese.
 La controparte [ORGANISATION:Studio Legale Moretti e Associati] di
 [LOCATION:Roma] curera la revisione contrattuale. Contatto:
 [EMAIL:segreteria@studiomoretti.example], telefono [PHONE:+39 06 4820 1177].
+Linea diretta [PHONE:02 8632 1470], senza prefisso internazionale.
 
 Fatturazione a [ORGANISATION:Realise Consulting SA],
 [ADDRESS:Bahnhofstrasse 12, 8001 Zurigo], UID [COMPANY_ID:CHE-116.281.710].

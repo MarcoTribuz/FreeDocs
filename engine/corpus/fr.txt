@@ -19,6 +19,7 @@ La succursale de [LOCATION:Neuchatel] reprend le dossier des avril, et le
 [LOCATION:Fribourg] pour six mois.
 
 Facturation: [ORGANISATION:Leman Conseil SA], telephone [PHONE:+41 22 909 10 20],
+ligne directe [PHONE:01 42 86 11 70] sans indicatif international,
 [EMAIL:comptabilite@lemanconseil.example]. Serveur de test [IP_ADDRESS:10.42.7.19].
 
 Commande numero 90210 du 03.03.2024, 250 pieces, livraison prevue en mai.

@@ -19,6 +19,7 @@ Die Niederlassung [LOCATION:Bern] ubernimmt die Betreuung ab April, der
 [LOCATION:Winterthur].
 
 Rechnungsstelle: [ORGANISATION:Alpin Treuhand AG], Telefon [PHONE:+41 31 320 40 50],
+Direktwahl intern [PHONE:044 910 55 66], Zentrale Hamburg [PHONE:030 26550].
 [EMAIL:buchhaltung@alpintreuhand.example]. Testserver [IP_ADDRESS:10.42.7.19].
 
 Bestellnummer 90210 vom 03.03.2024, 250 Stuck, Lieferung im Mai geplant.

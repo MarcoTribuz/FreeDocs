@@ -18,6 +18,7 @@ engagement in April, and the [JOB_TITLE:technical lead] [PERSON:Alan Pritchard]
 will relocate to [LOCATION:Geneva] for six months.
 
 Billing: [ORGANISATION:Meridian Advisory Ltd], phone [PHONE:+44 161 496 0114],
+direct line [PHONE:020 7183 8750] written without a country code,
 [EMAIL:accounts@meridian-advisory.example]. Test server [IP_ADDRESS:10.42.7.19].
 
 Order number 90210 dated 03.03.2024, 250 units, delivery expected in May.
