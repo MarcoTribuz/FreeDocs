@@ -17,6 +17,7 @@ from .core.findings import EntityType
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
+from .diagnostics import Check, run_checks
 from .formats.pdf import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat, handler_for
 from .pipeline import Scrubber, build_registry, default_registry
@@ -142,6 +143,28 @@ def _build_parser() -> argparse.ArgumentParser:
         help="permit listing the models of a host that is not on this machine",
     )
     models.set_defaults(files=[])
+
+    doctor = sub.add_parser(
+        "doctor",
+        help="check this machine can do everything this build claims",
+    )
+    doctor.add_argument("--json", action="store_true", help="machine-readable report on stdout")
+    doctor.add_argument(
+        "--strict",
+        action="store_true",
+        help=(
+            "fail when any optional layer is missing. Off by default: a machine "
+            "without Tesseract is a normal machine, and a health check that "
+            "calls that an error teaches people to ignore it"
+        ),
+    )
+    doctor.add_argument(
+        "--review-host",
+        default=DEFAULT_HOST,
+        metavar="URL",
+        help="which Ollama to ask about",
+    )
+    doctor.set_defaults(files=[])
 
     benchmark = sub.add_parser(
         "benchmark", help="measure detector quality against the labelled corpus"
@@ -332,6 +355,61 @@ def _cmd_countries(_: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Report every capability with the fix printed beside the failure.
+
+    The facts are gathered in :mod:`freedocs.diagnostics`; this only prints them.
+    """
+    checks = run_checks(getattr(args, "review_host", None) or DEFAULT_HOST)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "version": _engine_version(),
+                    "ok": all(check.ok or not check.required for check in checks),
+                    "checks": [
+                        {
+                            "name": check.name,
+                            "ok": check.ok,
+                            "detail": check.detail,
+                            "fix": check.fix,
+                            "required": check.required,
+                        }
+                        for check in checks
+                    ],
+                },
+                indent=2,
+            )
+        )
+        return _doctor_exit(checks, strict=args.strict)
+
+    print(f"freedocs {_engine_version()}")
+    for check in checks:
+        mark = "ok  " if check.ok else ("warn" if not check.required else "FAIL")
+        print(f"  [{mark}] {check.name:<18} {check.detail}")
+        if check.fix:
+            print(f"           {'':<18} fix: {check.fix}")
+    return _doctor_exit(checks, strict=args.strict)
+
+
+def _doctor_exit(checks: list[Check], *, strict: bool) -> int:
+    """Broken is always an error; degraded is one only when asked."""
+    if any(not check.ok and check.required for check in checks):
+        return EXIT_USAGE
+    if strict and any(check.degraded for check in checks):
+        return EXIT_USAGE
+    return EXIT_OK
+
+
+def _engine_version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("freedocs")
+    except PackageNotFoundError:  # running from a source tree without an install
+        return "unknown"
+
+
 def _cmd_review_models(args: argparse.Namespace) -> int:
     host = getattr(args, "review_host", None) or DEFAULT_HOST
     try:
@@ -427,6 +505,7 @@ def main(argv: list[str] | None = None) -> int:
         "entities": _cmd_entities,
         "countries": _cmd_countries,
         "review-models": _cmd_review_models,
+        "doctor": _cmd_doctor,
         "benchmark": _cmd_benchmark,
     }
     return handlers[args.command](args)

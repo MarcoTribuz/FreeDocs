@@ -171,3 +171,9 @@ und die Abgabenkontonummer 591199010. Alle wurden zuruckgewiesen.
 Auftragsnummer 4471209388 im Altsystem, Wareneingang 20240715.
 Zollposition 8708 9997 00 laut Tarif, Palettenmass 1200 800 144.
 Interne Kostenstelle 30-412/2201, Budgetzeile 0885 vom 15.07.2024.
+
+Anwendbares Recht: dieser Rahmenvertrag untersteht schweizerischem Recht, und
+Gerichtsstand ist Basel. Ein Schiedsverfahren findet in Zurich statt.
+
+Rechnungen sind in Schweizer Franken innert dreissig Tagen zahlbar; Betrage in
+Euro werden zum Kurs des Rechnungsdatums umgerechnet.

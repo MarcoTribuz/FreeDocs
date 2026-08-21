@@ -28,10 +28,19 @@ CAVEATS = [
     "Direct identifiers are removed; re-identification from combinations of "
     "remaining details (role, dates, locations) is still possible.",
     "Detection is not exhaustive. On the project's own labelled corpus the full "
-    "layer stack covers 97% of the confidential entities it removes, which still "
+    "layer stack covers 98% of the confidential entities it removes, which still "
     "means some are missed, and a real document is harder than a test one.",
     "Place names are the weakest category, especially where a place is also "
     "somebody's surname in the same document.",
+    # Stated because the reader of the output can see these survive and would
+    # otherwise read a deliberate decision as a miss - which is the more
+    # dangerous of the two misreadings, since it invites patching around a rule
+    # that is doing its job.
+    "Two kinds of place are kept on purpose: a bare country name, which narrows "
+    "a population by tens of millions and identifies nobody, and a city named "
+    "in a governing-law, jurisdiction or arbitration clause, where removing it "
+    "would change what the sentence means. The same city is still removed "
+    "wherever it is somebody's address.",
     "Identifiers are checksum-confirmed for twelve countries: Switzerland, "
     "Italy, Germany, Austria, France, Belgium, Spain, Portugal, the "
     "Netherlands, Poland, Sweden and the United Kingdom. Elsewhere - the "
