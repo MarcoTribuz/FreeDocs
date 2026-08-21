@@ -215,7 +215,7 @@ def test_visible_non_confidential_text_is_left_alone(scrubbed: bytes):
 
 
 def test_the_slide_body_is_redacted(scrubbed: bytes):
-    assert any("[CF_1]" in text for text in texts(scrubbed))
+    assert any("[TAX_ID_1]" in text for text in texts(scrubbed))
 
 
 def test_the_notes_are_redacted(scrubbed: bytes):
@@ -223,7 +223,7 @@ def test_the_notes_are_redacted(scrubbed: bytes):
 
 
 def test_the_off_canvas_shape_is_redacted(scrubbed: bytes):
-    assert any(text == "AVS [AVS_1]" for text in texts(scrubbed))
+    assert any(text == "AVS [NATIONAL_ID_1]" for text in texts(scrubbed))
 
 
 # -- leaks --------------------------------------------------------------------

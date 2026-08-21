@@ -9,11 +9,11 @@ Le client [ORGANISATION:Transports du Rhone SARL], etabli
 Interlocutrice: [PERSON:Sophie Girard], joignable a
 [EMAIL:s.girard@lemanconseil.example] ou au [PHONE:+41 21 613 25 40].
 
-Le numero AVS [CH_AHV:756.1234.5678.97] du collaborateur detache est errone
+Le numero AVS [NATIONAL_ID:756.1234.5678.97] du collaborateur detache est errone
 dans les archives et doit etre corrige.
 
 Les paiements se font sur [IBAN:CH93 0076 2011 6238 5295 7], le numero
-d'identification de l'entreprise est [CH_UID:CHE-116.281.710].
+d'identification de l'entreprise est [COMPANY_ID:CHE-116.281.710].
 La succursale de [LOCATION:Neuchatel] reprend le dossier des avril, et le
 [JOB_TITLE:directeur des operations] [PERSON:Nicolas Perret] sera detache a
 [LOCATION:Fribourg] pour six mois.
@@ -29,11 +29,11 @@ Dossier du personnel - confidentiel
 Objet: engagement au poste d'[JOB_TITLE:analyste systeme].
 
 Candidate: [PERSON:Amelie Blanchard], domiciliee
-[ADDRESS:Chemin des Vignes 14, 1260 Nyon], AVS [CH_AHV:756.1627.3849.57].
+[ADDRESS:Chemin des Vignes 14, 1260 Nyon], AVS [NATIONAL_ID:756.1627.3849.57].
 Contact [EMAIL:amelie.blanchard@courrier.example], [PHONE:+41 22 361 44 55].
 
 Le contrat a ete contresigne par la [JOB_TITLE:directrice des ressources humaines]
-[PERSON:Isabelle Marchand], AVS [CH_AHV:756.9584.7362.15]. Lieu de travail:
+[PERSON:Isabelle Marchand], AVS [NATIONAL_ID:756.9584.7362.15]. Lieu de travail:
 la filiale de [LOCATION:Sion], avec des interventions a [LOCATION:Lugano].
 
 Salaire verse sur [IBAN:FR15 7630 0060 0001 1234 5678 901], frais rembourses
@@ -49,15 +49,15 @@ Dossier 2024/00841. Fin de la periode d'essai 30.09.2024.
 Facture - copie interne
 
 Emetteur: [ORGANISATION:Leman Conseil SA], [ADDRESS:Avenue de la Gare 8, 1003 Lausanne]
-IDE [CH_UID:CHE-105.213.041]
+IDE [COMPANY_ID:CHE-105.213.041]
 
 Destinataire: [ORGANISATION:Vignoble Bertrand et Fils SA]
 [ADDRESS:Route de Berne 5, 1010 Lausanne]
-IDE [CH_UID:CHE-129.308.459]
+IDE [COMPANY_ID:CHE-129.308.459]
 
 Contact: [PERSON:Julien Fontaine], [JOB_TITLE:responsable des achats],
 [EMAIL:j.fontaine@vignoble-bertrand.example], [PHONE:+41 21 652 33 77].
-AVS [CH_AHV:756.5930.1742.81].
+AVS [NATIONAL_ID:756.5930.1742.81].
 
 Lignes de facture:
 Article 4532567890123451 - conseil en architecture - 12 journees
@@ -69,7 +69,7 @@ La carte d'entreprise [CREDIT_CARD:4023600000000002] est au nom de
 [IBAN:CH32 0048 3550 4321 2345 6].
 
 Contestation ouverte par le [JOB_TITLE:directeur administratif]
-[PERSON:Laurent Chevalier], AVS [CH_AHV:756.4819.2375.67].
+[PERSON:Laurent Chevalier], AVS [NATIONAL_ID:756.4819.2375.67].
 
 Montant hors taxes 48 250,00 CHF, TVA 8,1 pour cent.
 Reference de paiement 11982730451 du 12.06.2025.
@@ -93,7 +93,7 @@ Fenetre de maintenance 04.11.2024, de 22h00 a 02h00.
 Ticket 5454545454545451 dans l'ancien systeme, migre vers le numero 90210.
 
 Le fournisseur [ORGANISATION:Reseaux Techniques SARL], IDE
-[CH_UID:CHE-238.471.076], a facture l'intervention. Paiement sur
+[COMPANY_ID:CHE-238.471.076], a facture l'intervention. Paiement sur
 [IBAN:CH63 0900 0000 2500 9779 8].
 
 Signe: [PERSON:Olivier Geneve], [LOCATION:Lausanne].
@@ -102,12 +102,12 @@ Signe: [PERSON:Olivier Geneve], [LOCATION:Lausanne].
 Registre des fournisseurs - extrait confidentiel
 
 Fournisseur actif: [ORGANISATION:Metallurgie Jurassienne SA],
-[ADDRESS:Rue de l'Industrie 9, 2800 Delemont], IDE [CH_UID:CHE-620.471.966].
+[ADDRESS:Rue de l'Industrie 9, 2800 Delemont], IDE [COMPANY_ID:CHE-620.471.966].
 Interlocuteur [PERSON:Bernard Aubert], [JOB_TITLE:directeur d'usine],
 [EMAIL:b.aubert@metallurgie-jura.example], [PHONE:+41 32 421 55 66].
 
 Fournisseur suspendu: [ORGANISATION:Papeterie du Plateau SA], IDE
-[CH_UID:CHE-705.384.616], siege [ADDRESS:Chemin de la Fabrique 210, 1700 Fribourg].
+[COMPANY_ID:CHE-705.384.616], siege [ADDRESS:Chemin de la Fabrique 210, 1700 Fribourg].
 Contact administratif [EMAIL:administration@papeterie-plateau.example].
 
 Portail des commandes: [URL:https://fournisseurs.lemanconseil.example/portail/acces]

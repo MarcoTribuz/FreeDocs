@@ -14,11 +14,14 @@ class EntityType(str, Enum):
     PHONE = "PHONE"
     IBAN = "IBAN"
     CREDIT_CARD = "CREDIT_CARD"
-    IT_CODICE_FISCALE = "IT_CODICE_FISCALE"
-    IT_PARTITA_IVA = "IT_PARTITA_IVA"
-    CH_AHV = "CH_AHV"
-    CH_UID = "CH_UID"
-    CH_VAT = "CH_VAT"
+    # Country-issued identifiers. The type says what the number is for; the
+    # country lives on the finding, because one member per country per number
+    # would be an enum of several hundred and every entry would have to be
+    # spelled again in the placeholder table, the report and the corpus labels.
+    NATIONAL_ID = "NATIONAL_ID"
+    TAX_ID = "TAX_ID"
+    VAT_ID = "VAT_ID"
+    COMPANY_ID = "COMPANY_ID"
     IP_ADDRESS = "IP_ADDRESS"
     MAC_ADDRESS = "MAC_ADDRESS"
     URL = "URL"
@@ -87,6 +90,13 @@ class Finding:
     layer: Layer
     detector: str
     confidence: float = 1.0
+    #: ISO 3166-1 alpha-2, lowercase, when the identifier is issued by a country.
+    #: None for the country-neutral types and for anything a model found without
+    #: being able to say whose it is. It reaches the report, never the
+    #: placeholder: "a German tax number was removed" is useful to whoever
+    #: checks the output, while putting it in the surrogate would hand the reader
+    #: of the scrubbed text one more thing to re-identify with.
+    country: str | None = None
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:

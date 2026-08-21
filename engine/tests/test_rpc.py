@@ -219,7 +219,7 @@ def test_inspect_reports_findings_with_positions(session: Session, document: Pat
     found = result_of(session, "inspect", path=str(document))
     assert found["format"] == "plaintext"
     entities = {item["entity"] for item in found["findings"]}
-    assert EntityType.IT_CODICE_FISCALE.value in entities
+    assert EntityType.TAX_ID.value in entities
     for item in found["findings"]:
         assert item["end"] > item["start"]
 

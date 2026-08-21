@@ -9,8 +9,8 @@ Referente operativo [PERSON:Laura Esposito], raggiungibile a
 [EMAIL:l.esposito@ferroviedelsud.example] oppure al [PHONE:+39 02 7634 8891].
 
 Dati amministrativi del cliente:
-Codice fiscale del titolare: [IT_CODICE_FISCALE:RSSMRA85T10A562S]
-Partita IVA: [IT_PARTITA_IVA:00743110157]
+Codice fiscale del titolare: [TAX_ID:RSSMRA85T10A562S]
+Partita IVA: [VAT_ID:00743110157]
 IBAN per i pagamenti: [IBAN:IT60 X054 2811 1010 0000 0123 456]
 
 La filiale di [LOCATION:Lugano] gestira il progetto a partire da marzo. Il
@@ -18,7 +18,7 @@ La filiale di [LOCATION:Lugano] gestira il progetto a partire da marzo. Il
 per sei mesi, con rimborso spese sul conto [IBAN:CH93 0076 2011 6238 5295 7].
 
 [PERSON:Anna Bianchi] ha segnalato che il numero AVS
-[CH_AHV:756.1234.5678.97] del collaboratore distaccato risulta errato negli
+[NATIONAL_ID:756.1234.5678.97] del collaboratore distaccato risulta errato negli
 archivi. Da correggere entro fine mese.
 
 La controparte [ORGANISATION:Studio Legale Moretti e Associati] di
@@ -26,7 +26,7 @@ La controparte [ORGANISATION:Studio Legale Moretti e Associati] di
 [EMAIL:segreteria@studiomoretti.example], telefono [PHONE:+39 06 4820 1177].
 
 Fatturazione a [ORGANISATION:Realise Consulting SA],
-[ADDRESS:Bahnhofstrasse 12, 8001 Zurigo], UID [CH_UID:CHE-116.281.710].
+[ADDRESS:Bahnhofstrasse 12, 8001 Zurigo], UID [COMPANY_ID:CHE-116.281.710].
 Il server di test resta [IP_ADDRESS:10.42.7.19] fino al collaudo.
 
 Ordine numero 90210 del 03.03.2024, 250 pezzi, consegna prevista in aprile.
@@ -39,18 +39,18 @@ Oggetto: assunzione a tempo indeterminato.
 
 Candidato: [PERSON:Silvia Ferrari], nata a [LOCATION:Napoli], residente in
 [ADDRESS:Corso Umberto I 118, 80138 Napoli]. Codice fiscale
-[IT_CODICE_FISCALE:FRRSLV83M47F839I], AVS [CH_AHV:756.8745.2369.15].
+[TAX_ID:FRRSLV83M47F839I], AVS [NATIONAL_ID:756.8745.2369.15].
 Contatti: [EMAIL:silvia.ferrari@posta.example], [PHONE:+39 081 552 3390].
 
 Assunta come [JOB_TITLE:analista di sistemi] presso la sede di
 [LOCATION:Chiasso]. Il contratto e stato controfirmato dal
 [JOB_TITLE:direttore del personale] [PERSON:Giovanni Moretti], codice fiscale
-[IT_CODICE_FISCALE:MRTGNN66B21L219T].
+[TAX_ID:MRTGNN66B21L219T].
 
 Accredito dello stipendio su [IBAN:IT32 M030 1503 2000 0000 0123 457].
 Rimborso trasferte sul conto svizzero [IBAN:CH77 0038 9144 1287 3902 1].
 
-Il collega [PERSON:Andrea Ricci] ([IT_CODICE_FISCALE:RCCNDR88P30D969H]) segue
+Il collega [PERSON:Andrea Ricci] ([TAX_ID:RCCNDR88P30D969H]) segue
 l'inserimento. Numero interno [PHONE:+41 91 911 22 33].
 
 Nota: il documento di identita fornito riporta un codice fiscale con carattere
@@ -64,15 +64,15 @@ Protocollo 2024/00841. Scadenza periodo di prova 30.09.2024.
 Fattura - copia interna
 
 Emittente: [ORGANISATION:Realise Consulting SA], [ADDRESS:Bahnhofstrasse 12, 8001 Zurigo]
-UID [CH_UID:CHE-105.213.041]
+UID [COMPANY_ID:CHE-105.213.041]
 
 Destinatario: [ORGANISATION:Adriatica Logistica SpA]
 [ADDRESS:Zona Industriale 7, 70126 Bari]
-Partita IVA [IT_PARTITA_IVA:12345670017]
+Partita IVA [VAT_ID:12345670017]
 
 Referente: [PERSON:Chiara Galli], [JOB_TITLE:responsabile acquisti],
 [EMAIL:c.galli@adriatica-logistica.example], [PHONE:+39 080 531 4477].
-Codice fiscale [IT_CODICE_FISCALE:GLLCHR95L65G273K].
+Codice fiscale [TAX_ID:GLLCHR95L65G273K].
 
 Righe di fattura:
 Articolo 4532567890123451 - consulenza architetturale - 12 giornate
@@ -84,7 +84,7 @@ intestata a [PERSON:Chiara Galli]. Il pagamento del saldo arrivera su
 [IBAN:IT70 B030 6909 6061 0000 0012 345].
 
 Contestazione aperta dal [JOB_TITLE:direttore amministrativo]
-[PERSON:Paolo Martinelli], [IT_CODICE_FISCALE:MRTPLA71E14F205Y].
+[PERSON:Paolo Martinelli], [TAX_ID:MRTPLA71E14F205Y].
 
 Totale imponibile 48 250,00 EUR. Aliquota 22 per cento.
 Riferimento bonifico 11982730451 del 12.06.2025.
@@ -108,7 +108,7 @@ Finestra di manutenzione 04.11.2024, dalle 22.00 alle 02.00.
 Ticket 5454545454545451 nel vecchio sistema, migrato al numero 90210.
 
 Il fornitore [ORGANISATION:Tecnoreti Sistemi Srl], partita IVA
-[IT_PARTITA_IVA:02983740123], ha fatturato l'intervento. Pagamento su
+[VAT_ID:02983740123], ha fatturato l'intervento. Pagamento su
 [IBAN:CH63 0900 0000 2500 9779 8].
 
 Firmato: [PERSON:Roberto Firenze], [LOCATION:Lugano].
@@ -118,12 +118,12 @@ Registro fornitori - estratto riservato
 
 Fornitore attivo: [ORGANISATION:Metalmeccanica Veneta Srl],
 [ADDRESS:Via dell'Artigianato 9, 36100 Vicenza], partita IVA
-[IT_PARTITA_IVA:05129830880]. Referente [PERSON:Stefano Vitale],
+[VAT_ID:05129830880]. Referente [PERSON:Stefano Vitale],
 [JOB_TITLE:direttore di stabilimento], [EMAIL:s.vitale@mmveneta.example],
 [PHONE:+39 0444 512 337].
 
 Fornitore sospeso: [ORGANISATION:Cartotecnica Lombarda SpA], partita IVA
-[IT_PARTITA_IVA:07364511001], sede [ADDRESS:Viale Certosa 210, 20156 Milano].
+[VAT_ID:07364511001], sede [ADDRESS:Viale Certosa 210, 20156 Milano].
 Contatto amministrativo [EMAIL:amministrazione@cartolombarda.example].
 
 Portale ordini: [URL:https://fornitori.realise.example/portale/accesso]

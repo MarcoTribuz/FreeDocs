@@ -149,9 +149,9 @@ def test_the_placeholder_inherits_the_formatting_of_the_run_it_replaced(scrubbed
     """Editing the run's text rather than rebuilding it is what keeps bold bold."""
     document = docx_module.Document(io.BytesIO(scrubbed))
     paragraph = next(p for p in document.paragraphs if p.text.startswith("Codice fiscale:"))
-    assert paragraph.text == "Codice fiscale: [CF_1]"
+    assert paragraph.text == "Codice fiscale: [TAX_ID_1]"
     bold = [run for run in paragraph.runs if run.bold]
-    assert [run.text for run in bold] == ["[CF_1]"], (
+    assert [run.text for run in bold] == ["[TAX_ID_1]"], (
         "the replacement must stay in the bold run that held the original"
     )
 
@@ -165,7 +165,7 @@ def test_a_name_split_across_runs_keeps_its_runs(scrubbed: bytes):
 
 def test_table_and_header_text_is_scrubbed(scrubbed: bytes):
     document = docx_module.Document(io.BytesIO(scrubbed))
-    assert "[AVS_1]" in document.tables[0].rows[0].cells[0].text
+    assert "[NATIONAL_ID_1]" in document.tables[0].rows[0].cells[0].text
     assert document.tables[0].rows[0].cells[1].text == "seconda cella"
 
 

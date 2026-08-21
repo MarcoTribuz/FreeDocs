@@ -176,7 +176,7 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
 
     national = [
         Rule(
-            entity=EntityType.CH_AHV,
+            entity=EntityType.NATIONAL_ID,
             country="ch",
             name="ch-ahv-ean13",
             # Every Swiss AHV number starts with the 756 country prefix.
@@ -184,21 +184,21 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             validate=lambda m: bool(ch_ssn.is_valid(_compact(m))),  # type: ignore[attr-defined]
         ),
         Rule(
-            entity=EntityType.CH_UID,
+            entity=EntityType.COMPANY_ID,
             country="ch",
             name="ch-uid",
             pattern=re.compile(r"\bCHE[-\s]?\d{3}[.\s]?\d{3}[.\s]?\d{3}\b", re.IGNORECASE),
             validate=lambda m: bool(ch_uid.is_valid(_compact(m))),  # type: ignore[attr-defined]
         ),
         Rule(
-            entity=EntityType.IT_CODICE_FISCALE,
+            entity=EntityType.TAX_ID,
             country="it",
             name="it-codice-fiscale-cin",
             pattern=re.compile(r"\b[A-Z]{6}\d{2}[A-Z]\d{2}[A-Z]\d{3}[A-Z]\b", re.IGNORECASE),
             validate=lambda m: bool(codicefiscale.is_valid(m.upper())),  # type: ignore[attr-defined]
         ),
         Rule(
-            entity=EntityType.IT_PARTITA_IVA,
+            entity=EntityType.VAT_ID,
             country="it",
             name="it-partita-iva-luhn11",
             pattern=re.compile(r"\b(?:IT)?\d{11}\b", re.IGNORECASE),
@@ -302,6 +302,7 @@ class ValidatorDetector:
                     layer=Layer.VALIDATOR,
                     detector=rule.name,
                     confidence=rule.confidence_at(text, start, end),
+                    country=rule.country,
                 )
 
     def _phone_findings(self, text: str) -> Iterator[Finding]:
@@ -326,44 +327,71 @@ class ValidatorDetector:
                     layer=Layer.VALIDATOR,
                     detector=f"phonenumbers-{region}",
                     confidence=1.0,
+                    country=region.casefold(),
                 )
 
 
 #: Entity types a checksum can settle. If a model claims one of these and the
 #: matching validator disagrees, the model is wrong: L1 scans the same text with
 #: precision near 1.0, so a real one would already have been found.
+#: Of those, the ones whose answer depends on knowing which country issued the
+#: number. Mod-97 and Luhn do not care; a tax number's check digit is national.
+COUNTRY_ISSUED = frozenset(
+    {
+        EntityType.NATIONAL_ID,
+        EntityType.TAX_ID,
+        EntityType.VAT_ID,
+        EntityType.COMPANY_ID,
+    }
+)
+
 CHECKSUM_VERIFIABLE = frozenset(
     {
         EntityType.IBAN,
         EntityType.CREDIT_CARD,
-        EntityType.IT_CODICE_FISCALE,
-        EntityType.IT_PARTITA_IVA,
-        EntityType.CH_AHV,
-        EntityType.CH_UID,
-        EntityType.CH_VAT,
+        EntityType.NATIONAL_ID,
+        EntityType.TAX_ID,
+        EntityType.VAT_ID,
+        EntityType.COMPANY_ID,
     }
 )
 
 
-def confirms(entity: EntityType, text: str) -> bool | None:
+def confirms(entity: EntityType, text: str, country: str | None = None) -> bool | None:
     """Whether a checksum accepts ``text`` as an ``entity``.
 
-    Returns None when no validator covers the type, which the caller must read as
-    "no opinion" rather than as a rejection.
+    Returns None when there is no opinion to give, which the caller must read as
+    "keep the finding" rather than as a rejection.
 
     This exists because GLiNER2 labelled two chart amounts, ``1500`` and ``2300``,
     as a credit card number at 0.87 confidence. No threshold separates that from a
     real finding, but Luhn does instantly. Using L1 as a verifier for L2's
     structured claims costs one function call and removes the whole class.
 
-    It deliberately does not require the *format* to match a rule's regex, only
-    the checksum: an IBAN written with dashes is real even though the pattern
-    would not nominate it, and rejecting it would lose recall the model earned.
+    ``country`` is what makes this answerable for the country-issued types. One
+    global algorithm settles an IBAN or a card number wherever it was issued, so
+    a failed check digit is a rejection and always was. A tax number is different:
+    ``TAX_ID`` is claimed by the twelve countries this build covers and by none of
+    the other hundred and eighty, so a Brazilian CPF a model correctly spotted
+    passes no check here — and "no covered country accepts it" is not evidence
+    against a number from a country nobody taught us. Without a country there is
+    therefore no opinion to give, and with one the answer comes from that
+    country's rules alone.
+
+    It still does not require the *format* to match a rule's regex, only the
+    checksum: an IBAN written with dashes is real even though the pattern would
+    not nominate it, and rejecting it would lose recall the model earned.
     """
     if entity not in CHECKSUM_VERIFIABLE:
         return None
+    if entity in COUNTRY_ISSUED and country is None:
+        return None
     try:
-        rules = [rule for rule in build_rules() if rule.entity is entity]
+        rules = [
+            rule
+            for rule in build_rules()
+            if rule.entity is entity and (country is None or rule.country == country)
+        ]
     except MissingDependency:  # pragma: no cover - depends on the environment
         # Without the validators there is no second opinion to offer, and
         # withholding the finding would lose it for no reason.
