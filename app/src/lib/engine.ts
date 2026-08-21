@@ -100,8 +100,49 @@ export interface EntityInfo {
 	report_only: boolean;
 }
 
+/** One occurrence the user decided is not confidential after all. */
+export interface KeptSpan {
+	start: number;
+	end: number;
+	/**
+	 * The text the span covered when the user saw it. Sent back so the engine can
+	 * refuse a decision that has gone stale: if the file changed since the
+	 * preview, these offsets point at something else, and honouring them would
+	 * keep whatever moved into that range.
+	 */
+	text: string;
+	/**
+	 * Which document the decision is about. A batch is one request but these
+	 * offsets belong to one extraction, so an unscoped span would be checked
+	 * against every file and refused as stale on all but the first.
+	 */
+	path?: string;
+}
+
+/** A value the user wants gone that no detector nominated. */
+export interface RemovedValue {
+	value: string;
+	/** Omitted means OTHER: the user said remove it without saying what it is. */
+	entity?: string;
+	/** Omitted means every file in the request, which for a value is meaningful. */
+	path?: string;
+}
+
 export interface ScrubOptions {
+	/**
+	 * Entity *types* to leave alone everywhere. Not the same control as
+	 * `keepSpans` below, and the difference matters: this one says "no location
+	 * in this document is confidential".
+	 */
 	keep?: string[];
+	/**
+	 * Single occurrences to leave alone. The per-occurrence control, because the
+	 * same city is confidential in a party's address and not in a jurisdiction
+	 * clause.
+	 */
+	keepSpans?: KeptSpan[];
+	/** Values to remove that the detectors missed, at every occurrence. */
+	remove?: RemovedValue[];
 	minConfidence?: number;
 	detectors?: string | null;
 	allowLeaks?: boolean;
@@ -202,6 +243,8 @@ export function scrub(
 function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<string, unknown> {
 	const params: Record<string, unknown> = { ...base };
 	if (options.keep?.length) params.keep = options.keep;
+	if (options.keepSpans?.length) params.keep_spans = options.keepSpans;
+	if (options.remove?.length) params.remove = options.remove;
 	if (options.minConfidence !== undefined) params.min_confidence = options.minConfidence;
 	if (options.detectors) params.detectors = options.detectors;
 	if (options.allowLeaks) params.allow_leaks = true;

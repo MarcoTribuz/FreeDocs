@@ -24,12 +24,13 @@ import json
 import sys
 import traceback
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, TextIO
 
 from .core.errors import MissingDependency
 from .core.findings import EntityType
+from .core.overrides import Override, StaleOverride, parse_override
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, REPORT_ONLY, Action, Policy
 from .detect.llm_review import (
     DEFAULT_HOST as REVIEW_HOST,
@@ -189,12 +190,17 @@ class Session:
         """What would be removed from one file, without writing anything."""
         path = _require_path(params, "path")
         policy = _policy_from(params)
+        scoped = _override_from(params).for_path(str(path))
         registry = self.registry(params.get("detectors"), _countries_from(params))
 
         handler = _open(path)
         stream = _extract(handler, path)
         try:
-            findings = registry.detect(stream.text)  # type: ignore[attr-defined]
+            findings = scoped.apply(stream.text, registry.detect(stream.text))  # type: ignore[attr-defined]
+        except StaleOverride as exc:
+            # A decision pointing at text that has since changed is refused, never
+            # applied to whatever moved into that range. See overrides.py.
+            raise RpcError(INVALID_REQUEST, str(exc)) from exc
         except MissingDependency as exc:
             # A detector backend loads its model on first use, so a missing one
             # surfaces here rather than at construction. Without this the app was
@@ -210,7 +216,15 @@ class Session:
             # preview taken with all thirteen, and the difference is the whole
             # point of the option — the scrub path already carries them through
             # ScrubResult.warnings.
-            "warnings": [*handler.warnings, *registry.notes],  # type: ignore[attr-defined]
+            "warnings": [
+                *handler.warnings,
+                *registry.notes,  # type: ignore[attr-defined]
+                *(
+                    f"the value {value!r} was asked to be removed but does not "
+                    f"appear in this document"
+                    for value in scoped.unmatched(stream.text)
+                ),
+            ],
             "findings": [
                 {
                     "start": finding.span.start,
@@ -245,11 +259,20 @@ class Session:
             strict=not bool(params.get("allow_leaks")),
             reviewer=_reviewer_from(params),
         )
+        override = _override_from(params)
 
         results: list[dict[str, Any]] = []
         for index, path in enumerate(paths):
             self.notify("progress", file=str(path), index=index, total=len(paths))
-            results.append(self._scrub_one(scrubber, path, output_dir))
+            # Re-bound per file rather than once for the batch. A kept span is an
+            # offset into one extraction, so carrying the whole set into every
+            # file would fail the second one as stale - the check working on a
+            # question nobody asked. See Override.for_path.
+            results.append(
+                self._scrub_one(
+                    replace(scrubber, overrides=override.for_path(str(path))), path, output_dir
+                )
+            )
         return {"results": results}
 
     def _scrub_one(self, scrubber: Scrubber, path: Path, output_dir: Path) -> dict[str, Any]:
@@ -260,6 +283,10 @@ class Session:
         """
         try:
             result = scrubber.scrub_file(path)
+        except StaleOverride as exc:
+            # In place rather than raised, like every other per-file failure: a
+            # batch must not stop because one file moved under a decision.
+            return _failure(path, INVALID_REQUEST, str(exc))
         except UnsupportedFormat as exc:
             return _failure(path, UNSUPPORTED_FORMAT, str(exc))
         except ScannedPdfNotSupported as exc:
@@ -373,6 +400,20 @@ def _policy_from(params: dict[str, Any]) -> Policy:
     return Policy(
         overrides=overrides, min_confidence=float(minimum), placeholder_locale=str(locale)
     )
+
+
+def _override_from(params: dict[str, Any]) -> Override:
+    """Per-occurrence decisions off the wire.
+
+    Separate from ``_policy_from`` because the two ``keep`` controls are different
+    things and collapsing them would be a bug: ``keep`` names entity *types* to
+    leave alone everywhere, ``keep_spans`` names single occurrences. One control
+    for both would make "this Zurich is fine" mean "no location is confidential".
+    """
+    try:
+        return parse_override(params.get("keep_spans"), params.get("remove"))
+    except ValueError as exc:
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
 
 
 def _reviewer_from(params: dict[str, Any]) -> LlmReviewer | None:

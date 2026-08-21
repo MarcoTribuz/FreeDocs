@@ -5,6 +5,7 @@
 	import {
 		type Capabilities,
 		type EntityInfo,
+		type Finding,
 		type Inspection,
 		type Progress,
 		type ScrubResult,
@@ -17,7 +18,9 @@
 		inspect,
 		onNotify,
 		reviewModels,
-		scrub
+		scrub,
+		type KeptSpan,
+		type RemovedValue
 	} from '$lib/engine';
 
 	let engineProblem = $state<string | null>(null);
@@ -33,6 +36,18 @@
 
 	/** Entity types the user has chosen to leave alone. */
 	let kept = $state<Set<string>>(new Set());
+	/**
+	 * Single occurrences the user has excused, per file. A different control from
+	 * `kept` above and deliberately so: that one says "no location in this
+	 * document is confidential", this one says "not *this* one". The same city is
+	 * confidential in a party's address and not in a jurisdiction clause, which is
+	 * a judgement only the person reading the preview can make.
+	 */
+	let keptSpans = $state<Record<string, KeptSpan[]>>({});
+	/** Values the user says to remove that no detector found, per file. */
+	let extraValues = $state<Record<string, RemovedValue[]>>({});
+	/** What is typed in the "also remove" box, per file, before it is added. */
+	let pending = $state<Record<string, string>>({});
 	/**
 	 * Countries to look for identifiers in. Empty means every supported one,
 	 * which is why this is a set of *exclusions* to send rather than a set of
@@ -172,6 +187,8 @@
 		try {
 			inspections[path] = await inspect(path, {
 				keep: [...kept],
+				keepSpans: keptSpans[path] ?? [],
+				remove: extraValues[path] ?? [],
 				minConfidence,
 				countries: activeCountries()
 			});
@@ -184,6 +201,50 @@
 
 	async function reinspectAll() {
 		for (const path of files) await loadInspection(path);
+	}
+
+	/**
+	 * Excuse or re-include one occurrence.
+	 *
+	 * The span carries the text it covered, which is what lets the engine refuse
+	 * the decision if the file changes underneath it: the offsets would then point
+	 * at something the user never saw, and honouring them would keep whatever
+	 * moved into that range.
+	 */
+	function toggleSpan(path: string, finding: Finding) {
+		const current = keptSpans[path] ?? [];
+		const already = current.some((s) => s.start === finding.start && s.end === finding.end);
+		keptSpans = {
+			...keptSpans,
+			[path]: already
+				? current.filter((s) => !(s.start === finding.start && s.end === finding.end))
+				: [...current, { start: finding.start, end: finding.end, text: finding.text, path }]
+		};
+		void loadInspection(path);
+	}
+
+	function addValue(path: string) {
+		const value = (pending[path] ?? '').trim();
+		if (!value) return;
+		const current = extraValues[path] ?? [];
+		if (!current.some((item) => item.value === value)) {
+			extraValues = { ...extraValues, [path]: [...current, { value, path }] };
+		}
+		pending = { ...pending, [path]: '' };
+		void loadInspection(path);
+	}
+
+	function dropValue(path: string, value: string) {
+		extraValues = {
+			...extraValues,
+			[path]: (extraValues[path] ?? []).filter((item) => item.value !== value)
+		};
+		void loadInspection(path);
+	}
+
+	/** A finding the user put there, rather than one a detector nominated. */
+	function isMine(finding: Finding): boolean {
+		return finding.detector === 'human';
 	}
 
 	function toggleKeep(name: string) {
@@ -223,6 +284,12 @@
 			results = (
 				await scrub(files, target, {
 					keep: [...kept],
+					// Every file's decisions in one request, each carrying its own
+					// path. The engine scopes them per document, because a span is
+					// an offset into one extraction and would be stale anywhere
+					// else - see Override.for_path.
+					keepSpans: files.flatMap((path) => keptSpans[path] ?? []),
+					remove: files.flatMap((path) => extraValues[path] ?? []),
 					minConfidence,
 					countries: activeCountries(),
 					placeholderLanguage,
@@ -453,14 +520,54 @@
 											{#each inspection.findings as finding}
 												<tr>
 													<td class="mono">{finding.part}</td>
-													<td>{finding.entity}</td>
+													<td>{finding.entity}{#if isMine(finding)} <em>yours</em>{/if}</td>
 													<td><code>{finding.text}</code></td>
 													<td class="mono">{finding.action}</td>
+													<td>
+														{#if isMine(finding)}
+															<button
+																class="linkish"
+																onclick={() => dropValue(path, finding.text)}
+																>don't remove</button
+															>
+														{:else}
+															<button
+																class="linkish"
+																onclick={() => toggleSpan(path, finding)}
+																title="Leave this one occurrence alone. Every other
+occurrence of the same value is still removed.">keep this one</button
+															>
+														{/if}
+													</td>
 												</tr>
 											{/each}
 										</tbody>
 									</table>
 								</details>
+							{/if}
+
+							<!-- The other half of the loop. Detection is measured, not
+							     complete, so the person reading the preview is the only
+							     one who can add what it missed - and the engine, not
+							     this window, decides what happens to it. -->
+							<div class="addrow">
+								<input
+									type="text"
+									placeholder="Also remove this value..."
+									bind:value={pending[path]}
+									onkeydown={(event) => event.key === 'Enter' && addValue(path)}
+								/>
+								<button onclick={() => addValue(path)} disabled={!(pending[path] ?? '').trim()}>
+									Add
+								</button>
+							</div>
+							{#if (keptSpans[path] ?? []).length > 0}
+								<p class="muted">
+									{(keptSpans[path] ?? []).length} occurrence(s) kept on purpose.
+									<button class="linkish" onclick={() => { keptSpans = { ...keptSpans, [path]: [] }; void loadInspection(path); }}>
+										undo all
+									</button>
+								</p>
 							{/if}
 							{#each inspection.warnings as warning}
 								<p class="warnline">{warning}</p>
@@ -727,6 +834,34 @@
 	.failed-msg {
 		color: #b03a3a;
 	}
+	/* An in-table action, not a call to action: the button must not compete with
+	   Scrub for attention, because the common case is not touching it at all. */
+	.linkish {
+		background: none;
+		border: none;
+		padding: 0;
+		font: inherit;
+		font-size: 0.85em;
+		color: var(--accent, #4a7);
+		text-decoration: underline;
+		cursor: pointer;
+	}
+
+	.linkish:hover {
+		opacity: 0.75;
+	}
+
+	.addrow {
+		display: flex;
+		gap: 0.5rem;
+		margin-top: 0.6rem;
+	}
+
+	.addrow input {
+		flex: 1;
+		min-width: 0;
+	}
+
 	.warnline {
 		margin: 0.35rem 0;
 		font-size: 0.85rem;

@@ -33,6 +33,11 @@ class EntityType(str, Enum):
     ADDRESS = "ADDRESS"
     DATE = "DATE"
 
+    #: Something a caller asked to have removed without saying what it is. Only
+    #: reachable through an override: no detector produces it, because a detector
+    #: that cannot name what it found has not found anything.
+    OTHER = "OTHER"
+
     # Quasi-identifiers: not identifying alone, but combined they re-identify.
     # Reported rather than removed by default.
     JOB_TITLE = "JOB_TITLE"
@@ -46,11 +51,21 @@ class Layer(str, Enum):
     VALIDATOR = "L1"
     NER = "L2"
     LLM_REVIEW = "L3"
+    #: A person looked at the preview and said so. Not a detector: it produces no
+    #: findings of its own accord and cannot run without a caller supplying the
+    #: decision. It is a layer because that is what makes it win an overlap.
+    HUMAN = "H"
 
 
 #: Higher wins when two findings overlap. A checksum-validated IBAN beats a
 #: model that thought the same digits were a phone number.
+#:
+#: The human is above the checksum, which is the whole point of an override: a
+#: caller who has read the preview and asked for a value to go is not offering a
+#: second opinion to be weighed against a validator, and a rule that could
+#: overrule them would make the control a suggestion.
 LAYER_PRECEDENCE: dict[Layer, int] = {
+    Layer.HUMAN: 4,
     Layer.VALIDATOR: 3,
     Layer.NER: 2,
     Layer.LLM_REVIEW: 1,
