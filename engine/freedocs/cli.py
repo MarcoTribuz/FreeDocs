@@ -162,6 +162,17 @@ def _build_parser() -> argparse.ArgumentParser:
         "--language", action="append", default=[], help="restrict to this language; repeatable"
     )
     benchmark.add_argument(
+        "--apply-min-confidence",
+        type=float,
+        default=None,
+        metavar="FLOOR",
+        help=(
+            "discard findings below this confidence before scoring, so the number "
+            "describes what a scrub would do rather than what the detector saw. "
+            "Off by default: the benchmark measures the detector"
+        ),
+    )
+    benchmark.add_argument(
         "--countries",
         default=None,
         metavar="CODES",
@@ -342,6 +353,26 @@ def _cmd_review_models(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
+class _Thresholded:
+    """A registry seen through ``Policy.min_confidence``.
+
+    ``evaluate`` calls ``detect`` directly, so the threshold is normally not in
+    the loop and the benchmark scores every candidate the detector nominated.
+    That is the right default — a corpus trap tuned against a threshold measures
+    the threshold — but it charges the detector for findings a scrub discards,
+    and with the weak country rules the gap is the whole difference between 0.57%
+    and 0.36% over-redaction. Making it a flag lets both numbers be quoted
+    without either being the quiet one.
+    """
+
+    def __init__(self, inner: object, floor: float) -> None:
+        self.inner = inner
+        self.floor = floor
+
+    def detect(self, text: str) -> list:
+        return [f for f in self.inner.detect(text) if f.confidence >= self.floor]  # type: ignore[attr-defined]
+
+
 def _cmd_benchmark(args: argparse.Namespace) -> int:
     from .evaluation.corpus import CorpusError, load_corpus
     from .evaluation.metrics import evaluate, format_evaluation
@@ -359,6 +390,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
             return EXIT_USAGE
 
     countries = _countries(args)
+    floor = getattr(args, "apply_min_confidence", None)
     specs = [part.strip() for part in (args.detectors or "").split(",") if part.strip()]
     for name in specs or [None]:
         try:
@@ -369,7 +401,7 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
             # first prediction, so a missing dependency surfaces here rather than
             # at construction, and an uncaught one would print a traceback and
             # still exit 0.
-            result = evaluate(documents, registry)
+            result = evaluate(documents, _Thresholded(registry, floor) if floor else registry)
         except (ValueError, MissingDependency) as exc:
             print(f"{name or 'default'}: {exc}", file=sys.stderr)
             return EXIT_UNSUPPORTED

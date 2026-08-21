@@ -104,6 +104,12 @@ class Evaluation:
     total_chars: int = 0
     per_entity: dict[str, EntityScore] = field(default_factory=dict)
     per_language: dict[str, tuple[int, int]] = field(default_factory=dict)
+    #: Per issuing country: findings that landed on an annotation, and findings
+    #: made. Precision, not coverage — the corpus annotates *what* a value is and
+    #: never *whose* it is, so there is no per-country denominator to recall
+    #: against. Precision is the half that answers the question a country
+    #: selection actually raises: does switching this one on cost anything.
+    per_country: dict[str, tuple[int, int]] = field(default_factory=dict)
     #: Gold entities the policy would actually remove, and how many of those were
     #: covered. Tracked separately because a REPORT_ONLY entity cannot leak: it is
     #: never removed by design, so counting it as covered or as a leak is noise.
@@ -204,6 +210,13 @@ def evaluate(
                 result.removable_covered += covered
         for finding in findings:
             bump(finding.entity.value, "predicted")
+            if finding.country:
+                on_gold, made = result.per_country.get(finding.country, (0, 0))
+                hit = any(
+                    gold.span.start < finding.span.end and finding.span.start < gold.span.end
+                    for gold in document.entities
+                )
+                result.per_country[finding.country] = (on_gold + hit, made + 1)
 
         result.per_language[document.language] = (
             len(document.entities) - leaked_here,
@@ -261,6 +274,18 @@ def format_evaluation(result: Evaluation, title: str) -> str:
         for language, (covered, total) in sorted(result.per_language.items()):
             share = covered / total if total else 0.0
             lines.append(f"    {language:<6} {share:>6.1%}  ({covered}/{total})")
+
+    if result.per_country:
+        lines.append("")
+        lines.append("  precision by issuing country")
+        # Precision only. The corpus says what a value is, never whose, so there
+        # is no denominator to recall a country against — and precision is what
+        # the question "should I switch this country on" actually asks.
+        for country, (on_gold, made) in sorted(result.per_country.items()):
+            share = on_gold / made if made else 0.0
+            lines.append(
+                f"    {country:<6} {share:>6.2f}  ({on_gold}/{made} landed on an annotation)"
+            )
 
     if result.leaks:
         lines.append("")

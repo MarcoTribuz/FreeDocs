@@ -9,11 +9,13 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
-**Current state: M8 complete — the plan in the plan file is finished.** The engine
-handles plain text, PDF (born-digital and scanned), `docx`, `xlsx` and `pptx`, with
-checksum, NER and value-propagation detection over it/de/fr/en. A Tauri app in
-`app/` drives it over a JSON pipe, and an opt-in local-LLM pass reviews the output.
-Anything further is new work, not a remaining milestone.
+**Current state: M8 complete, plus international coverage.** The engine handles
+plain text, PDF (born-digital and scanned), `docx`, `xlsx` and `pptx`, with
+checksum, NER and value-propagation detection. Identifiers are checksum-confirmed
+for twelve countries (ch, it, de, at, fr, be, es, pt, nl, pl, se, gb) and the NER
+layer reads it/de/fr/en without being told which. A Tauri app in `app/` drives it
+over a JSON pipe, and an opt-in local-LLM pass reviews the output. Anything
+further is new work, not a remaining milestone.
 
 ## Commands
 
@@ -23,7 +25,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (429 tests, ~75s with model+OCR)
+uv run pytest -q                       # full suite (523 tests, ~77s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -33,8 +35,11 @@ uv run ruff check . && uv run ruff format --check .
 uv run freedocs inspect FILE           # report findings, write nothing
 uv run freedocs scrub FILE -o out/     # write a scrubbed copy
 uv run freedocs entities               # list supported entity types
+uv run freedocs countries              # list countries and what each one gets
 uv run freedocs benchmark              # score detectors against corpus/
 uv run freedocs benchmark --detectors "l1,all:gliner2,all:presidio"
+uv run freedocs benchmark --countries ch,it              # price a country selection
+uv run freedocs benchmark --apply-min-confidence 0.5     # what a scrub would do
 ```
 
 `--extra ner` fetches ~1.2 GB of model weights to the Hugging Face cache on first
@@ -157,10 +162,17 @@ Consequences worth keeping in mind:
 (L1 > L2 > L3), then span length, then confidence. Two edits may never touch the
 same characters.
 
-- **L1** (`detect/validators.py`, shipped): regex nominates, checksum decides —
-  codice fiscale CIN, partita IVA, AHV EAN-13, Swiss UID, IBAN mod-97, Luhn, all
-  via `python-stdnum`. Add identifiers here as a `Rule`, and always pair the
-  pattern with a real validator rather than tightening the regex.
+- **L1** (`detect/validators.py`, shipped): regex nominates, checksum decides.
+  Forty rules over twelve countries, every validator from `python-stdnum`, which
+  ships 201 number modules across 87 countries. Add identifiers here as a `Rule`
+  with its `country`, and always pair the pattern with a real validator rather
+  than tightening the regex.
+
+  `SUPPORTED_COUNTRIES` is the list the CLI validates against, `capabilities`
+  publishes and the window's chips are built from. A country in it with no rules
+  needs a reason: the United States is the only one, present for its numbering
+  plan and the model because neither of its numbers has a check digit. A test
+  pins that so a third case cannot appear silently.
 - **L2** (`detect/ner.py` + `detect/backends/`, shipped): GLiNER2 for names,
   organisations, locations, addresses, job titles. One `mdeberta-v3-base` model
   covers it/de/fr/en with no language hint. Backends are swappable so the choice
@@ -181,6 +193,39 @@ more thing that fails silently on short or mixed text.
 was flat from 0.2 to 0.6 and degraded above it — not because 0.5 looked sensible.
 Re-run the sweep before changing it.
 
+**Confidence per rule is a measurement, not a judgement.** `STRONG_CHECK`,
+`MEDIUM_CHECK` and `WEAK_CHECK` in `validators.py` come from running each
+validator against 20 000 randomly generated format-plausible values and counting
+how many it accepts, anchored on the Italian partita IVA at 1.05% and 0.55 since
+M0. Re-measure before changing one. Effective strength is pattern specificity
+times checksum strength and only the second half is in that table, which is why
+`ch-uid` is safe at full confidence while accepting 9.09%: the literal `CHE`
+discards almost every candidate first.
+
+**A validator that accepts most of what it sees is not a validator.**
+`stdnum.us.ssn` accepts 89% of random values of its shape, `us.ein` 83%,
+`at.businessid` 100% and `de.handelsregisternummer` 90% — they check format, or
+need a court's city. Those identifiers are not in the rule table and must not be
+added by tightening a regex to compensate. The model answers for them, and
+`report.CAVEATS` says so.
+
+**A rule below `min_confidence` is inert, and that is the design.** The weak
+country rules do nothing at default settings unless a word naming them is nearby,
+so they are keyword-gated rather than a second opinion. This also means the
+benchmark charges for work the pipeline never does: `evaluate` calls `detect`
+directly, so `freedocs benchmark --apply-min-confidence 0.5` is what reports the
+pipeline's number and the bare command reports the detector's.
+
+**Context keywords come in two kinds and they need opposite matching.**
+`detect/keywords.py` splits every family into `*_STEMS`, matched as substrings,
+and `*_CODES`, matched as whole words. Whole-word matching for everything was
+tried and lost four cases the corpus already carried: `karte` is the tail of
+`Firmenkarte` and `Zahlungskarten`, `card` the head of `cards`, `carte` of
+`Cartes`. Substring matching for everything fires `iva` inside `arriva`, `vat`
+inside `salvataggio`, `nif` inside `definisce`. Both tables are the union across
+the languages covered, for the same reason Presidio runs every language: the
+engine does not know which one it is reading.
+
 Two mechanisms in `Rule` exist because of specific bugs, not as decoration:
 
 - `shrink_to_fit` — the IBAN pattern is deliberately greedy and absorbs trailing
@@ -193,6 +238,27 @@ Two mechanisms in `Rule` exist because of specific bugs, not as decoration:
 Phone detection uses `phonenumbers` with `Leniency.STRICT_GROUPING`. Do not
 loosen it: under `VALID` the Italian numbering plan reads `03.03.2024` as a phone
 number, and business documents are full of dates.
+
+**One region-less pass, then one per country, and the split is not arbitrary.** A
+number carrying its own country code is unambiguous, so *any* region argument
+parses it and the `None` pass finds every international-format number in a single
+sweep. It finds not one locally-written number: `044 668 18 00` is matched only by
+`CH`. Measured on the corpus — the region-less pass alone gives 82.9% PHONE
+coverage at precision 1.00, all thirteen plans 97.1% at 0.67 — and all of them are
+on because a number a scrub leaves behind gets sent. Dedup is on **overlap**, not
+an identical span: three plans read `044 910 55 66` and disagree about where it
+ends, and the near-misses used to reach the registry as an intra-L1 contest at
+equal precedence and equal confidence.
+
+**`confirms()` needs to know which country, and usually does not.** One global
+algorithm settles an IBAN or a card number wherever it was issued, so a failed
+check digit is a rejection. A country-issued type is different: `TAX_ID` is
+claimed by twelve countries and by none of the other hundred and eighty, so a
+Brazilian CPF the model correctly spotted passes nothing here, and "no covered
+country accepts it" is not evidence. Without a country there is no opinion.
+Gating on the *pattern* instead was tried and reopens the bug the mechanism exists
+for: the model's card claim is the text `1500\t2300`, which no card pattern
+matches, so it would have been kept.
 
 ### The review layer
 
@@ -292,6 +358,23 @@ every remaining leak but one is a place name that also appears as somebody's
 surname in the same document (`Basel`, `Preston`, `Lyon`, `Firenze`). Keep those
 collisions when editing the corpus; they are the finding.
 
+**At twelve countries a value broken for one checksum is often valid for
+another.** `192598180` was written into the corpus as a rejected Polish REGON and
+is a valid Portuguese NIF; `4360730410` was a rejected Polish NIP and is a valid
+British UTR. At two countries "change the last digit" produced a value nothing
+accepts; it no longer does, so a trap has to be checked against every rule.
+`test_no_unexpected_identifier_is_found_outside_the_annotations` keeps that list
+closed, scoped to the checksum-backed types — a numbering plan is not a checksum
+and several plans read the same digits, so pinning those would pin one version of
+the phonenumbers metadata.
+
+**The corpus had no locally-written phone number until it was measured.** Thirty
+annotated numbers, every one in international format, so it could not show what
+the national plans buy and the honest comparison needed the gap filled first.
+`test_annotated_phone_numbers_are_real_numbers` had to learn the same lesson: it
+parsed with region `None`, which cannot read a national number at all, so adding
+real ones made a correct annotation look invented.
+
 Unannotated text is scored as over-redaction, so **an adversarial case must be a
 realistic string a checksum rejects, never a valid identifier relabelled as
 ordinary text.** Three of the traps first written here reused the same digits as an
@@ -358,6 +441,17 @@ to look ordinary. So verification inspected the placeholders and never the pixel
 and a failed pixel redaction would have passed. Any handler that reads less than
 everything for speed must override this hook. `test_verification_re_reads_the_pixels`
 pins it.
+
+**"OCR is available" means the binary *and* the language data.** PyMuPDF does not
+link Tesseract, it shells out to it, and the two halves install separately: the
+`.traineddata` files are bundled beside the executable, the binary is a platform
+package and cannot be. `capabilities.ocr_available` used to check the data alone,
+so bundling it would have made the capability true everywhere — the window
+promising an OCR the first scan could not deliver. One `ocr_unavailable_reason()`
+decides, so the capability and the refusal cannot disagree, and the refusal names
+which half is missing. Nine languages are requested at once, one per language of
+the twelve supported countries; asking for all of them costs about 24 ms a page
+and 86 MB on disk.
 
 **OCR is a reading, not the text.** A value OCR misreads fails its checksum, is
 never detected, and survives. Every machine-read page is named in a warning for
@@ -452,8 +546,19 @@ Only ever added, never removed.
   failed. The codebase is small; the reasoning is the part worth preserving.
 - Docstrings state the failure mode a piece of code prevents, not what the
   signature already says.
-- New entity types go in `core/findings.EntityType` plus a label in
-  `core/policy.PLACEHOLDER_LABELS`. Quasi-identifiers belong in `REPORT_ONLY`:
+- New entity types go in `core/findings.EntityType` plus a label in every locale
+  of `core/policy.PLACEHOLDER_LABELS` that needs one — a locale falls back to
+  English for anything it omits. Quasi-identifiers belong in `REPORT_ONLY`:
   removing a date silently hides residual risk instead of surfacing it.
+- **The type says what a number is for; the country lives on the finding.**
+  `NATIONAL_ID`, `TAX_ID`, `VAT_ID`, `COMPANY_ID` rather than one member per
+  country per number, which would be an enum of several hundred with every entry
+  spelled again in the placeholder table, the report, the corpus labels and the
+  tests. The country reaches the report and never the placeholder: `[TAX_ID_DE_1]`
+  would hand the reader of the scrubbed text one more thing to re-identify with.
+- **Placeholders are English by default and the stems are per locale.** The reader
+  of a scrubbed document is usually a language model. The country-issued types are
+  not translated in any locale: one stem stands for twelve countries and every
+  national name for it would be wrong on eleven.
 - Never claim the output is guaranteed clean. `report.CAVEATS` states the limits
   and should be updated as milestones change what is actually true.
