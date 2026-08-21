@@ -543,3 +543,99 @@ def test_the_registry_cache_is_keyed_on_the_countries_too(session, tmp_path):
     assert not narrowed["findings"]
     again = session.inspect({"path": str(path), "detectors": "l1", "countries": ["ch"]})
     assert [f["entity"] for f in again["findings"]] == ["NATIONAL_ID"]
+
+
+# --- the human override loop -------------------------------------------------
+#
+# The window sends two new things: occurrences to leave alone, and values to
+# remove that no detector nominated. Both are exercised here rather than in the
+# app, for the reason at the top of this file.
+
+
+def _span_of(found: dict, entity: str) -> dict:
+    item = next(f for f in found["findings"] if f["entity"] == entity)
+    return {"start": item["start"], "end": item["end"], "text": item["text"]}
+
+
+def test_a_kept_span_disappears_from_the_preview(session: Session, document: Path):
+    """The loop is preview, adjust, preview. A decision the preview ignores is a bug."""
+    before = result_of(session, "inspect", path=str(document))
+    kept = _span_of(before, EntityType.IBAN.value)
+    after = result_of(session, "inspect", path=str(document), keep_spans=[kept])
+    assert EntityType.IBAN.value in {f["entity"] for f in before["findings"]}
+    assert EntityType.IBAN.value not in {f["entity"] for f in after["findings"]}
+
+
+def test_a_requested_value_appears_in_the_preview_as_human(session: Session, document: Path):
+    found = result_of(session, "inspect", path=str(document), remove=[{"value": "Scheda cliente"}])
+    added = [f for f in found["findings"] if f["detector"] == "human"]
+    assert [f["text"] for f in added] == ["Scheda cliente"]
+    assert added[0]["entity"] == EntityType.OTHER.value
+
+
+def test_a_requested_value_that_is_absent_is_reported_as_a_warning(
+    session: Session, document: Path
+):
+    """ "Removed" and "was not there" look identical in the output."""
+    found = result_of(session, "inspect", path=str(document), remove=["Cognome Assente"])
+    assert any("Cognome Assente" in warning for warning in found["warnings"])
+
+
+def test_a_stale_kept_span_is_refused_rather_than_reinterpreted(session: Session, document: Path):
+    """Honouring it would keep whatever moved into that range."""
+    response = call(
+        session,
+        "inspect",
+        path=str(document),
+        keep_spans=[{"start": 0, "end": 6, "text": "Milano"}],
+    )
+    assert response["error"]["code"] == INVALID_REQUEST
+    assert "re-inspect" in response["error"]["message"]
+
+
+def test_an_unknown_entity_on_a_removal_is_refused(session: Session, document: Path):
+    response = call(
+        session, "inspect", path=str(document), remove=[{"value": "x", "entity": "NOPE"}]
+    )
+    assert response["error"]["code"] == INVALID_REQUEST
+
+
+def test_the_two_keep_controls_are_not_the_same_control(session: Session, document: Path):
+    """``keep`` names types, ``keep_spans`` names occurrences.
+
+    One control for both would make "this IBAN is fine" mean "no IBAN in any file
+    is confidential", which is the opposite of a per-occurrence decision.
+    """
+    by_type = result_of(session, "inspect", path=str(document), keep=[EntityType.IBAN.value])
+    actions = {f["entity"]: f["action"] for f in by_type["findings"]}
+    # Still reported, but the action is now keep - the finding does not vanish.
+    assert actions[EntityType.IBAN.value] == "keep"
+
+    before = result_of(session, "inspect", path=str(document))
+    by_span = result_of(
+        session, "inspect", path=str(document), keep_spans=[_span_of(before, EntityType.IBAN.value)]
+    )
+    assert EntityType.IBAN.value not in {f["entity"] for f in by_span["findings"]}
+
+
+def test_a_scrub_honours_both_halves_and_still_verifies(
+    session: Session, document: Path, tmp_path: Path
+):
+    before = result_of(session, "inspect", path=str(document))
+    kept = _span_of(before, EntityType.IBAN.value)
+    out = tmp_path / "out"
+    result = result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(out),
+        keep_spans=[kept],
+        remove=[{"value": "Scheda cliente", "entity": "OTHER"}],
+    )
+    one = result["results"][0]
+    assert one["ok"], one
+    written = Path(one["output"]).read_text(encoding="utf-8")
+    # Kept on purpose, so it is still there; and stage 6 was told, so it passed.
+    assert kept["text"] in written
+    assert "Scheda cliente" not in written
+    assert "[REDACTED_1]" in written

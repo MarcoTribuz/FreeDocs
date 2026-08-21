@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .core.errors import MissingDependency
 from .core.findings import Finding
+from .core.overrides import Override
 from .core.policy import Action, Policy, SurrogateAllocator, placeholder_labels
 from .core.stream import Edit
 from .detect.llm_review import LlmReviewer, ReviewOutcome
@@ -175,6 +176,12 @@ class Scrubber:
     #: seconds, it needs a local model nobody is obliged to have, and it changes
     #: nothing in the output. It is a second opinion for a human, not a stage.
     reviewer: LlmReviewer | None = None
+    #: What a caller decided after reading the preview: occurrences to leave alone
+    #: and values to remove that no detector nominated. Empty by default, and
+    #: applied between detection and policy rather than inside the registry — it
+    #: is not a detector, and the registry has already resolved overlaps by the
+    #: time a person has an opinion.
+    overrides: Override = field(default_factory=Override)
 
     def scrub_file(self, path: Path) -> ScrubResult:
         return self.scrub(handler_for(path))
@@ -182,7 +189,7 @@ class Scrubber:
     def scrub(self, handler: FormatHandler) -> ScrubResult:
         hidden = handler.scrub_hidden()
         stream = handler.extract()
-        findings = self.registry.detect(stream.text)
+        findings = self.overrides.apply(stream.text, self.registry.detect(stream.text))
 
         allocator = SurrogateAllocator(placeholder_labels(self.policy.placeholder_locale))
         try:
@@ -197,7 +204,13 @@ class Scrubber:
             allocator.close()
 
         removed = [d.finding for d in decisions if d.action in _REWRITING_ACTIONS]
-        verify = verify_output(type(handler), handler.path, output, removed)
+        verify = verify_output(
+            type(handler),
+            handler.path,
+            output,
+            removed,
+            kept=[kept.text for kept in self.overrides.keep],
+        )
 
         result = ScrubResult(
             source=handler.path,
@@ -209,7 +222,17 @@ class Scrubber:
             source_chars=len(stream.text),
             # Handler compromises and detector-configuration gaps land in the
             # same place: both are things the output does not show on its own.
-            warnings=list(handler.warnings) + list(self.registry.notes),
+            warnings=(
+                list(handler.warnings)
+                + list(self.registry.notes)
+                # "Removed" and "was not there" look identical in the output, and
+                # a caller who pasted a value expects to hear which happened.
+                + [
+                    f"the value {value!r} was asked to be removed but does not "
+                    f"appear in this document"
+                    for value in self.overrides.unmatched(stream.text)
+                ]
+            ),
             review=self._review(verify),
         )
         if self.strict and not verify.ok:

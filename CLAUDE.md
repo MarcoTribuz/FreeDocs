@@ -20,8 +20,10 @@ where the model found nothing, and `detect/suppress.py` drops the places that
 identify nobody. Every table that matches prose folds diacritics through
 `core/text.py`, because the tables are written unaccented and real French and
 German documents are not. A Tauri app in `app/` drives it
-over a JSON pipe, and an opt-in local-LLM pass reviews the output. Anything
-further is new work, not a remaining milestone.
+over a JSON pipe, and an opt-in local-LLM pass reviews the output. After reading
+the preview a caller can excuse one occurrence or name a value the detectors
+missed, through `core/overrides.py`, and stage 6 verifies the result either way.
+Anything further is new work, not a remaining milestone.
 
 ## Commands
 
@@ -31,7 +33,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (610 tests, ~30s with model+OCR)
+uv run pytest -q                       # full suite (646 tests, ~30s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -622,6 +624,79 @@ mid-word is the signature of a chunk-boundary hit, and `iter_chunks` has a
 guaranteed-progress fallback that can cut mid-word, so the defence looked free.
 There are **zero** such findings across the corpus. The test was written first, as
 the plan required, and it said not to build the rule.
+
+**The human override is a layer, not a setting, and `keep` is the dangerous
+half.** `core/overrides.py` carries what a person decided after reading the
+preview: occurrences to leave alone, and values to remove that no detector
+nominated. Every other control in the engine can only cause a value to be
+*removed*; this is the one that can cause a value to stay, so it is built with the
+burden of proof on that side.
+
+Four decisions, each of which has a failure it prevents:
+
+- **`Layer.HUMAN` outranks `VALIDATOR`.** An override a checksum could overrule is
+  a suggestion, not a control. It is a layer purely so that `LAYER_PRECEDENCE`
+  settles an overlap; it is not a detector and produces nothing without a caller
+  supplying the decision.
+- **A keep is a span, a removal is a value.** The window lists one row per
+  occurrence, so "keep this one" is a range the caller already has — and it *must*
+  be a range, because the same city is confidential in a party's address and not
+  in a jurisdiction clause, which is the distinction `detect/suppress.py` exists
+  for. A removal has no row to point at and no coordinate the caller could have
+  got, since the preview sends findings and not the document text, so it names a
+  string and every occurrence goes.
+- **A kept span carries the text it covered, and a mismatch raises.** Offsets come
+  from a previous extraction; nothing guarantees the file is unchanged. Honouring
+  a stale span keeps whatever moved into that range while the caller believes they
+  excused something harmless — so `StaleOverride` refuses it and names the
+  decision. A removal that matches nothing is the opposite case and is reported as
+  a warning: "removed" and "was not there" look identical in the output.
+- **Decisions are scoped per document.** A batch is one request, and a span is an
+  offset into one extraction, so `Override.for_path` splits them and `rpc.scrub`
+  re-binds the `Scrubber` per file. Without it the second file of a batch is
+  checked against the first file's spans and fails as stale — the check working on
+  a question nobody asked.
+
+**Stage 6 needed an allowance, and it is a count rather than an exemption.**
+Verification is value-based and an override is occurrence-based, so keeping one
+`Zurigo` and removing the next leaves the string in the document and the search
+for it finds a survivor. This was found by the leak check failing on the first
+end-to-end run of the feature, which is the check earning its keep. `verify_output`
+now takes `kept` and permits each value exactly as many times as were kept — so a
+write-back that quietly failed on the *other* occurrence is still a hard failure,
+and `Leak.describe()` says the failure is the excess so it cannot be read as "the
+override did not work". Nothing infers an allowance; it is granted only by a
+caller naming the occurrence.
+
+**`EntityType.OTHER` is reachable only through an override.** A caller who has not
+said what a value *is* has still said it must go, and inventing a category for
+them would put a guess in the output where a placeholder belongs. No detector
+produces it — a detector that cannot name what it found has not found anything.
+An unknown entity name on the wire is an error rather than a quiet downgrade to
+`OTHER`, because a caller working from a different contract would otherwise get an
+unexpected placeholder in their document.
+
+**The window gained controls, not rules.** `+page.svelte` collects spans and
+strings and sends them; every judgement about what happens to them is in Python,
+the same reason `app/src/lib/engine.ts` carries messages and nothing else. The two
+`keep` controls are deliberately separate in the UI and on the wire: `keep` names
+entity *types* to leave alone everywhere, `keep_spans` names single occurrences,
+and one control for both would make "this Zurich is fine" mean "no location is
+confidential".
+
+Verified through `tests/test_rpc.py` rather than by driving the window, for the
+reason at the top of that file — and note what could *not* be verified that way:
+synthetic clicks are refused on this machine without accessibility permission
+(`-25208`), so the in-window click-through has been seen to render but not seen to
+be clicked.
+
+**Placeholder families were considered and declined.** `[ORGANISATION_1]` /
+`[_1a]` / `[_1b]` for `Acme`, `Acme Corp.` and `Acme Corporation` would tell the
+model reading the output that those are one company — and would equally tell any
+reader that those three strings were related, which is a re-identification thread
+this tool cannot take back. PII-Shield can afford it because it restores the
+values afterwards; FreeDocs never does. Flat numbering stays. This is a threat-model
+decision, not a measurement, so do not reopen it as a patch.
 
 **Everything that matches prose against a table folds diacritics, through the one
 function in `core/text.py`.** Two copies of that function are two answers to the

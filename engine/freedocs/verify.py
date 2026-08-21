@@ -13,6 +13,7 @@ duration of the run and discards with everything else.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -42,8 +43,18 @@ class Leak:
     text: str
     detector: str
     occurrences: int
+    #: How many occurrences of this value the caller kept on purpose. Reported so
+    #: the message cannot be read as "the override did not work": with an
+    #: allowance in play the failure is the *excess*, not the presence.
+    allowed: int = 0
 
     def describe(self) -> str:
+        if self.allowed:
+            return (
+                f"a {self.entity} value found by {self.detector} appears "
+                f"{self.occurrences}x in the output, and only {self.allowed} "
+                f"occurrence(s) were kept on purpose"
+            )
         return (
             f"a {self.entity} value found by {self.detector} still appears "
             f"{self.occurrences}x in the output"
@@ -97,13 +108,26 @@ def verify_output(
     output_path: Path,
     output_bytes: bytes,
     removed: Sequence[Finding],
+    kept: Sequence[str] = (),
 ) -> VerifyResult:
     """Re-extract ``output_bytes`` and confirm none of ``removed`` survived.
 
     ``removed`` must contain only the findings that were actually rewritten.
     Passing report-only findings would guarantee a failure, since those are left
     in the document on purpose.
+
+    ``kept`` is the text of the occurrences a caller explicitly exempted, and it
+    exists because this check is value-based while an override is
+    occurrence-based. Keeping *one* ``Zurigo`` and removing the next one leaves
+    the string in the document, so a search for it finds a survivor and reports a
+    leak that is really a decision. The allowance is a **count**, not an
+    exemption: the value may appear as many times as were kept and no more, so a
+    write-back that silently failed on the other occurrence is still caught.
+
+    Nothing here infers an allowance. It is granted only by a caller naming the
+    occurrence, which is the difference between a verified decision and a hole.
     """
+    allowance: Counter[str] = Counter(value.casefold() for value in kept)
     handler = handler_cls(output_path, output_bytes)
     # Read the output harder than the input was read. A format that skips work
     # for speed during extraction must not be allowed to skip it here: the
@@ -121,13 +145,15 @@ def verify_output(
             continue
         checked += 1
         occurrences = haystack.count(needle)
-        if occurrences:
+        permitted = allowance.get(needle, 0)
+        if occurrences > permitted:
             leaks.append(
                 Leak(
                     entity=entity,
                     text=finding.text,
                     detector=finding.detector,
                     occurrences=occurrences,
+                    allowed=permitted,
                 )
             )
     return VerifyResult(

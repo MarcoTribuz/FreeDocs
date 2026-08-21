@@ -77,6 +77,7 @@ PLACEHOLDER_LABELS: dict[str, dict[EntityType, str]] = {
         EntityType.JOB_TITLE: "ROLE",
         EntityType.AGE: "AGE",
         EntityType.POSTCODE: "POSTCODE",
+        EntityType.OTHER: "REDACTED",
     },
     "it": {
         EntityType.PERSON: "PERSONA",
@@ -89,6 +90,7 @@ PLACEHOLDER_LABELS: dict[str, dict[EntityType, str]] = {
         EntityType.JOB_TITLE: "RUOLO",
         EntityType.AGE: "ETA",
         EntityType.POSTCODE: "CAP",
+        EntityType.OTHER: "RIMOSSO",
     },
     "de": {
         EntityType.PERSON: "PERSON",
@@ -101,6 +103,7 @@ PLACEHOLDER_LABELS: dict[str, dict[EntityType, str]] = {
         EntityType.JOB_TITLE: "ROLLE",
         EntityType.AGE: "ALTER",
         EntityType.POSTCODE: "PLZ",
+        EntityType.OTHER: "ENTFERNT",
     },
     "fr": {
         EntityType.PERSON: "PERSONNE",
@@ -113,6 +116,7 @@ PLACEHOLDER_LABELS: dict[str, dict[EntityType, str]] = {
         EntityType.JOB_TITLE: "ROLE",
         EntityType.AGE: "AGE",
         EntityType.POSTCODE: "CODE_POSTAL",
+        EntityType.OTHER: "SUPPRIME",
     },
 }
 
