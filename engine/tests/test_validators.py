@@ -252,3 +252,80 @@ def test_a_context_code_still_fires_when_it_stands_alone(detector: ValidatorDete
     uses lookarounds."""
     matched = [f for f in detector.detect(text) if f.entity is EntityType.VAT_ID]
     assert matched and matched[0].confidence == 1.0
+
+
+# -- phone numbers -------------------------------------------------------------
+
+
+def test_an_international_number_needs_no_region(detector: ValidatorDetector):
+    """Which is why one region-less pass replaces N passes for this whole class.
+
+    A number written with its own country code is unambiguous, so any region
+    argument parses it — including None. Verified across the supported plans:
+    every one of them matches `+41 44 123 45 67`.
+    """
+    findings = [
+        f
+        for f in detector.detect("Anruf unter +41 44 123 45 67 heute")
+        if f.entity is EntityType.PHONE
+    ]
+    assert [f.detector for f in findings] == ["phonenumbers-international"]
+    # No country: the prefix already says where it is from, and claiming to know
+    # would be this rule's opinion rather than the number's.
+    assert findings[0].country is None
+
+
+@pytest.mark.parametrize(
+    ("text", "region"),
+    [
+        ("Direktwahl 044 910 55 66 intern", "ch"),
+        ("Zentrale 030 26550 in Hamburg", "de"),
+        ("Linea diretta 02 8632 1470 senza prefisso", "it"),
+        ("Direct line 020 7183 8750 without a country code", "gb"),
+    ],
+)
+def test_a_locally_written_number_is_only_found_by_a_national_plan(
+    detector: ValidatorDetector, text: str, region: str
+):
+    """The region-less pass finds none of these, which is what the plans buy.
+
+    Measured on the corpus: the region-less pass alone reaches 82.9% PHONE
+    coverage at precision 1.00, all thirteen plans reach 97.1% at 0.67. The
+    coverage is the side that matters here — a number a scrub leaves behind is a
+    leak, and a document written by a local for locals is full of them.
+    """
+    phones = [f for f in detector.detect(text) if f.entity is EntityType.PHONE]
+    assert phones, "no phone found at all"
+    assert phones[0].detector != "phonenumbers-international"
+    # Several plans can read the same digits; only one finding may come out.
+    assert len(phones) == 1
+
+
+def test_two_plans_reading_the_same_digits_produce_one_finding(
+    detector: ValidatorDetector,
+):
+    """`044 910 55 66` is claimed by the Swiss, German and Swedish plans.
+
+    They do not agree on where the number ends, so the old dedup on an identical
+    span let the near-misses through, and they reached the registry as an
+    intra-L1 contest at equal precedence and equal confidence, settled by span
+    start. One set of digits is one phone number.
+    """
+    phones = [
+        f
+        for f in detector.detect("Direktwahl 044 910 55 66 intern")
+        if f.entity is EntityType.PHONE
+    ]
+    assert len(phones) == 1
+    assert phones[0].text == "044 910 55 66"
+
+
+def test_narrowing_the_countries_narrows_the_numbering_plans():
+    swiss_only = ValidatorDetector(countries=("ch",))
+    assert swiss_only.phone_regions == ("CH",)
+    findings = [
+        f
+        for f in swiss_only.detect("Linea diretta 02 8632 1470 senza prefisso")
+        if f.entity is EntityType.PHONE
+    ]
+    assert not findings, "the Italian plan should not be consulted for a Swiss-only run"

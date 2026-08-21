@@ -124,6 +124,27 @@ def _code_pattern(codes: tuple[str, ...]) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w)(?:{alternatives})(?!\w)", re.IGNORECASE)
 
 
+#: Countries this build knows something about. Twelve have checksum-backed
+#: identifiers; the United States is here for its phone numbering plan and for
+#: the model, because neither of its numbers carries a check digit — see the
+#: labels in ``backends/gliner_backend`` for why that is not an L1 rule.
+SUPPORTED_COUNTRIES: tuple[str, ...] = (
+    "at",
+    "be",
+    "ch",
+    "de",
+    "es",
+    "fr",
+    "gb",
+    "it",
+    "nl",
+    "pl",
+    "pt",
+    "se",
+    "us",
+)
+
+
 #: ``confidence_without_context`` for a rule whose pattern is only digits, chosen
 #: by how much work the check digit actually does. Each figure below was measured
 #: the same way: 20 000 randomly generated format-plausible values per validator,
@@ -626,13 +647,16 @@ class ValidatorDetector:
     #: Left None so it can be derived from ``countries``; a default_factory runs
     #: before the other fields are readable, so it cannot see the selection.
     rules: list[Rule] | None = None
-    #: Regions to try when parsing phone numbers. Swiss first, then Italian.
-    phone_regions: tuple[str, ...] = ("CH", "IT")
+    #: National numbering plans to try, derived from ``countries`` unless given.
+    phone_regions: tuple[str, ...] | None = None
     detect_phones: bool = True
 
     def __post_init__(self) -> None:
         if self.rules is None:
             self.rules = build_rules(self.countries)
+        if self.phone_regions is None:
+            chosen = self.countries if self.countries is not None else SUPPORTED_COUNTRIES
+            self.phone_regions = tuple(country.upper() for country in chosen)
 
     def detect(self, text: str) -> list[Finding]:
         findings = list(self._rule_findings(text))
@@ -663,26 +687,44 @@ class ValidatorDetector:
     def _phone_findings(self, text: str) -> Iterator[Finding]:
         matcher_cls = _require("phonenumbers", "PhoneNumberMatcher")
         leniency = _require("phonenumbers", "Leniency")
-        seen: set[tuple[int, int]] = set()
-        for region in self.phone_regions:
+        # None first, and it is not one region among many. A number written in
+        # international form carries its own country code, so *any* region
+        # argument parses it and the region-less pass finds every one of them in
+        # a single sweep. The named regions below exist only for numbers written
+        # the way a local writes them, `044 123 45 67`, which no other plan can
+        # read. Verified: `+41 44 123 45 67` is matched with region None, and
+        # `044 123 45 67` only with CH.
+        regions: tuple[str | None, ...] = (None, *(self.phone_regions or ()))
+        taken: list[tuple[int, int]] = []
+        for region in regions:
             # STRICT_GROUPING, not VALID: business documents are full of dates,
             # and under VALID the Italian metadata happily reads "03.03.2024" as
             # a phone number. Requiring the digit grouping to match a real
             # numbering plan removes that whole class of false positive without
             # losing correctly formatted numbers.
             for match in matcher_cls(text, region, leniency=leniency.STRICT_GROUPING):  # type: ignore[operator]
-                key = (match.start, match.end)
-                if key in seen:
+                # Overlap, not an identical span. Two numbering plans reading
+                # the same digits rarely agree on where the number ends, and the
+                # near-misses used to reach the registry as an intra-L1 contest
+                # at equal precedence and equal confidence, settled by span
+                # start. One set of digits is one phone number; the first plan to
+                # claim it keeps it, and iteration order makes that deterministic.
+                if any(start < match.end and match.start < end for start, end in taken):
                     continue
-                seen.add(key)
+                taken.append((match.start, match.end))
                 yield Finding(
                     span=Span(match.start, match.end),
                     entity=EntityType.PHONE,
                     text=match.raw_string,
                     layer=Layer.VALIDATOR,
-                    detector=f"phonenumbers-{region}",
+                    detector="phonenumbers-international"
+                    if region is None
+                    else f"phonenumbers-{region}",
                     confidence=1.0,
-                    country=region.casefold(),
+                    # Only a national-format match says whose plan recognised it.
+                    # An international number carries its own prefix and does not
+                    # need this rule's opinion about where it came from.
+                    country=None if region is None else region.casefold(),
                 )
 
 
