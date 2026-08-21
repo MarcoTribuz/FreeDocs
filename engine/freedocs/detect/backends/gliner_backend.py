@@ -39,6 +39,15 @@ DEFAULT_LABELS: tuple[str, ...] = (
     "credit card number",
     "date of birth",
     "job title",
+    # Asked for because the United States has no checksummed identifier this tool
+    # can validate: `stdnum.us.ssn` accepts 89% of random values of the right
+    # shape and `us.ein` 83%, because neither number has a check digit. An L1
+    # rule there would be a tightened regex pretending to be a validator, which
+    # is what this layer exists not to be. A model reading the surrounding words
+    # is the honest place for an identifier only context can distinguish.
+    "social security number",
+    "tax identification number",
+    "national identification number",
 )
 
 #: Deliberately below any useful operating point: recall here, filtering later.

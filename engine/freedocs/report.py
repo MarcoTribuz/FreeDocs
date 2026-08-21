@@ -32,6 +32,11 @@ CAVEATS = [
     "means some are missed, and a real document is harder than a test one.",
     "Place names are the weakest category, especially where a place is also "
     "somebody's surname in the same document.",
+    "Identifiers are checksum-confirmed for twelve countries: Switzerland, "
+    "Italy, Germany, Austria, France, Belgium, Spain, Portugal, the "
+    "Netherlands, Poland, Sweden and the United Kingdom. Elsewhere - the "
+    "United States included, whose social security and employer numbers carry "
+    "no check digit - they are found by the model or not at all.",
     "Review the output before sending it anywhere.",
 ]
 
