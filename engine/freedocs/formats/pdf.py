@@ -40,6 +40,7 @@ before changing anything here:
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -69,10 +70,17 @@ MIN_CHARS_PER_PAGE = 8
 #: than its author, so listing them as removed confidential content is noise.
 NON_SENSITIVE_METADATA_KEYS = frozenset({"format", "encryption"})
 
-#: Languages requested from Tesseract. All four corpus languages at once: the
-#: document's language is not known, and a scrubber that has to guess it before it
-#: can read the page has an extra way to fail silently.
-DEFAULT_OCR_LANGUAGE = "ita+deu+fra+eng"
+#: Languages requested from Tesseract, all at once: the document's language is
+#: not known, and a scrubber that has to guess it before it can read the page has
+#: an extra way to fail silently. Nine of them, one per language spoken in the
+#: countries whose identifiers this build confirms — twelve countries need nine
+#: languages, not twelve.
+#:
+#: Asking for more is close to free in time. Measured on one page: 248 ms for a
+#: single language, 298 ms for four, so roughly 17 ms per extra language. The real
+#: cost is on disk, at 14 to 15 MB of language data each, which is why this list
+#: tracks the supported countries rather than everything Tesseract offers.
+DEFAULT_OCR_LANGUAGE = "ita+deu+fra+eng+spa+nld+por+pol+swe"
 
 #: Rasterisation resolution for OCR. 200 is the usual floor for reliable
 #: recognition of body text; 72 loses characters and 300 costs time for little
@@ -119,6 +127,35 @@ def _tessdata_candidates() -> list[str]:
         )
         if candidate
     ]
+
+
+def tesseract_binary() -> str | None:
+    """Where the Tesseract executable is, or None.
+
+    PyMuPDF does not link Tesseract, it shells out to it — `subprocess.run
+    ("tesseract --list-langs")` — so the language data is only half of what OCR
+    needs. This exists because the two halves are installed separately and a
+    packaged build ships one of them: bundling the `.traineddata` files without
+    checking for the binary made `capabilities.ocr_available` true on every
+    machine, so the window promised OCR and the first scan failed.
+    """
+    return shutil.which("tesseract")
+
+
+def ocr_unavailable_reason() -> str | None:
+    """What is missing, or None when OCR can actually run.
+
+    One place decides, so the capability the window shows and the refusal the
+    engine raises cannot disagree about whether a scan is readable.
+    """
+    missing = []
+    if tesseract_binary() is None:
+        missing.append("the Tesseract executable is not on PATH")
+    if tessdata_path() is None:
+        missing.append("no directory with .traineddata files was found")
+    if not missing:
+        return None
+    return " and ".join(missing)
 
 
 def tessdata_path() -> str | None:
@@ -243,9 +280,9 @@ class PdfTextHandler(FormatHandler):
             raise ScannedPdfNotSupported(
                 f"{self.path.name} has no usable text layer on page(s) "
                 f"{', '.join(str(number) for number in unreadable)}, and OCR is not "
-                "available. Install Tesseract and point FREEDOCS_TESSDATA or "
-                "TESSDATA_PREFIX at its language data. This build will not pretend "
-                "to have processed a scan it could not read."
+                f"available: {ocr_unavailable_reason()}. Install Tesseract and point "
+                "FREEDOCS_TESSDATA or TESSDATA_PREFIX at its language data. This "
+                "build will not pretend to have processed a scan it could not read."
             )
 
         if self.ocr_pages:
@@ -296,7 +333,7 @@ class PdfTextHandler(FormatHandler):
         an extra chance to get the transform wrong.
         """
         tessdata = tessdata_path()
-        if tessdata is None:
+        if tessdata is None or tesseract_binary() is None:
             return None
         try:
             return page.get_textpage_ocr(

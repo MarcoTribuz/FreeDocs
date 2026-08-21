@@ -399,15 +399,25 @@ install. PyMuPDF drives Tesseract directly, so there is no Python package:
 ```bash
 brew install tesseract                     # or your platform's package
 mkdir -p engine/models/tessdata
-for lang in ita deu fra eng; do
+for lang in ita deu fra eng spa nld por pol swe; do
   curl -sSL -o "engine/models/tessdata/$lang.traineddata" \
     "https://github.com/tesseract-ocr/tessdata/raw/main/$lang.traineddata"
 done
 ```
 
+Nine languages, one per language spoken in the twelve countries whose
+identifiers this build confirms. Asking for all of them at once costs almost
+nothing in time — 223 ms for one page with four languages, 247 ms with nine —
+because the document's language is not known and a scrubber that has to guess it
+before it can read the page has an extra way to fail silently. The cost is on
+disk: 143 MB of language data, against 57 MB for four.
+
 `engine/models/tessdata` is searched by default, after `FREEDOCS_TESSDATA` and
-`TESSDATA_PREFIX`. Homebrew's `tesseract-lang` works too, at 1.2 GB for every
-language instead of 50 MB for four.
+`TESSDATA_PREFIX`, and a packaged build carries the same files beside its
+executable. Homebrew's `tesseract-lang` works too, at 1.2 GB for every language.
+
+The binary and the language data are installed separately and only one of them
+can be bundled, so `capabilities.ocr_available` checks for both.
 
 Without it, a PDF whose pages have no text layer is **refused** — naming the
 pages and what to install — rather than returned untouched.
