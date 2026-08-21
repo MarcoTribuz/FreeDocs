@@ -185,3 +185,18 @@ dispute arising from it. Any arbitration shall be seated in Geneva.
 
 Invoices are payable in Swiss francs within thirty days; amounts stated in
 United States dollars are converted at the rate published on the invoice date.
+
+Supplier onboarding form - return every field completed
+
+Full legal name:	[PERSON:Harriet Vance]
+Position:	[JOB_TITLE:finance director]
+Registered address:	[ADDRESS:41 Wellgate, Leeds LS1 6AT]
+Correspondence address:	[ADDRESS:Unit 12 Brayford Wharf, Lincoln LN5 7AY]
+Contact:	[EMAIL:h.vance@wellgate-supplies.example]
+Authorised signatory:	[PERSON:Duncan Fairweather]
+Emergency contact:	[PERSON:Priya Raman]
+
+Signed by [PERSON:Duncan Fairweather] for and on behalf of the supplier.
+Countersigned by:
+
+[PERSON:Rowan Ashby]

@@ -13,10 +13,11 @@ competitive gap it targets; the full design and milestone plan live in
 plain text, PDF (born-digital and scanned), `docx`, `xlsx` and `pptx`, with
 checksum, NER and value-propagation detection. Identifiers are checksum-confirmed
 for twelve countries (ch, it, de, at, fr, be, es, pt, nl, pl, se, gb) and the NER
-layer reads it/de/fr/en without being told which. Two passes then correct the
-free-text layer: `detect/organisations.py` finds a company name from its legal
-form where the model found nothing, and `detect/suppress.py` drops the places
-that identify nobody. A Tauri app in `app/` drives it
+layer reads it/de/fr/en without being told which. Three passes then correct the
+free-text layer: `detect/addresses.py` assembles a street address around its
+postal code, `detect/organisations.py` finds a company name from its legal form
+where the model found nothing, and `detect/suppress.py` drops the places that
+identify nobody. A Tauri app in `app/` drives it
 over a JSON pipe, and an opt-in local-LLM pass reviews the output. Anything
 further is new work, not a remaining milestone.
 
@@ -28,7 +29,7 @@ All Python work happens in `engine/`.
 cd engine
 uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
 
-uv run pytest -q                       # full suite (558 tests, ~30s with model+OCR)
+uv run pytest -q                       # full suite (571 tests, ~30s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
 uv run pytest -q -m leak               # only the end-to-end leak checks
 uv run pytest tests/test_stream.py -q  # one file
@@ -185,6 +186,11 @@ same characters.
   kept installable so the comparison stays reproducible.
 - **L2.5** (`detect/propagate.py`, shipped): copies each confirmed value to its
   other occurrences. Runs after overlap resolution, then resolves again.
+- **L2.55** (`detect/addresses.py`, shipped): assembles `<street> <number>,
+  <code> <city>` and the British inversion, anchored on the postal code. Fills
+  gaps and absorbs a LOCATION it fully contains — the city the model returned
+  instead of the whole address. Runs before the other two, because its span is
+  the largest of the three.
 - **L2.6** (`detect/organisations.py`, shipped): nominates a company name from
   the legal form that follows it, and **only where no layer claimed those
   characters**. It is a gap fill, not a detector — see the invariant below.
@@ -362,19 +368,18 @@ every number after it is wrong — and then the benchmark measures the annotatio
 instead of the model. An unknown label is an error, not a skip: a dropped
 annotation gets scored as a detector hallucination.
 
-**The corpus has to be able to make something fail.** It is 514 annotated
+**The corpus has to be able to make something fail.** It is 532 annotated
 entities across the four language files `corpus/{de,en,fr,it}.txt`, up from 103,
 and growing it is what moved the headline down from 99.0% — the instrument
 getting sharper, not a regression. `freedocs benchmark` prints the counts it
 actually loaded, so trust that line over any figure written down here.
 
-What the small corpus could not report: LOCATION is the weakest category at
-88.6% coverage and 0.73 precision against PERSON's 100% and 1.00, and every
-remaining LOCATION leak is a place name that also appears as somebody's surname
-in the same document (`Zug`, `Sion`, `Lyon`, `Firenze`). Keep those collisions
-when editing the corpus; they are the finding. The other five leaks are all
-ADDRESS: the model returns the city and drops the street, which is the case a
-postcode-anchored address pattern would close and nothing currently does.
+What the small corpus could not report: LOCATION is the only category still
+leaking, at 88.6% coverage and 0.82 precision against PERSON's 100% and 1.00. All
+four remaining leaks are a place name that also appears as somebody's surname in
+the same document (`Zug`, `Sion`, `Lyon`, `Firenze`), which is a disambiguation no
+pattern can make. Keep those collisions when editing the corpus; they are the
+finding, and at 99.2% coverage they are most of what is left to find.
 
 **Adding corpus text moves NER chunk boundaries, and that alone changes
 coverage.** Appending six lines to `corpus/fr.txt` cost the annotated
@@ -422,6 +427,48 @@ IP and PHONE precision sit at 0.83, and no regex can settle either.
 `evaluate()` calls `detect()` directly, so `Policy.min_confidence` is **not**
 applied. The benchmark measures the detector, not the pipeline. Do not tune a
 corpus trap against a threshold that is not in the loop.
+
+**The postal code is the part of an address that needs no model.** GLiNER2 found
+thirty-six of forty-one annotated addresses and all five misses failed the same
+way — it returned the city as a LOCATION and dropped the street, so the house
+number, street and postcode stayed in the document. `detect/addresses.py` finds
+the code first and reads outwards, which took ADDRESS coverage from 87.8% to 100%
+and LOCATION precision from 0.73 to 0.82, the second because the partial city
+findings are absorbed rather than left beside the address.
+
+A comma is not enough to find the left edge. `residence Meir 78, 2000 Antwerpen`
+has no comma before the street, so a regex scanning back to the previous
+punctuation yields `residence Meir 78`. The scan is a token walk with an explicit
+vocabulary — capitalised words, house numbers, the connectors inside a street
+name, and the lowercase words that *are* street types in the languages covered —
+and anything else ends the address. Three details are each there for one corpus
+case: a city word may not carry a full stop (`Napoli. Codice` was one address), a
+short abbreviation may lead one (`St. Gallen`), and an elided article glued to a
+capitalised name is a name token (`Rue de l'Industrie 9` was the last miss).
+
+**A labelled-field extractor was measured and not built.** The source layer this
+would have come from anchors on `Registered address:`, `Authorised signatory:`
+and the like, and it is the largest thing in that codebase this engine does not
+have. It was tested before being written: `corpus/en.txt` and `corpus/de.txt` now
+end with a tab-separated onboarding form and a signature block — the first
+tabular text in the corpus, since the engine handles docx and xlsx tables and the
+corpus held only prose. GLiNER2 found all sixteen annotated entities in them, with
+no false positive on any label. A harder probe put a spreadsheet header 1900
+characters and one chunk away from its name column: all four names came back at
+0.91 to 1.00.
+
+The reason is structural and worth keeping. That codebase needs the layer because
+it extracts plain text and *then* chunks it, and its own comment records an
+800-character chunk starving the model of `Registered address:` until the score
+fell to 0.345. `core/stream.py` keeps a label and its value adjacent in the flat
+text, so the label is in the window anyway — and GLiNER2 does not need it, because
+it reads the name. Do not add the layer without a corpus case; the form block is
+there so the absence of one stays a measurement rather than an assumption.
+
+The one thing the form block does show is a mislabel: `Urs Frei` after
+`Zeichnungsberechtigt:` comes back ORGANISATION rather than PERSON. The characters
+are still removed, so it is not a leak, and it is kept in the corpus as the
+standing case for anyone who wants to argue for the layer on label quality.
 
 **A gap fill must not compete with the layer it backs up.**
 `detect/organisations.py` nominates a company name from the legal form after it,
