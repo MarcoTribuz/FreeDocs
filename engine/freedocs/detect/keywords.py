@@ -167,6 +167,10 @@ NATIONAL_STEMS = (
     "burgerservicenummer",
     "rijksregisternummer",
     "sofinummer",
+    # The compound, not bare "bis": in German that word means "until" and is
+    # everywhere, and a code matched as a whole word would fire on all of it.
+    "bis-nummer",
+    "bisnummer",
     # Spanish
     "identidad",
     # Swedish

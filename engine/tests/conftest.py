@@ -55,6 +55,13 @@ CANARIES: dict[str, str] = {
     "AT_UID": "ATU13585627",
     "AT_TIN": "59-119/9013",
     "AT_VNR": "1237 010180",
+    "FR_NIF": "3023217600053",
+    "FR_NIR": "295109912611193",
+    "FR_SIRET": "73282932000074",
+    "FR_SIREN": "404833048",
+    "FR_TVA": "FR40303265045",
+    "BE_NN": "85.07.30-033 28",
+    "BE_VAT": "BE403019261",
 }
 
 #: What each canary is: the ``EntityType`` name, and the issuing country when the
@@ -78,6 +85,13 @@ CANARY_TYPES: dict[str, tuple[str, str | None]] = {
     "AT_UID": ("VAT_ID", "at"),
     "AT_TIN": ("TAX_ID", "at"),
     "AT_VNR": ("NATIONAL_ID", "at"),
+    "FR_NIF": ("TAX_ID", "fr"),
+    "FR_NIR": ("NATIONAL_ID", "fr"),
+    "FR_SIRET": ("COMPANY_ID", "fr"),
+    "FR_SIREN": ("COMPANY_ID", "fr"),
+    "FR_TVA": ("VAT_ID", "fr"),
+    "BE_NN": ("NATIONAL_ID", "be"),
+    "BE_VAT": ("VAT_ID", "be"),
 }
 
 
@@ -96,6 +110,13 @@ NEAR_MISSES: list[str] = [
     "ATU13585620",  # Austrian UID failing its check
     "591199010",  # Austrian Abgabenkontonummer failing its check
     "1237 010181",  # Austrian Versicherungsnummer failing its check
+    "3023217600050",  # French numero fiscal failing its check
+    "295109912611190",  # French NIR failing its check
+    "73282932000070",  # French SIRET failing its Luhn
+    "404833040",  # French SIREN failing its Luhn
+    "FR40303265040",  # French TVA failing its key
+    "85.07.30-033 20",  # Belgian rijksregisternummer failing its check
+    "BE403019260",  # Belgian BTW failing its check
 ]
 
 
@@ -137,6 +158,15 @@ def document(canaries: dict[str, str]) -> str:
             f"UID Osterreich: {canaries['AT_UID']}",
             f"Abgabenkontonummer: {canaries['AT_TIN']}",
             f"Sozialversicherungsnummer: {canaries['AT_VNR']}",
+            "",
+            "Succursale France / Belgique",
+            f"Numero fiscal: {canaries['FR_NIF']}",
+            f"Numero de securite sociale: {canaries['FR_NIR']}",
+            f"SIRET: {canaries['FR_SIRET']}",
+            f"SIREN: {canaries['FR_SIREN']}",
+            f"Numero de TVA: {canaries['FR_TVA']}",
+            f"Rijksregisternummer: {canaries['BE_NN']}",
+            f"BTW-nummer: {canaries['BE_VAT']}",
             "",
         ]
     )
