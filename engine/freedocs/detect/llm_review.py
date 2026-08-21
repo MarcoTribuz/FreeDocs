@@ -76,10 +76,15 @@ RESPONSE_SCHEMA = {
     "required": ["concerns"],
 }
 
+#: The prompt describes the *shape* of a placeholder rather than listing
+#: examples. The examples used to be written out — [PERSONA_1], [IBAN_2], [CF_1] —
+#: and two of the three named stems that no longer exist, because the placeholder
+#: table moved and nothing connected it to this string. A shape cannot drift.
 SYSTEM_PROMPT = """\
 You review documents that have already been anonymised by an automated tool. \
-Placeholders like [PERSONA_1], [IBAN_2] or [TAX_ID_1] mark text it removed; they are \
-not problems, they are the tool working.
+Any bracketed token of the form [WORD_number] is a placeholder marking text the \
+tool removed - [PERSON_1], [IBAN_2], [TAX_ID_1] and so on, in whatever language \
+the tool was configured for. They are not problems, they are the tool working.
 
 Report only what is still a re-identification risk:
 

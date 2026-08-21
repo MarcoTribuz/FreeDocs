@@ -23,7 +23,7 @@ from pathlib import Path
 
 from .core.errors import MissingDependency
 from .core.findings import Finding
-from .core.policy import Action, Policy, SurrogateAllocator
+from .core.policy import Action, Policy, SurrogateAllocator, placeholder_labels
 from .core.stream import Edit
 from .detect.llm_review import LlmReviewer, ReviewOutcome
 from .detect.registry import DetectorRegistry
@@ -184,7 +184,7 @@ class Scrubber:
         stream = handler.extract()
         findings = self.registry.detect(stream.text)
 
-        allocator = SurrogateAllocator()
+        allocator = SurrogateAllocator(placeholder_labels(self.policy.placeholder_locale))
         try:
             decisions = self._decide(findings, allocator)
             edits = [

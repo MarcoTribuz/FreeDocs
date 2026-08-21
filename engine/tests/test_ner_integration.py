@@ -137,5 +137,5 @@ def test_a_name_does_not_survive_an_end_to_end_scrub(tmp_path: Path):
     result = Scrubber(registry=build_registry("all")).scrub_file(path)
     output = result.output.decode("utf-8")
     assert "Mario Rossi" not in output
-    assert "[PERSONA_1]" in output
+    assert "[PERSON_1]" in output
     assert result.verify.ok

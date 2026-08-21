@@ -14,7 +14,7 @@ from pathlib import Path
 
 from .core.errors import MissingDependency
 from .core.findings import EntityType
-from .core.policy import Action, Policy
+from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
 from .formats.pdf import ScannedPdfNotSupported
@@ -58,6 +58,15 @@ def _build_parser() -> argparse.ArgumentParser:
         default=[],
         metavar="ENTITY",
         help="leave this entity type untouched; repeatable",
+    )
+    scrub.add_argument(
+        "--placeholder-language",
+        default=DEFAULT_LOCALE,
+        choices=PLACEHOLDER_LOCALES,
+        help=(
+            "language of the placeholder stems written into the output "
+            f"(default: {DEFAULT_LOCALE}, which is what a language model reads best)"
+        ),
     )
     scrub.add_argument(
         "--countries",
@@ -192,7 +201,11 @@ def _policy(args: argparse.Namespace) -> Policy:
             overrides[EntityType(name.upper())] = Action.KEEP
         except ValueError as exc:
             raise SystemExit(f"unknown entity type {name!r}; try 'freedocs entities'") from exc
-    return Policy(overrides=overrides, min_confidence=args.min_confidence)
+    return Policy(
+        overrides=overrides,
+        min_confidence=args.min_confidence,
+        placeholder_locale=getattr(args, "placeholder_language", DEFAULT_LOCALE),
+    )
 
 
 def _reviewer(args: argparse.Namespace) -> LlmReviewer | None:

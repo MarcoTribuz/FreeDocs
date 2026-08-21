@@ -26,6 +26,9 @@ export interface Capabilities {
 	ocr_available: boolean;
 	/** Countries whose identifiers this build knows. The engine's list, not ours. */
 	countries: string[];
+	/** Languages the placeholder stems come in, and the one used by default. */
+	placeholder_languages: string[];
+	placeholder_language: string;
 	/** Local Ollama models available for the optional review. Empty when Ollama is absent. */
 	review_models: string[];
 	/** Where the engine looks for Ollama. Prefilled from here, never hardcoded here. */
@@ -108,6 +111,8 @@ export interface ScrubOptions {
 	 * selection produces a file the user believes is clean.
 	 */
 	countries?: string[];
+	/** Language of the placeholder stems written into the output. */
+	placeholderLanguage?: string;
 	/** Ollama model to review the scrubbed text with. Advisory; changes no output. */
 	review?: string | null;
 	/** Which Ollama to ask. Omitted means the engine's own default. */
@@ -204,6 +209,7 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	// as sending none, and the engine refuses an empty list rather than reading it
 	// as "no countries" — see _countries_from.
 	if (options.countries?.length) params.countries = options.countries;
+	if (options.placeholderLanguage) params.placeholder_language = options.placeholderLanguage;
 	if (options.review) params.review = options.review;
 	// Only alongside a model: a host on its own configures nothing, and sending it
 	// anyway would make an unused field look like it had an effect.

@@ -389,7 +389,7 @@ workbook working. Sheet names live in `xl/workbook.xml` *and* `docProps/app.xml`
 tables by name, so this breaks references. It is done anyway — leaving
 identifying names would fail the leak check — and `XlsxHandler.write_back()`
 warns with the list of what was renamed. `AttributeLocator.sanitise` exists
-because `[` and `]` are illegal in a sheet name and `[PERSONA_1]` contains both:
+because `[` and `]` are illegal in a sheet name and `[PERSON_1]` contains both:
 without it the output was a workbook Excel refused to open.
 
 **Numeric cells are anchored only at `MIN_NUMERIC_LENGTH` digits or more.** A

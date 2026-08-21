@@ -39,6 +39,8 @@
 	 * inclusions: nothing selected has to mean "all", never "none".
 	 */
 	let dropped = $state<Set<string>>(new Set());
+	/** Prefilled from capabilities, because the default is the engine's to pick. */
+	let placeholderLanguage = $state('');
 	let minConfidence = $state(0.5);
 	/** Empty means no review. Off by default: it is slow and changes nothing. */
 	let reviewModel = $state('');
@@ -115,6 +117,7 @@
 		const first = caps === null;
 		caps = value;
 		if (!reviewHost) reviewHost = value.review_host;
+		if (!placeholderLanguage) placeholderLanguage = value.placeholder_language;
 		if (first) settingsOpen = value.review_models.length > 0;
 	}
 
@@ -222,6 +225,7 @@
 					keep: [...kept],
 					minConfidence,
 					countries: activeCountries(),
+					placeholderLanguage,
 					review: reviewModel || null,
 					reviewHost
 				})
@@ -375,6 +379,19 @@
 				<button onclick={runScrub} disabled={busy !== null || totalFindings === 0}>
 					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} file(s)`}
 				</button>
+			</section>
+
+			<section class="entities">
+				<h2>Placeholder language</h2>
+				<p class="hint">
+					The wording written into the output in place of what was removed. Only
+					the words change; nothing about what gets removed depends on this.
+				</p>
+				<select bind:value={placeholderLanguage}>
+					{#each caps?.placeholder_languages ?? [] as code}
+						<option value={code}>{code}</option>
+					{/each}
+				</select>
 			</section>
 
 			<section class="entities">

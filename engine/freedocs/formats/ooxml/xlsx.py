@@ -71,7 +71,7 @@ LPSTR_TAG = f"{{{NS['vt']}}}lpstr"
 TEXT_CELL_TYPES = frozenset({"str", "e"})
 
 #: Excel rejects these in a sheet name, and a workbook containing one will not
-#: open at all. The placeholder form ``[PERSONA_1]`` contains two of them.
+#: open at all. The placeholder form ``[PERSON_1]`` contains two of them.
 ILLEGAL_NAME_CHARS = str.maketrans({character: "_" for character in r"[]:*?/\\"})
 
 #: Excel's hard limit on a sheet name.
