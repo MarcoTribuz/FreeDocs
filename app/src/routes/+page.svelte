@@ -33,6 +33,12 @@
 
 	/** Entity types the user has chosen to leave alone. */
 	let kept = $state<Set<string>>(new Set());
+	/**
+	 * Countries to look for identifiers in. Empty means every supported one,
+	 * which is why this is a set of *exclusions* to send rather than a set of
+	 * inclusions: nothing selected has to mean "all", never "none".
+	 */
+	let dropped = $state<Set<string>>(new Set());
 	let minConfidence = $state(0.5);
 	/** Empty means no review. Off by default: it is slow and changes nothing. */
 	let reviewModel = $state('');
@@ -163,7 +169,8 @@
 		try {
 			inspections[path] = await inspect(path, {
 				keep: [...kept],
-				minConfidence
+				minConfidence,
+				countries: activeCountries()
 			});
 		} catch (error) {
 			problem = `${basename(path)}: ${describe(error)}`;
@@ -183,6 +190,26 @@
 		void reinspectAll();
 	}
 
+	/**
+	 * Undefined when nothing is switched off, so the engine hears no opinion and
+	 * uses every country. Sending the full list would mean the same thing, but it
+	 * would also make the request claim a choice nobody made.
+	 */
+	function activeCountries(): string[] | undefined {
+		if (!caps || dropped.size === 0) return undefined;
+		return caps.countries.filter((code) => !dropped.has(code));
+	}
+
+	function toggleCountry(code: string) {
+		const next = new Set(dropped);
+		next.has(code) ? next.delete(code) : next.add(code);
+		// Never all of them: an empty selection is refused by the engine, and it
+		// would mean scrubbing with the whole checksum layer switched off.
+		if (caps && next.size === caps.countries.length) return;
+		dropped = next;
+		void reinspectAll();
+	}
+
 	async function runScrub() {
 		const target = await open({ directory: true, multiple: false, title: 'Where to write the scrubbed copies' });
 		if (!target || Array.isArray(target)) return;
@@ -194,6 +221,7 @@
 				await scrub(files, target, {
 					keep: [...kept],
 					minConfidence,
+					countries: activeCountries(),
 					review: reviewModel || null,
 					reviewHost
 				})
@@ -347,6 +375,25 @@
 				<button onclick={runScrub} disabled={busy !== null || totalFindings === 0}>
 					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} file(s)`}
 				</button>
+			</section>
+
+			<section class="entities">
+				<h2>Countries to look for</h2>
+				<p class="hint">
+					All of them unless you say otherwise. Narrowing raises precision and can
+					hide an identifier from a country you did not expect in the file.
+				</p>
+				<div class="chips">
+					{#each caps?.countries ?? [] as code}
+						<button
+							class="chip"
+							class:on={!dropped.has(code)}
+							onclick={() => toggleCountry(code)}
+						>
+							{code.toUpperCase()}
+						</button>
+					{/each}
+				</div>
 			</section>
 
 			<section class="entities">
@@ -513,6 +560,12 @@
 	}
 	.muted {
 		opacity: 0.6;
+	}
+	.hint {
+		margin: 0 0 0.5rem;
+		max-width: 42rem;
+		font-size: 0.85rem;
+		opacity: 0.7;
 	}
 	.mono {
 		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;

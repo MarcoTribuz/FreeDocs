@@ -17,6 +17,7 @@ must not leave a re-identification key in a live process.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -72,7 +73,21 @@ _REWRITING_ACTIONS = frozenset({Action.REDACT, Action.SURROGATE})
 LAYER_SPECS = ("l1", "ner", "all")
 
 
-def build_registry(spec: str = "l1") -> DetectorRegistry:
+#: What a narrowed country selection costs, stated in the report rather than
+#: left for the reader to remember. Measured on the corpus: every country on
+#: covers 53.7% of the removable entities with L1 alone, Switzerland and Italy
+#: alone 46.6%, and the difference is entirely identifiers and locally-written
+#: phone numbers from the countries that were switched off.
+def narrowed_note(countries: Sequence[str]) -> str:
+    named = ", ".join(sorted(country.upper() for country in countries))
+    return (
+        f"identifiers and national phone numbers are only being looked for in: "
+        f"{named} - numbers from any other country are NOT being detected by the "
+        f"checksum layer"
+    )
+
+
+def build_registry(spec: str = "l1", *, countries: Sequence[str] | None = None) -> DetectorRegistry:
     """Assemble a registry from a layer name, optionally naming a NER backend.
 
     Accepts ``l1``, ``ner``, ``all``, and a ``ner:<backend>`` suffix form such as
@@ -80,12 +95,31 @@ def build_registry(spec: str = "l1") -> DetectorRegistry:
     layer in isolation: a number for "L1 alone" is what makes a number for
     "L1 plus NER" mean anything, and measuring only the combination hides which
     layer regressed.
+
+    ``countries`` narrows the checksum layer and the phone numbering plans to
+    those countries. None means every supported country, which is the default
+    everywhere: a caller obliged to name its countries to be safe would produce a
+    silent leak by naming the wrong ones. A narrowed run says so in the registry
+    notes, which reach the report and the window — the same channel a missing NER
+    layer uses, and for the same reason.
     """
     layer, _, backend = spec.partition(":")
+    selection = tuple(countries) if countries is not None else None
+    if selection is not None and not selection:
+        raise ValueError("no countries selected; omit the option to use all of them")
+
+    def validator() -> ValidatorDetector:
+        return ValidatorDetector(countries=selection)
+
+    def with_notes(registry: DetectorRegistry) -> DetectorRegistry:
+        if selection is not None:
+            registry.notes.append(narrowed_note(selection))
+        return registry
+
     if layer == "l1":
         if backend:
             raise ValueError("the l1 layer has no backend to choose")
-        return DetectorRegistry([ValidatorDetector()])
+        return with_notes(DetectorRegistry([validator()]))
     if layer not in {"ner", "all"}:
         raise ValueError(
             f"unknown detector spec {spec!r}; expected one of {', '.join(LAYER_SPECS)}"
@@ -96,7 +130,10 @@ def build_registry(spec: str = "l1") -> DetectorRegistry:
     from .detect.ner import NerDetector
 
     ner = NerDetector(backend_name=backend) if backend else NerDetector()
-    return DetectorRegistry([ValidatorDetector(), ner] if layer == "all" else [ner])
+    # The NER layer is not narrowed: the model reads names and addresses and has
+    # no notion of which country issued them, so a country selection has nothing
+    # to say to it.
+    return with_notes(DetectorRegistry([validator(), ner] if layer == "all" else [ner]))
 
 
 #: What the user loses when the NER layer is unavailable. Measured on the corpus:
@@ -109,7 +146,7 @@ NO_NER_NOTE = (
 )
 
 
-def default_registry() -> DetectorRegistry:
+def default_registry(countries: Sequence[str] | None = None) -> DetectorRegistry:
     """Every available layer, with any absence stated rather than hidden.
 
     ``all`` is the default because the measured difference is not marginal:
@@ -119,9 +156,9 @@ def default_registry() -> DetectorRegistry:
     CLI. Degrading quietly would be the one outcome worse than refusing.
     """
     try:
-        return build_registry("all")
+        return build_registry("all", countries=countries)
     except MissingDependency:
-        registry = build_registry("l1")
+        registry = build_registry("l1", countries=countries)
         registry.notes.append(NO_NER_NOTE)
         return registry
 

@@ -21,6 +21,7 @@ from freedocs.rpc import (
     MISSING_DEPENDENCY,
     NEEDS_OCR,
     UNSUPPORTED_FORMAT,
+    RpcError,
     Session,
     handle,
     serve,
@@ -471,3 +472,74 @@ def test_a_backend_that_cannot_load_reports_a_missing_component(
 
     monkeypatch.setattr(registry_module.DetectorRegistry, "detect", refuse)
     assert error_of(session, "inspect", path=str(document))["code"] == MISSING_DEPENDENCY
+
+
+# -- country selection ---------------------------------------------------------
+
+
+def test_capabilities_names_the_countries(session):
+    """Sent rather than duplicated in the window, like review_host."""
+    caps = session.capabilities()
+    assert "ch" in caps["countries"] and "de" in caps["countries"]
+    assert caps["countries"] == sorted(caps["countries"])
+
+
+def test_narrowing_the_countries_changes_what_inspect_finds(session, tmp_path):
+    path = tmp_path / "misto.txt"
+    path.write_text(
+        "Numero AVS: 756.1234.5678.97\nSteuerliche Identifikationsnummer: 36574261809\n",
+        encoding="utf-8",
+    )
+    everything = session.inspect({"path": str(path), "detectors": "l1"})
+    swiss_only = session.inspect({"path": str(path), "detectors": "l1", "countries": ["ch"]})
+    assert {f["entity"] for f in everything["findings"]} >= {"NATIONAL_ID", "TAX_ID"}
+    assert {f["entity"] for f in swiss_only["findings"]} == {"NATIONAL_ID"}
+
+
+def test_a_narrowed_inspection_says_so(session, tmp_path):
+    """A preview taken with two countries looks like one taken with thirteen.
+
+    The difference is the whole point of the option, so the registry note has to
+    reach this response the way it already reaches a scrub's warnings.
+    """
+    path = tmp_path / "vuoto.txt"
+    path.write_text("niente di interessante\n", encoding="utf-8")
+    narrowed = session.inspect({"path": str(path), "detectors": "l1", "countries": ["ch"]})
+    assert any("only being looked for" in warning for warning in narrowed["warnings"])
+    everything = session.inspect({"path": str(path), "detectors": "l1"})
+    assert not any("only being looked for" in warning for warning in everything["warnings"])
+
+
+def test_an_empty_country_list_is_refused(session, tmp_path):
+    """Over a pipe that is what a caller sends when its own state got lost.
+
+    Read as "no countries" it would scrub with the checksum layer switched off
+    and hand back a file the user believes is clean.
+    """
+    path = tmp_path / "x.txt"
+    path.write_text("x\n", encoding="utf-8")
+    with pytest.raises(RpcError) as caught:
+        session.inspect({"path": str(path), "detectors": "l1", "countries": []})
+    assert "omit it" in str(caught.value)
+
+
+def test_an_unknown_country_is_refused(session, tmp_path):
+    path = tmp_path / "x.txt"
+    path.write_text("x\n", encoding="utf-8")
+    with pytest.raises(RpcError) as caught:
+        session.inspect({"path": str(path), "detectors": "l1", "countries": ["zz"]})
+    assert "zz" in str(caught.value)
+
+
+def test_the_registry_cache_is_keyed_on_the_countries_too(session, tmp_path):
+    """Otherwise the second request of a session answers with the first's choice.
+
+    The cache exists because loading GLiNER2 takes seconds; a key that ignored
+    this option would silently reuse a narrowed registry for a full request.
+    """
+    path = tmp_path / "avs.txt"
+    path.write_text("Numero AVS: 756.1234.5678.97\n", encoding="utf-8")
+    narrowed = session.inspect({"path": str(path), "detectors": "l1", "countries": ["it"]})
+    assert not narrowed["findings"]
+    again = session.inspect({"path": str(path), "detectors": "l1", "countries": ["ch"]})
+    assert [f["entity"] for f in again["findings"]] == ["NATIONAL_ID"]
