@@ -37,30 +37,3 @@ export function languageName(code: string, locale = 'en'): string {
 export function basename(path: string): string {
 	return path.split(/[\\/]/).pop() ?? path;
 }
-
-/**
- * A character count, grouped the way the reader's locale groups numbers.
- *
- * `412003 characters` is a number nobody reads; `412,003` is.
- */
-export function count(value: number, locale = 'en'): string {
-	return new Intl.NumberFormat(locale).format(value);
-}
-
-/**
- * What a confidence threshold means, in words.
- *
- * The bands are the engine's, from `detect/validators.py`: STRONG_CHECK 0.55,
- * MEDIUM_CHECK 0.5, WEAK_CHECK 0.45, each measured by running the validator
- * against 20 000 format-plausible values. The words are the window's, and they
- * exist because "0.50" is not something a screen reader can usefully say and
- * not something a person can act on.
- */
-export function confidenceBand(value: number): string {
-	if (value <= 0) return 'everything, including the weakest rules';
-	if (value < 0.45) return 'below every rule: nothing is filtered out';
-	if (value < 0.5) return 'weak rules included';
-	if (value < 0.55) return 'weak rules need a keyword nearby';
-	if (value < 0.9) return 'only checksum-strong rules and the model';
-	return 'almost nothing but a confirmed checksum';
-}
