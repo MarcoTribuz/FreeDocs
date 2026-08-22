@@ -11,16 +11,27 @@ on:
 # builds its own artefact on its own runner. This matrix is the only place the
 # multi-platform claim is actually tested: the Linux and Windows halves have never
 # been built on a developer's Mac.
+#
+# Intel macOS is not in the matrix, and that is a gap rather than a decision
+# about who to support. `macos-13` was retired: the job sat queued for fifty
+# minutes with no runner ever assigned, which reads exactly like a slow build and
+# is not one. The Intel replacement, `macos-15-intel`, is a larger runner and
+# therefore billed, and this repository is private. Cross-compiling from the
+# arm64 runner would cover the Rust half and not the sidecar, which is the half
+# PyInstaller cannot cross-compile — so an Intel bundle needs an Intel machine,
+# paid for or self-hosted. Until there is one, x86_64 macOS is untested rather
+# than quietly built from the wrong architecture.
 jobs:
   bundle:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          # macos-15 rather than macos-14: the latter still works and is marked
+          # deprecated, which is the state macos-13 was in before it stopped
+          # being assigned a runner at all.
+          - runner: macos-15
             target: aarch64-apple-darwin
-          - runner: macos-13
-            target: x86_64-apple-darwin
           - runner: ubuntu-22.04
             target: x86_64-unknown-linux-gnu
           - runner: windows-latest
