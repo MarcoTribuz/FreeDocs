@@ -22,6 +22,20 @@
 		type KeptSpan,
 		type RemovedValue
 	} from '$lib/engine';
+	import { announce } from '$lib/announce.svelte';
+	import { basename, confidenceBand, count, countryName, languageName } from '$lib/format';
+	import { categoryOf } from '$lib/entities';
+	import Badge from '$lib/components/Badge.svelte';
+	import Button from '$lib/components/Button.svelte';
+	import Callout from '$lib/components/Callout.svelte';
+	import Chip from '$lib/components/Chip.svelte';
+	import Disclosure from '$lib/components/Disclosure.svelte';
+	// Aliased: `Progress` is already the engine's per-file progress notification,
+	// and the wire type keeps that name because that is what the protocol calls it.
+	import ProgressBar from '$lib/components/Progress.svelte';
+	import Select from '$lib/components/Select.svelte';
+	import Slider from '$lib/components/Slider.svelte';
+	import TextField from '$lib/components/TextField.svelte';
 
 	let engineProblem = $state<string | null>(null);
 	let caps = $state<Capabilities | null>(null);
@@ -103,7 +117,14 @@
 		if (engineProblem) return;
 		unsubscribes.push(
 			await onNotify({
-				progress: (value) => (progress = value),
+				progress: (value) => {
+					// Announced per file, which is what the engine reports. Announcing
+					// anything finer would be inventing a number it does not have.
+					if (value.file !== progress?.file) {
+						announce(`${basename(value.file)}, ${value.index + 1} of ${value.total}`);
+					}
+					progress = value;
+				},
 				ready: adoptCaps
 			})
 		);
@@ -111,7 +132,7 @@
 			adoptCaps(await capabilities());
 			entityList = (await entities()).entities;
 		} catch (error) {
-			problem = describe(error);
+			fail(describe(error));
 		}
 		unsubscribes.push(
 			await getCurrentWebview().onDragDropEvent((event) => {
@@ -185,15 +206,19 @@
 		busy = path;
 		problem = null;
 		try {
-			inspections[path] = await inspect(path, {
+			const inspection = await inspect(path, {
 				keep: [...kept],
 				keepSpans: keptSpans[path] ?? [],
 				remove: extraValues[path] ?? [],
 				minConfidence,
 				countries: activeCountries()
 			});
+			inspections[path] = inspection;
+			// Nothing here moves focus, so without this the result of a decision is
+			// silent: the table simply has a different number of rows.
+			announce(`${basename(path)}: ${inspection.findings.length} values found`);
 		} catch (error) {
-			problem = `${basename(path)}: ${describe(error)}`;
+			fail(`${basename(path)}: ${describe(error)}`);
 		} finally {
 			busy = null;
 		}
@@ -297,16 +322,19 @@
 					reviewHost
 				})
 			).results;
+			const failed = results.filter((result) => !result.ok).length;
+			announce(
+				failed === 0
+					? `Finished. ${results.length} files written.`
+					: `Finished with ${failed} of ${results.length} files not written.`,
+				{ assertive: failed > 0 }
+			);
 		} catch (error) {
-			problem = describe(error);
+			fail(describe(error));
 		} finally {
 			busy = null;
 			progress = null;
 		}
-	}
-
-	function basename(path: string): string {
-		return path.split(/[\\/]/).pop() ?? path;
 	}
 
 	/** Counts per entity type, which is what a preview is actually for. */
@@ -319,6 +347,29 @@
 		return [...counts.entries()]
 			.map(([entity, [count, action]]) => [entity, count, action] as [string, number, string])
 			.sort((a, b) => a[0].localeCompare(b[0]));
+	}
+
+	/**
+	 * The reader's language, for names and numbers only.
+	 *
+	 * Read from the webview rather than asked of the OS through a plugin:
+	 * `navigator.language` is the system preference here, and a Rust dependency
+	 * to learn something already in the window is a dependency for nothing. This
+	 * is not the interface language — that arrives with the message catalogues.
+	 */
+	const locale = $derived(navigator.language || 'en');
+
+	const languageOptions = $derived(
+		(caps?.placeholder_languages ?? []).map((code) => ({
+			value: code,
+			label: languageName(code, locale)
+		}))
+	);
+
+	/** A failure the user must not miss, said once and shown until it is replaced. */
+	function fail(message: string) {
+		problem = message;
+		announce(message, { assertive: true });
 	}
 
 	const totalFindings = $derived(
@@ -336,26 +387,37 @@
 	</header>
 
 	{#if engineProblem}
-		<section class="alert error">
-			<h2>The engine did not start</h2>
+		<Callout tone="danger" title="The engine did not start" live verbatim>
 			<p>{engineProblem}</p>
-		</section>
+		</Callout>
 	{:else}
 		{#if caps}
-			<section class="status">
-				<span class="pill">engine {caps.version}</span>
-				<span class="pill">{caps.layers.join(' + ')}</span>
-				<span class="pill" class:warn={!caps.ocr_available}>
-					OCR {caps.ocr_available ? 'available' : 'not installed'}
-				</span>
+			<section class="status" aria-label="What this build can do">
+				<Badge>engine {caps.version}</Badge>
+				<Badge>{caps.layers.join(' + ')}</Badge>
+				<Badge tone={caps.ocr_available ? 'neutral' : 'warn'}>
+					{caps.ocr_available ? 'OCR available' : 'OCR not installed'}
+				</Badge>
+				<!-- The premise of the tool, stated where the capabilities are, because
+				     it is a capability: nothing here reaches a network. -->
+				<Badge tone="success">nothing leaves this machine</Badge>
 			</section>
+
+			{#if !caps.ocr_available && caps.ocr_unavailable_reason}
+				<!-- The engine has always sent the reason and the window has always
+				     thrown it away, so a scanned PDF was refused with an explanation
+				     the user could only see in a terminal. -->
+				<Callout tone="warn" title="Scanned pages cannot be read" verbatim>
+					<p>{caps.ocr_unavailable_reason}</p>
+				</Callout>
+			{/if}
 
 			{#if caps.limitations.length}
 				<!-- A missing layer must be visible. A build that quietly finds less is
 				     the failure this project refuses. -->
-				<section class="alert warn">
+				<Callout tone="warn" title="What this build is not detecting" verbatim>
 					{#each caps.limitations as limitation}<p>{limitation}</p>{/each}
-				</section>
+				</Callout>
 			{/if}
 		{/if}
 
@@ -363,135 +425,135 @@
 			<!-- Outside the file list on purpose: this was only reachable once a
 			     document was loaded, so an empty window looked like a build with no
 			     review layer at all. -->
-			<details class="settings" bind:open={settingsOpen}>
-				<summary>Second opinion (Ollama)</summary>
-				<p class="muted">
+			<Disclosure bind:open={settingsOpen} summary="Second opinion (Ollama)">
+				<p class="hint">
 					A local model reads the scrubbed text and says what still worries it. Advisory: it
 					changes nothing in the output.
 				</p>
 				<div class="row">
-					<label>
-						Host
-						<input
-							type="text"
-							class="mono host"
-							spellcheck="false"
-							bind:value={reviewHost}
-							oninput={() => {
-								// The old list came from the old host. Keeping it on screen
-								// would credit this host with models it may not have.
-								models = null;
-								modelsProblem = null;
-							}}
-						/>
-					</label>
-					<button onclick={refreshModels} disabled={modelsBusy || !reviewHost}>
+					<TextField
+						label="Host"
+						mono
+						inline
+						spellcheck="false"
+						bind:value={reviewHost}
+						oninput={() => {
+							// The old list came from the old host. Keeping it on screen
+							// would credit this host with models it may not have.
+							models = null;
+							modelsProblem = null;
+						}}
+					/>
+					<Button onclick={refreshModels} loading={modelsBusy} disabled={!reviewHost}>
 						{modelsBusy ? 'Looking…' : 'Find models'}
-					</button>
-					<label>
-						Model
-						<select bind:value={reviewModel}>
-							<option value="">no review</option>
-							{#each offeredModels as model}<option value={model}>{model}</option>{/each}
-						</select>
-					</label>
+					</Button>
+					<Select
+						label="Model"
+						inline
+						bind:value={reviewModel}
+						options={[
+							{ value: '', label: 'no review' },
+							...offeredModels.map((model) => ({ value: model, label: model }))
+						]}
+					/>
 				</div>
 				{#if modelsProblem}
-					<p class="warnline">{modelsProblem}</p>
+					<p class="warnline" lang="en">{modelsProblem}</p>
 				{:else if offeredModels.length === 0}
 					<p class="warnline">
 						No models at {reviewHost}. Is Ollama running there, and has anything been pulled?
 					</p>
 				{:else}
-					<p class="muted">{offeredModels.length} model(s) available.</p>
+					<p class="hint">{offeredModels.length} available.</p>
 				{/if}
-			</details>
+			</Disclosure>
 		{/if}
 
-		<section
-			class="dropzone"
-			class:busy={busy !== null}
-			role="button"
-			tabindex="0"
-			onclick={pickFiles}
-			onkeydown={(event) => event.key === 'Enter' && pickFiles()}
-		>
-			<p><strong>Drop documents here</strong>, or click to choose.</p>
-			{#if caps}<p class="muted">{caps.formats.join('  ')}</p>{/if}
-		</section>
+		<!--
+			A real button, not a section wearing role="button". The hand-rolled
+			handler it replaces listened for Enter only, so Space — which every
+			button responds to — did nothing at all.
+		-->
+		<button type="button" class="dropzone" class:busy={busy !== null} onclick={pickFiles}>
+			<p class="dropline"><strong>Drop documents here</strong>, or click to choose.</p>
+			{#if caps}<p class="formats">{caps.formats.join(' · ')}</p>{/if}
+		</button>
 
 		{#if problem}
-			<section class="alert error"><p>{problem}</p></section>
+			<Callout tone="danger" live verbatim>
+				<p>{problem}</p>
+			</Callout>
 		{/if}
 
 		{#if files.length}
 			<section class="controls">
-				<label>
-					Minimum confidence
-					<input
-						type="range"
-						min="0"
-						max="1"
-						step="0.05"
-						bind:value={minConfidence}
-						onchange={reinspectAll}
-					/>
-					<span class="mono">{minConfidence.toFixed(2)}</span>
-				</label>
+				<Slider
+					label="Minimum confidence"
+					bind:value={minConfidence}
+					onchange={reinspectAll}
+					describe={(value) => `${value.toFixed(2)}, ${confidenceBand(value)}`}
+				/>
 				{#if reviewModel}
 					<!-- Stated next to the button that acts on it: the choice was made
 					     further up the page and is easy to forget by the time you scrub. -->
-					<span class="pill">review: {reviewModel}</span>
+					<Badge tone="accent">review: {reviewModel}</Badge>
 				{/if}
-				<button onclick={runScrub} disabled={busy !== null || totalFindings === 0}>
-					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} file(s)`}
-				</button>
+				<Button
+					variant="primary"
+					onclick={runScrub}
+					loading={busy === 'scrub'}
+					disabled={busy !== null || totalFindings === 0}
+				>
+					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} files`}
+				</Button>
 			</section>
 
 			<section class="entities">
-				<h2>Placeholder language</h2>
-				<p class="hint">
-					The wording written into the output in place of what was removed. Only
-					the words change; nothing about what gets removed depends on this.
-				</p>
-				<select bind:value={placeholderLanguage}>
-					{#each caps?.placeholder_languages ?? [] as code}
-						<option value={code}>{code}</option>
-					{/each}
-				</select>
+				<Select
+					label="Placeholder language"
+					bind:value={placeholderLanguage}
+					options={languageOptions}
+					hint="The wording written into the output in place of what was removed. Only the words change; nothing about what gets removed depends on this."
+				/>
 			</section>
 
 			<section class="entities">
-				<h2>Countries to look for</h2>
-				<p class="hint">
+				<h2 id="countries-heading">Countries to look for</h2>
+				<p class="hint" id="countries-hint">
 					All of them unless you say otherwise. Narrowing raises precision and can
 					hide an identifier from a country you did not expect in the file.
 				</p>
-				<div class="chips">
+				<div
+					class="chips"
+					role="group"
+					aria-labelledby="countries-heading"
+					aria-describedby="countries-hint"
+				>
 					{#each caps?.countries ?? [] as code}
-						<button
-							class="chip"
-							class:on={!dropped.has(code)}
-							onclick={() => toggleCountry(code)}
-						>
-							{code.toUpperCase()}
-						</button>
+						<Chip
+							pressed={!dropped.has(code)}
+							label={countryName(code, locale)}
+							onchange={() => toggleCountry(code)}
+						/>
 					{/each}
 				</div>
 			</section>
 
 			<section class="entities">
-				<h2>Leave untouched</h2>
-				<div class="chips">
+				<h2 id="keep-heading">Leave untouched</h2>
+				<div class="chips" role="group" aria-labelledby="keep-heading">
 					{#each entityList as entity}
-						<button
-							class="chip"
-							class:on={kept.has(entity.name)}
-							title={entity.report_only ? 'Flagged for review, never removed' : ''}
-							onclick={() => toggleKeep(entity.name)}
+						<Chip
+							pressed={kept.has(entity.name)}
+							label={entity.name}
+							category={categoryOf(entity.name)}
+							hint={entity.report_only
+								? 'Flagged for review, never removed, whether or not this is on.'
+								: undefined}
+							onchange={() => toggleKeep(entity.name)}
 						>
 							{entity.name}{entity.report_only ? ' (flag only)' : ''}
-						</button>
+						</Chip>
 					{/each}
 				</div>
 			</section>
@@ -504,39 +566,72 @@
 						{#if busy === path}
 							<p class="muted">Reading…</p>
 						{:else if inspection}
-							<p class="muted">{inspection.format} · {inspection.characters} characters</p>
+							<p class="muted">
+								{inspection.format} · {count(inspection.characters, locale)} characters
+							</p>
 							{#if inspection.findings.length === 0}
 								<p class="muted">Nothing matched.</p>
 							{:else}
 								<ul class="counts">
-									{#each summary(inspection) as [entity, count, action]}
-										<li><span class="mono">{count}</span> {entity} <em>{action}</em></li>
+									{#each summary(inspection) as [entity, total, action]}
+										<li>
+											<Badge tone="entity" category={categoryOf(entity)}>
+												{entity}
+											</Badge>
+											<span class="mono">{total}</span>
+											<em>{action}</em>
+										</li>
 									{/each}
 								</ul>
 								<details>
 									<summary>Show the {inspection.findings.length} values</summary>
 									<table>
+										<!-- A header row, and a scope on every cell that names one.
+										     Five bare <td> columns read as five unlabelled strings,
+										     and the action button read as "keep this one" with no
+										     way to tell which value it belonged to. -->
+										<caption class="sr-only">
+											Every value found in {basename(path)}, and what will happen to it
+										</caption>
+										<thead>
+											<tr>
+												<th scope="col">Where</th>
+												<th scope="col">Type</th>
+												<th scope="col">Value</th>
+												<th scope="col">Action</th>
+												<th scope="col"><span class="sr-only">Decision</span></th>
+											</tr>
+										</thead>
 										<tbody>
 											{#each inspection.findings as finding}
 												<tr>
 													<td class="mono">{finding.part}</td>
-													<td>{finding.entity}{#if isMine(finding)} <em>yours</em>{/if}</td>
-													<td><code>{finding.text}</code></td>
+													<td>
+														<Badge tone="entity" category={categoryOf(finding.entity)}>
+															{finding.entity}
+														</Badge>
+														{#if isMine(finding)}<em>yours</em>{/if}
+													</td>
+													<th scope="row" class="value"><code>{finding.text}</code></th>
 													<td class="mono">{finding.action}</td>
 													<td>
 														{#if isMine(finding)}
-															<button
-																class="linkish"
+															<Button
+																variant="link"
+																label={`Stop removing ${finding.text}`}
 																onclick={() => dropValue(path, finding.text)}
-																>don't remove</button
 															>
+																don't remove
+															</Button>
 														{:else}
-															<button
-																class="linkish"
+															<Button
+																variant="link"
+																label={`Keep this one occurrence of ${finding.text}`}
+																title="Leave this one occurrence alone. Every other occurrence of the same value is still removed."
 																onclick={() => toggleSpan(path, finding)}
-																title="Leave this one occurrence alone. Every other
-occurrence of the same value is still removed.">keep this one</button
 															>
+																keep this one
+															</Button>
 														{/if}
 													</td>
 												</tr>
@@ -551,26 +646,36 @@ occurrence of the same value is still removed.">keep this one</button
 							     one who can add what it missed - and the engine, not
 							     this window, decides what happens to it. -->
 							<div class="addrow">
-								<input
-									type="text"
-									placeholder="Also remove this value..."
+								<TextField
+									label="Also remove this value"
+									placeholder="a name, a number, anything the detectors missed"
 									bind:value={pending[path]}
-									onkeydown={(event) => event.key === 'Enter' && addValue(path)}
+									onEnter={() => addValue(path)}
 								/>
-								<button onclick={() => addValue(path)} disabled={!(pending[path] ?? '').trim()}>
+								<Button
+									icon="plus"
+									onclick={() => addValue(path)}
+									disabled={!(pending[path] ?? '').trim()}
+								>
 									Add
-								</button>
+								</Button>
 							</div>
 							{#if (keptSpans[path] ?? []).length > 0}
 								<p class="muted">
-									{(keptSpans[path] ?? []).length} occurrence(s) kept on purpose.
-									<button class="linkish" onclick={() => { keptSpans = { ...keptSpans, [path]: [] }; void loadInspection(path); }}>
+									{(keptSpans[path] ?? []).length} kept on purpose.
+									<Button
+										variant="link"
+										onclick={() => {
+											keptSpans = { ...keptSpans, [path]: [] };
+											void loadInspection(path);
+										}}
+									>
 										undo all
-									</button>
+									</Button>
 								</p>
 							{/if}
 							{#each inspection.warnings as warning}
-								<p class="warnline">{warning}</p>
+								<p class="warnline" lang="en">{warning}</p>
 							{/each}
 						{/if}
 					</article>
@@ -580,7 +685,18 @@ occurrence of the same value is still removed.">keep this one</button
 
 		{#if progress}
 			<section class="progress">
-				<p>{basename(progress.file)} — {progress.index + 1} of {progress.total}</p>
+				<!--
+					The bar counts files, because that is the only unit the engine
+					reports. It says so in words rather than showing a percentage the
+					engine cannot know: how long detect takes next to extract on an
+					unseen document is not a fact anyone here has.
+				-->
+				<ProgressBar
+					label="Scrubbing"
+					value={progress.index}
+					max={progress.total}
+					valueText={`${basename(progress.file)} — file ${progress.index + 1} of ${progress.total}`}
+				/>
 			</section>
 		{/if}
 
@@ -606,13 +722,29 @@ occurrence of the same value is still removed.">keep this one</button
 								</ul>
 							{/if}
 							{#each result.warnings ?? [] as warning}
-								<p class="warnline">{warning}</p>
+								<p class="warnline" lang="en">{warning}</p>
 							{/each}
 							{#if result.review}
 								<!-- Advisory. The quotes come from the scrubbed text, so showing
 								     them reveals nothing the output does not already. -->
-								<h4>Second opinion</h4>
-								<p class="muted">{result.review.summary}</p>
+								<h4>
+									Second opinion
+									<!--
+										"Ollama was not running" and "the reviewer had no objection"
+										are different facts, and the second one is reassuring. The
+										summary sentence distinguishes them; these say so at a
+										glance, so an empty concern list cannot be read as a clean
+										bill of health for a review that never ran.
+									-->
+									{#if !result.review.ran}
+										<Badge tone="warn">did not run</Badge>
+									{:else if result.review.partial}
+										<Badge tone="warn">first part of the document only</Badge>
+									{:else}
+										<Badge tone="success">ran</Badge>
+									{/if}
+								</h4>
+								<p class="muted" lang="en">{result.review.summary}</p>
 								{#if result.review.concerns.length}
 									<ul class="concerns">
 										{#each result.review.concerns as concern}
@@ -626,7 +758,9 @@ occurrence of the same value is still removed.">keep this one</button
 								{/if}
 							{/if}
 						{:else}
-							<p class="failed-msg">Nothing was written. {result.error?.message}</p>
+							<p class="failed-msg">
+								Nothing was written. <span lang="en">{result.error?.message}</span>
+							</p>
 						{/if}
 					</article>
 				{/each}
@@ -634,7 +768,10 @@ occurrence of the same value is still removed.">keep this one</button
 		{/if}
 
 		{#if caps?.caveats.length}
-			<footer>
+			<!-- The engine's own words about what this tool does not guarantee. Quoted
+			     rather than paraphrased: report.CAVEATS is where they are maintained,
+			     and a second wording here would drift from the one on disk. -->
+			<footer lang="en">
 				{#each caps.caveats as caveat}<p>{caveat}</p>{/each}
 			</footer>
 		{/if}
@@ -643,19 +780,13 @@ occurrence of the same value is still removed.">keep this one</button
 
 <style>
 	/*
-	 * Layout and local shape only. Every colour, space, radius and duration is a
-	 * token from app.css.
+	 * Layout and local shape only.
 	 *
-	 * Two things left this file when the tokens arrived. The `:global(body)`
-	 * rules, because a component styling the document is a component that cannot
-	 * be moved. And both `prefers-color-scheme` blocks, because dark mode is now
-	 * one attribute on <html> — which is also what lets a manual choice override
-	 * the OS in either direction.
-	 *
-	 * The old hierarchy was `opacity` — twelve of them, 0.6 to 0.75. Opacity
-	 * cannot be measured for contrast and dims a border along with the text it
-	 * surrounds, so secondary text is now --text-2 / --text-3, which have their
-	 * measured ratios written beside them.
+	 * Every colour, space, radius and duration is a token from app.css, and every
+	 * rule that described a control — the pill, the alert, the chip, the bare
+	 * `button`, the link-shaped action, the text input, the select — left with the
+	 * component that now owns it. What is left is this page's arrangement, which
+	 * is the part that is genuinely local.
 	 */
 
 	main {
@@ -684,6 +815,9 @@ occurrence of the same value is still removed.">keep this one</button
 	}
 
 	h4 {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
 		margin: var(--space-3) 0 var(--space-1);
 		font-size: var(--text-sm);
 	}
@@ -696,6 +830,7 @@ occurrence of the same value is still removed.">keep this one</button
 
 	.muted {
 		color: var(--text-3);
+		font-size: var(--text-sm);
 	}
 
 	.hint {
@@ -717,118 +852,52 @@ occurrence of the same value is still removed.">keep this one</button
 		margin: var(--space-4) 0;
 	}
 
-	.pill {
-		padding: var(--space-1) var(--space-3);
-		border: 1px solid var(--border);
-		border-radius: var(--radius-full);
-		background: var(--surface);
-		color: var(--text-2);
-		font-size: var(--text-xs);
-	}
-
-	.pill.warn {
-		border-color: var(--warn-border);
-		background: var(--warn-soft);
-		color: var(--warn-text);
-	}
-
-	.alert {
-		padding: var(--space-3) var(--space-4);
-		border-radius: var(--radius-3);
-		margin-bottom: var(--space-4);
-	}
-
-	.alert p {
-		margin: var(--space-1) 0;
-	}
-
-	.alert.warn {
-		border: 1px solid var(--warn-border);
-		background: var(--warn-soft);
-		color: var(--warn-text);
-	}
-
-	.alert.error {
-		border: 1px solid var(--danger-border);
-		background: var(--danger-soft);
-		color: var(--danger-text);
-	}
-
-	.settings {
-		border: 1px solid var(--border);
-		border-radius: var(--radius-3);
-		background: var(--surface);
-		box-shadow: var(--shadow-1);
-		padding: var(--space-3) var(--space-4);
-		margin-bottom: var(--space-4);
-	}
-
-	.settings summary {
-		cursor: pointer;
-		font-size: var(--text-xs);
-		font-weight: var(--weight-medium);
-		text-transform: uppercase;
-		letter-spacing: var(--tracking-caps);
-		color: var(--text-3);
-	}
-
-	.settings p {
-		margin: var(--space-2) 0;
-		font-size: var(--text-sm);
-	}
-
-	.settings .row {
+	.row {
 		display: flex;
-		align-items: center;
+		align-items: flex-end;
 		gap: var(--space-4);
 		flex-wrap: wrap;
 		margin: var(--space-3) 0;
 	}
 
-	.settings label {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		font-size: var(--text-sm);
-	}
-
-	input[type='text'] {
-		font: inherit;
-		padding: var(--space-1) var(--space-2);
-		border-radius: var(--radius-1);
-		border: 1px solid var(--border-strong);
-		background: var(--surface);
-		color: inherit;
-	}
-
-	input[type='text']:focus {
-		border-color: var(--accent-line);
-	}
-
-	.host {
-		width: 16rem;
-	}
-
+	/*
+	 * The dropzone is a button, so it inherits none of the furniture a button
+	 * usually brings and needs its own reset. It is the page's primary target and
+	 * the only place a drop can land, which is why it is this large.
+	 */
 	.dropzone {
+		display: block;
+		width: 100%;
 		border: 2px dashed var(--border-strong);
 		border-radius: var(--radius-4);
 		background: var(--surface);
-		padding: var(--space-7) var(--space-4);
+		color: inherit;
+		font: inherit;
 		text-align: center;
+		padding: var(--space-7) var(--space-4);
 		cursor: pointer;
 		transition:
 			border-color var(--dur-2) var(--ease-out),
 			background var(--dur-2) var(--ease-out);
 	}
-
 	.dropzone:hover {
 		border-color: var(--accent-line);
 		background: var(--accent-soft);
 	}
-
 	.dropzone.busy {
 		border-style: solid;
 		cursor: default;
+	}
+
+	.dropline {
+		font-size: var(--text-md);
+	}
+
+	.formats {
+		margin-top: var(--space-2);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-3);
 	}
 
 	.controls {
@@ -840,58 +909,14 @@ occurrence of the same value is still removed.">keep this one</button
 		flex-wrap: wrap;
 	}
 
-	.controls label {
-		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-	}
-
-	button {
-		font: inherit;
-		padding: var(--space-2) var(--space-4);
-		border-radius: var(--radius-2);
-		border: 1px solid var(--border-strong);
-		background: var(--surface);
-		color: var(--text);
-		cursor: pointer;
-		transition:
-			background var(--dur-1) var(--ease-out),
-			border-color var(--dur-1) var(--ease-out);
-	}
-
-	button:hover:not(:disabled) {
-		background: var(--surface-hover);
-	}
-
-	button:active:not(:disabled) {
-		background: var(--surface-active);
-	}
-
-	/* Disabled is a colour and a cursor, not a transparency: an opacity swap
-	   dims the border to the point where the control stops looking like one. */
-	button:disabled {
-		color: var(--text-3);
-		border-color: var(--border);
-		cursor: default;
+	.entities {
+		margin: var(--space-4) 0;
 	}
 
 	.chips {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-1);
-	}
-
-	.chip {
-		font-size: var(--text-xs);
-		padding: var(--space-1) var(--space-2);
-		border-radius: var(--radius-full);
-		color: var(--text-2);
-	}
-
-	.chip.on {
-		border-color: var(--accent-line);
-		background: var(--accent-soft);
-		color: var(--accent-text);
 	}
 
 	article {
@@ -911,33 +936,15 @@ occurrence of the same value is still removed.">keep this one</button
 		color: var(--danger-text);
 	}
 
-	/* An in-table action, not a call to action: the button must not compete with
-	   Scrub for attention, because the common case is not touching it at all. */
-	.linkish {
-		background: none;
-		border: none;
-		padding: 0;
-		font: inherit;
-		font-size: var(--text-sm);
-		color: var(--accent-text);
-		text-decoration: underline;
-		cursor: pointer;
-	}
-
-	.linkish:hover {
-		background: none;
-		color: var(--accent-hover);
-	}
-
 	.addrow {
 		display: flex;
+		align-items: flex-end;
 		gap: var(--space-2);
 		margin-top: var(--space-3);
 	}
 
-	.addrow input {
+	.addrow :global(.field) {
 		flex: 1;
-		min-width: 0;
 	}
 
 	.warnline {
@@ -952,6 +959,19 @@ occurrence of the same value is still removed.">keep this one</button
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-3);
+	}
+
+	.counts li {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+	}
+
+	.counts em {
+		color: var(--text-3);
+		font-style: normal;
+		font-size: 0.9em;
 	}
 
 	.concerns {
@@ -980,19 +1000,11 @@ occurrence of the same value is still removed.">keep this one</button
 		color: var(--text-2);
 	}
 
-	select {
-		font: inherit;
-		padding: var(--space-1);
-		border: 1px solid var(--border-strong);
-		border-radius: var(--radius-1);
-		background: var(--surface);
-		color: inherit;
-	}
-
-	.counts em {
-		color: var(--text-3);
-		font-style: normal;
-		font-size: 0.85em;
+	details summary {
+		cursor: pointer;
+		font-size: var(--text-sm);
+		color: var(--text-2);
+		margin: var(--space-2) 0;
 	}
 
 	table {
@@ -1001,10 +1013,32 @@ occurrence of the same value is still removed.">keep this one</button
 		font-size: var(--text-sm);
 	}
 
-	td {
+	thead th {
+		padding: var(--space-1) var(--space-2);
+		border-bottom: 1px solid var(--border-strong);
+		text-align: left;
+		font-size: var(--text-xs);
+		font-weight: var(--weight-medium);
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-3);
+	}
+
+	td,
+	tbody th {
 		padding: var(--space-1) var(--space-2);
 		border-top: 1px solid var(--border);
 		vertical-align: top;
+		text-align: left;
+		font-weight: var(--weight-normal);
+	}
+
+	.value code {
+		word-break: break-all;
+	}
+
+	.progress {
+		margin: var(--space-4) 0;
 	}
 
 	footer {

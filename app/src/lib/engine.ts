@@ -24,6 +24,13 @@ export interface Capabilities {
 	/** What this build cannot do. Rendered, never hidden. */
 	limitations: string[];
 	ocr_available: boolean;
+	/**
+	 * Why OCR is unavailable, naming which half is missing — the Tesseract binary
+	 * or its language data. The engine has always sent this; the interface never
+	 * declared it, so the window showed "not installed" and dropped the answer to
+	 * the only question that follows.
+	 */
+	ocr_unavailable_reason: string | null;
 	/** Countries whose identifiers this build knows. The engine's list, not ours. */
 	countries: string[];
 	/** Languages the placeholder stems come in, and the one used by default. */
