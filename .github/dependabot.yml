@@ -86,6 +86,12 @@ updates:
       # worth a green tick from a single type-check.
       - dependency-name: typescript
         update-types: ["version-update:semver-major"]
+      # And the Svelte plugin, for the same reason as `vite` itself two lines up:
+      # it is the build, and the build has no assertion behind it but a
+      # type-check. Named separately because the ignore list matches on the
+      # dependency's own name, so `vite` does not stand for `@sveltejs/*`.
+      - dependency-name: "@sveltejs/vite-plugin-svelte"
+        update-types: ["version-update:semver-major"]
 
   # The Tauri shell. Worth watching for `tauri` itself, which is the only crate
   # here we chose; the rest of the tree came with it.
