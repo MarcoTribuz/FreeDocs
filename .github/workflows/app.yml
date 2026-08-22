@@ -1,10 +1,24 @@
 name: app
 
+# Not on pull requests, and not on a branch push. Bundling costs 8 minutes on
+# macOS, 13 on Linux and 26 on Windows, it runs three times over, and it was
+# doing so on every push to every open branch — nine runs in one morning, most
+# of them re-running an unchanged bundle because a review comment moved. The
+# engine workflow is what a pull request needs: it is thirty seconds and it now
+# covers Windows, which is where the cross-platform bugs have actually been.
+#
+# What this gives up, stated: a change that breaks packaging is found when it
+# lands on main rather than before. That is a minute after the merge, on a
+# private repository with one developer, and `workflow_dispatch` is there for
+# anyone who wants the bundle before merging.
+#
+# No `paths` filter. It would be right for the branch trigger and wrong for the
+# tag one: a release tag points at a commit whose diff may touch nothing under
+# `app/`, and the filter would skip the build that makes the release.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
-  pull_request:
-    paths: ["app/**", "engine/**", ".github/workflows/app.yml"]
   workflow_dispatch:
 
 # PyInstaller does not cross-compile and neither does Tauri, so each platform
