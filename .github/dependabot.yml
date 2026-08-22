@@ -78,6 +78,14 @@ updates:
         update-types: ["version-update:semver-major"]
       - dependency-name: vite
         update-types: ["version-update:semver-major"]
+      # Added after the first run opened `typescript 5.6.3 -> 7.0.2`. The window
+      # has no test suite of its own — `svelte-check` is the whole gate — so a
+      # compiler major is checked by one tool reading `+page.svelte` and nothing
+      # else, and `~5.6.2` in `package.json` says a pin was intended. The engine
+      # is where the behaviour lives and it is Python; there is no deadline here
+      # worth a green tick from a single type-check.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
 
   # The Tauri shell. Worth watching for `tauri` itself, which is the only crate
   # here we chose; the rest of the tree came with it.
