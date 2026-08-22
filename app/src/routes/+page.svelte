@@ -1,28 +1,25 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
-	import { open } from '@tauri-apps/plugin-dialog';
-	import { getCurrentWebview } from '@tauri-apps/api/webview';
 	import {
-		type Capabilities,
-		type EntityInfo,
-		type Finding,
-		type Inspection,
-		type Progress,
-		type ScrubResult,
-		MISSING_DEPENDENCY,
-		NEEDS_OCR,
-		UNSUPPORTED_FORMAT,
-		capabilities,
-		engineStatus,
-		entities,
-		inspect,
-		onNotify,
-		reviewModels,
-		scrub,
-		type KeptSpan,
-		type RemovedValue
-	} from '$lib/engine';
-	import { announce } from '$lib/announce.svelte';
+		addValue,
+		clearSpans,
+		dropValue,
+		forgetModels,
+		isMine,
+		loadInspection,
+		offeredModels,
+		pickFiles,
+		refreshModels,
+		reinspectAll,
+		runScrub,
+		session,
+		summary,
+		toggleCountry,
+		toggleKeep,
+		toggleSpan,
+		totalFindings,
+		start
+	} from '$lib/app.svelte';
 	import { basename, confidenceBand, count, countryName, languageName } from '$lib/format';
 	import { categoryOf } from '$lib/entities';
 	import Badge from '$lib/components/Badge.svelte';
@@ -37,344 +34,38 @@
 	import Slider from '$lib/components/Slider.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 
-	let engineProblem = $state<string | null>(null);
-	let caps = $state<Capabilities | null>(null);
-	let entityList = $state<EntityInfo[]>([]);
-
-	let files = $state<string[]>([]);
-	let inspections = $state<Record<string, Inspection>>({});
-	let busy = $state<string | null>(null);
-	let progress = $state<Progress | null>(null);
-	let results = $state<ScrubResult[]>([]);
-	let problem = $state<string | null>(null);
-
-	/** Entity types the user has chosen to leave alone. */
-	let kept = $state<Set<string>>(new Set());
-	/**
-	 * Single occurrences the user has excused, per file. A different control from
-	 * `kept` above and deliberately so: that one says "no location in this
-	 * document is confidential", this one says "not *this* one". The same city is
-	 * confidential in a party's address and not in a jurisdiction clause, which is
-	 * a judgement only the person reading the preview can make.
-	 */
-	let keptSpans = $state<Record<string, KeptSpan[]>>({});
-	/** Values the user says to remove that no detector found, per file. */
-	let extraValues = $state<Record<string, RemovedValue[]>>({});
-	/** What is typed in the "also remove" box, per file, before it is added. */
-	let pending = $state<Record<string, string>>({});
-	/**
-	 * Countries to look for identifiers in. Empty means every supported one,
-	 * which is why this is a set of *exclusions* to send rather than a set of
-	 * inclusions: nothing selected has to mean "all", never "none".
-	 */
-	let dropped = $state<Set<string>>(new Set());
-	/** Prefilled from capabilities, because the default is the engine's to pick. */
-	let placeholderLanguage = $state('');
-	let minConfidence = $state(0.5);
-	/** Empty means no review. Off by default: it is slow and changes nothing. */
-	let reviewModel = $state('');
-	/**
-	 * Where to look for Ollama, and what was found there.
-	 *
-	 * Kept separate from `caps.review_models` rather than editing that in place:
-	 * the capabilities are what the engine reported at startup, and overwriting
-	 * them would lose the ability to tell "the default host has nothing" from
-	 * "the host I typed has nothing".
-	 */
-	let reviewHost = $state('');
-	let models = $state<string[] | null>(null);
-	let modelsProblem = $state<string | null>(null);
-	let modelsBusy = $state(false);
-	/**
-	 * Open when there is a choice to make.
-	 *
-	 * Seeded once from the startup report rather than bound to it: expanding a panel
-	 * the user has just collapsed is worse than the click it saves. Closed when
-	 * Ollama has nothing, because an empty control is a distraction, and the label
-	 * stays visible either way — being invisible was the original complaint.
-	 */
-	let settingsOpen = $state(false);
-
-	/** What the dropdown offers: the typed host's answer, else the startup one. */
-	const offeredModels = $derived(models ?? caps?.review_models ?? []);
-
-	// Collected here rather than returned from onMount: an async callback cannot
-	// hand Svelte a cleanup function, and both subscriptions are set up after an
-	// await.
-	let unsubscribes: (() => void)[] = [];
+	let teardown: (() => void) | null = null;
 
 	onMount(() => {
-		void start();
+		void start().then((stop) => (teardown = stop));
 	});
 
 	onDestroy(() => {
-		for (const unsubscribe of unsubscribes) unsubscribe();
-		unsubscribes = [];
+		teardown?.();
+		teardown = null;
 	});
-
-	async function start() {
-		engineProblem = await engineStatus();
-		if (engineProblem) return;
-		unsubscribes.push(
-			await onNotify({
-				progress: (value) => {
-					// Announced per file, which is what the engine reports. Announcing
-					// anything finer would be inventing a number it does not have.
-					if (value.file !== progress?.file) {
-						announce(`${basename(value.file)}, ${value.index + 1} of ${value.total}`);
-					}
-					progress = value;
-				},
-				ready: adoptCaps
-			})
-		);
-		try {
-			adoptCaps(await capabilities());
-			entityList = (await entities()).entities;
-		} catch (error) {
-			fail(describe(error));
-		}
-		unsubscribes.push(
-			await getCurrentWebview().onDragDropEvent((event) => {
-				if (event.payload.type === 'drop') addFiles(event.payload.paths);
-			})
-		);
-	}
-
-	/**
-	 * Take the engine's report, and seed the review host from it the first time.
-	 *
-	 * Seeded rather than defaulted in this file: the address Ollama listens on is
-	 * the engine's business, and a second copy here is a second thing to be wrong.
-	 * Only when the field is untouched, so a re-announced `ready` cannot discard
-	 * what the user typed.
-	 */
-	function adoptCaps(value: Capabilities) {
-		const first = caps === null;
-		caps = value;
-		if (!reviewHost) reviewHost = value.review_host;
-		if (!placeholderLanguage) placeholderLanguage = value.placeholder_language;
-		if (first) settingsOpen = value.review_models.length > 0;
-	}
-
-	/** Ask a specific Ollama what it has, and say so where the host was typed. */
-	async function refreshModels() {
-		modelsBusy = true;
-		modelsProblem = null;
-		try {
-			const found = (await reviewModels(reviewHost)).models;
-			models = found;
-			// A model the new host does not have would otherwise stay selected and
-			// fail at scrub time, pointing at the wrong thing entirely.
-			if (reviewModel && !found.includes(reviewModel)) reviewModel = '';
-		} catch (error) {
-			models = [];
-			modelsProblem = describe(error);
-		} finally {
-			modelsBusy = false;
-		}
-	}
-
-	function describe(error: unknown): string {
-		const code = (error as { code?: number | null })?.code ?? null;
-		const message = error instanceof Error ? error.message : String(error);
-		if (code === NEEDS_OCR) {
-			return `${message}`;
-		}
-		if (code === UNSUPPORTED_FORMAT) {
-			return `This format is not supported. ${message}`;
-		}
-		if (code === MISSING_DEPENDENCY) {
-			return `A component is missing. ${message}`;
-		}
-		return message;
-	}
-
-	function addFiles(paths: string[]) {
-		const merged = new Set([...files, ...paths]);
-		files = [...merged];
-		for (const path of paths) void loadInspection(path);
-	}
-
-	async function pickFiles() {
-		const chosen = await open({ multiple: true, directory: false });
-		if (!chosen) return;
-		addFiles(Array.isArray(chosen) ? chosen : [chosen]);
-	}
-
-	async function loadInspection(path: string) {
-		busy = path;
-		problem = null;
-		try {
-			const inspection = await inspect(path, {
-				keep: [...kept],
-				keepSpans: keptSpans[path] ?? [],
-				remove: extraValues[path] ?? [],
-				minConfidence,
-				countries: activeCountries()
-			});
-			inspections[path] = inspection;
-			// Nothing here moves focus, so without this the result of a decision is
-			// silent: the table simply has a different number of rows.
-			announce(`${basename(path)}: ${inspection.findings.length} values found`);
-		} catch (error) {
-			fail(`${basename(path)}: ${describe(error)}`);
-		} finally {
-			busy = null;
-		}
-	}
-
-	async function reinspectAll() {
-		for (const path of files) await loadInspection(path);
-	}
-
-	/**
-	 * Excuse or re-include one occurrence.
-	 *
-	 * The span carries the text it covered, which is what lets the engine refuse
-	 * the decision if the file changes underneath it: the offsets would then point
-	 * at something the user never saw, and honouring them would keep whatever
-	 * moved into that range.
-	 */
-	function toggleSpan(path: string, finding: Finding) {
-		const current = keptSpans[path] ?? [];
-		const already = current.some((s) => s.start === finding.start && s.end === finding.end);
-		keptSpans = {
-			...keptSpans,
-			[path]: already
-				? current.filter((s) => !(s.start === finding.start && s.end === finding.end))
-				: [...current, { start: finding.start, end: finding.end, text: finding.text, path }]
-		};
-		void loadInspection(path);
-	}
-
-	function addValue(path: string) {
-		const value = (pending[path] ?? '').trim();
-		if (!value) return;
-		const current = extraValues[path] ?? [];
-		if (!current.some((item) => item.value === value)) {
-			extraValues = { ...extraValues, [path]: [...current, { value, path }] };
-		}
-		pending = { ...pending, [path]: '' };
-		void loadInspection(path);
-	}
-
-	function dropValue(path: string, value: string) {
-		extraValues = {
-			...extraValues,
-			[path]: (extraValues[path] ?? []).filter((item) => item.value !== value)
-		};
-		void loadInspection(path);
-	}
-
-	/** A finding the user put there, rather than one a detector nominated. */
-	function isMine(finding: Finding): boolean {
-		return finding.detector === 'human';
-	}
-
-	function toggleKeep(name: string) {
-		const next = new Set(kept);
-		next.has(name) ? next.delete(name) : next.add(name);
-		kept = next;
-		void reinspectAll();
-	}
-
-	/**
-	 * Undefined when nothing is switched off, so the engine hears no opinion and
-	 * uses every country. Sending the full list would mean the same thing, but it
-	 * would also make the request claim a choice nobody made.
-	 */
-	function activeCountries(): string[] | undefined {
-		if (!caps || dropped.size === 0) return undefined;
-		return caps.countries.filter((code) => !dropped.has(code));
-	}
-
-	function toggleCountry(code: string) {
-		const next = new Set(dropped);
-		next.has(code) ? next.delete(code) : next.add(code);
-		// Never all of them: an empty selection is refused by the engine, and it
-		// would mean scrubbing with the whole checksum layer switched off.
-		if (caps && next.size === caps.countries.length) return;
-		dropped = next;
-		void reinspectAll();
-	}
-
-	async function runScrub() {
-		const target = await open({ directory: true, multiple: false, title: 'Where to write the scrubbed copies' });
-		if (!target || Array.isArray(target)) return;
-		busy = 'scrub';
-		problem = null;
-		results = [];
-		try {
-			results = (
-				await scrub(files, target, {
-					keep: [...kept],
-					// Every file's decisions in one request, each carrying its own
-					// path. The engine scopes them per document, because a span is
-					// an offset into one extraction and would be stale anywhere
-					// else - see Override.for_path.
-					keepSpans: files.flatMap((path) => keptSpans[path] ?? []),
-					remove: files.flatMap((path) => extraValues[path] ?? []),
-					minConfidence,
-					countries: activeCountries(),
-					placeholderLanguage,
-					review: reviewModel || null,
-					reviewHost
-				})
-			).results;
-			const failed = results.filter((result) => !result.ok).length;
-			announce(
-				failed === 0
-					? `Finished. ${results.length} files written.`
-					: `Finished with ${failed} of ${results.length} files not written.`,
-				{ assertive: failed > 0 }
-			);
-		} catch (error) {
-			fail(describe(error));
-		} finally {
-			busy = null;
-			progress = null;
-		}
-	}
-
-	/** Counts per entity type, which is what a preview is actually for. */
-	function summary(inspection: Inspection): [string, number, string][] {
-		const counts = new Map<string, [number, string]>();
-		for (const finding of inspection.findings) {
-			const [count] = counts.get(finding.entity) ?? [0, finding.action];
-			counts.set(finding.entity, [count + 1, finding.action]);
-		}
-		return [...counts.entries()]
-			.map(([entity, [count, action]]) => [entity, count, action] as [string, number, string])
-			.sort((a, b) => a[0].localeCompare(b[0]));
-	}
 
 	/**
 	 * The reader's language, for names and numbers only.
 	 *
 	 * Read from the webview rather than asked of the OS through a plugin:
-	 * `navigator.language` is the system preference here, and a Rust dependency
-	 * to learn something already in the window is a dependency for nothing. This
-	 * is not the interface language — that arrives with the message catalogues.
+	 * `navigator.language` is the system preference here, and a Rust dependency to
+	 * learn something already in the window is a dependency for nothing. This is
+	 * not the interface language — that arrives with the message catalogues.
 	 */
 	const locale = $derived(navigator.language || 'en');
 
 	const languageOptions = $derived(
-		(caps?.placeholder_languages ?? []).map((code) => ({
+		(session.caps?.placeholder_languages ?? []).map((code) => ({
 			value: code,
 			label: languageName(code, locale)
 		}))
 	);
 
-	/** A failure the user must not miss, said once and shown until it is replaced. */
-	function fail(message: string) {
-		problem = message;
-		announce(message, { assertive: true });
-	}
-
-	const totalFindings = $derived(
-		files.reduce((sum, path) => sum + (inspections[path]?.findings.length ?? 0), 0)
-	);
+	const modelOptions = $derived([
+		{ value: '', label: 'no review' },
+		...offeredModels().map((model) => ({ value: model, label: model }))
+	]);
 </script>
 
 <main id="main">
@@ -386,46 +77,44 @@
 		</p>
 	</header>
 
-	{#if engineProblem}
+	{#if session.engineProblem}
 		<Callout tone="danger" title="The engine did not start" live verbatim>
-			<p>{engineProblem}</p>
+			<p>{session.engineProblem}</p>
 		</Callout>
 	{:else}
-		{#if caps}
+		{#if session.caps}
 			<section class="status" aria-label="What this build can do">
-				<Badge>engine {caps.version}</Badge>
-				<Badge>{caps.layers.join(' + ')}</Badge>
-				<Badge tone={caps.ocr_available ? 'neutral' : 'warn'}>
-					{caps.ocr_available ? 'OCR available' : 'OCR not installed'}
+				<Badge>engine {session.caps.version}</Badge>
+				<Badge>{session.caps.layers.join(' + ')}</Badge>
+				<Badge tone={session.caps.ocr_available ? 'neutral' : 'warn'}>
+					{session.caps.ocr_available ? 'OCR available' : 'OCR not installed'}
 				</Badge>
 				<!-- The premise of the tool, stated where the capabilities are, because
 				     it is a capability: nothing here reaches a network. -->
 				<Badge tone="success">nothing leaves this machine</Badge>
 			</section>
 
-			{#if !caps.ocr_available && caps.ocr_unavailable_reason}
+			{#if !session.caps.ocr_available && session.caps.ocr_unavailable_reason}
 				<!-- The engine has always sent the reason and the window has always
 				     thrown it away, so a scanned PDF was refused with an explanation
 				     the user could only see in a terminal. -->
 				<Callout tone="warn" title="Scanned pages cannot be read" verbatim>
-					<p>{caps.ocr_unavailable_reason}</p>
+					<p>{session.caps.ocr_unavailable_reason}</p>
 				</Callout>
 			{/if}
 
-			{#if caps.limitations.length}
+			{#if session.caps.limitations.length}
 				<!-- A missing layer must be visible. A build that quietly finds less is
 				     the failure this project refuses. -->
 				<Callout tone="warn" title="What this build is not detecting" verbatim>
-					{#each caps.limitations as limitation}<p>{limitation}</p>{/each}
+					{#each session.caps.limitations as limitation}<p>{limitation}</p>{/each}
 				</Callout>
 			{/if}
-		{/if}
 
-		{#if caps}
 			<!-- Outside the file list on purpose: this was only reachable once a
 			     document was loaded, so an empty window looked like a build with no
 			     review layer at all. -->
-			<Disclosure bind:open={settingsOpen} summary="Second opinion (Ollama)">
+			<Disclosure bind:open={session.settingsOpen} summary="Second opinion (Ollama)">
 				<p class="hint">
 					A local model reads the scrubbed text and says what still worries it. Advisory: it
 					changes nothing in the output.
@@ -436,35 +125,27 @@
 						mono
 						inline
 						spellcheck="false"
-						bind:value={reviewHost}
-						oninput={() => {
-							// The old list came from the old host. Keeping it on screen
-							// would credit this host with models it may not have.
-							models = null;
-							modelsProblem = null;
-						}}
+						bind:value={session.reviewHost}
+						oninput={forgetModels}
 					/>
-					<Button onclick={refreshModels} loading={modelsBusy} disabled={!reviewHost}>
-						{modelsBusy ? 'Looking…' : 'Find models'}
+					<Button
+						onclick={refreshModels}
+						loading={session.modelsBusy}
+						disabled={!session.reviewHost}
+					>
+						{session.modelsBusy ? 'Looking…' : 'Find models'}
 					</Button>
-					<Select
-						label="Model"
-						inline
-						bind:value={reviewModel}
-						options={[
-							{ value: '', label: 'no review' },
-							...offeredModels.map((model) => ({ value: model, label: model }))
-						]}
-					/>
+					<Select label="Model" inline bind:value={session.reviewModel} options={modelOptions} />
 				</div>
-				{#if modelsProblem}
-					<p class="warnline" lang="en">{modelsProblem}</p>
-				{:else if offeredModels.length === 0}
+				{#if session.modelsProblem}
+					<p class="warnline" lang="en">{session.modelsProblem}</p>
+				{:else if offeredModels().length === 0}
 					<p class="warnline">
-						No models at {reviewHost}. Is Ollama running there, and has anything been pulled?
+						No models at {session.reviewHost}. Is Ollama running there, and has anything been
+						pulled?
 					</p>
 				{:else}
-					<p class="hint">{offeredModels.length} available.</p>
+					<p class="hint">{offeredModels().length} available.</p>
 				{/if}
 			</Disclosure>
 		{/if}
@@ -474,44 +155,49 @@
 			handler it replaces listened for Enter only, so Space — which every
 			button responds to — did nothing at all.
 		-->
-		<button type="button" class="dropzone" class:busy={busy !== null} onclick={pickFiles}>
+		<button
+			type="button"
+			class="dropzone"
+			class:busy={session.busy !== null}
+			onclick={pickFiles}
+		>
 			<p class="dropline"><strong>Drop documents here</strong>, or click to choose.</p>
-			{#if caps}<p class="formats">{caps.formats.join(' · ')}</p>{/if}
+			{#if session.caps}<p class="formats">{session.caps.formats.join(' · ')}</p>{/if}
 		</button>
 
-		{#if problem}
+		{#if session.problem}
 			<Callout tone="danger" live verbatim>
-				<p>{problem}</p>
+				<p>{session.problem}</p>
 			</Callout>
 		{/if}
 
-		{#if files.length}
+		{#if session.files.length}
 			<section class="controls">
 				<Slider
 					label="Minimum confidence"
-					bind:value={minConfidence}
+					bind:value={session.minConfidence}
 					onchange={reinspectAll}
 					describe={(value) => `${value.toFixed(2)}, ${confidenceBand(value)}`}
 				/>
-				{#if reviewModel}
+				{#if session.reviewModel}
 					<!-- Stated next to the button that acts on it: the choice was made
 					     further up the page and is easy to forget by the time you scrub. -->
-					<Badge tone="accent">review: {reviewModel}</Badge>
+					<Badge tone="accent">review: {session.reviewModel}</Badge>
 				{/if}
 				<Button
 					variant="primary"
 					onclick={runScrub}
-					loading={busy === 'scrub'}
-					disabled={busy !== null || totalFindings === 0}
+					loading={session.busy === 'scrub'}
+					disabled={session.busy !== null || totalFindings() === 0}
 				>
-					{busy === 'scrub' ? 'Scrubbing…' : `Scrub ${files.length} files`}
+					{session.busy === 'scrub' ? 'Scrubbing…' : `Scrub ${session.files.length} files`}
 				</Button>
 			</section>
 
 			<section class="entities">
 				<Select
 					label="Placeholder language"
-					bind:value={placeholderLanguage}
+					bind:value={session.placeholderLanguage}
 					options={languageOptions}
 					hint="The wording written into the output in place of what was removed. Only the words change; nothing about what gets removed depends on this."
 				/>
@@ -520,8 +206,8 @@
 			<section class="entities">
 				<h2 id="countries-heading">Countries to look for</h2>
 				<p class="hint" id="countries-hint">
-					All of them unless you say otherwise. Narrowing raises precision and can
-					hide an identifier from a country you did not expect in the file.
+					All of them unless you say otherwise. Narrowing raises precision and can hide an
+					identifier from a country you did not expect in the file.
 				</p>
 				<div
 					class="chips"
@@ -529,9 +215,9 @@
 					aria-labelledby="countries-heading"
 					aria-describedby="countries-hint"
 				>
-					{#each caps?.countries ?? [] as code}
+					{#each session.caps?.countries ?? [] as code}
 						<Chip
-							pressed={!dropped.has(code)}
+							pressed={!session.dropped.has(code)}
 							label={countryName(code, locale)}
 							onchange={() => toggleCountry(code)}
 						/>
@@ -542,9 +228,9 @@
 			<section class="entities">
 				<h2 id="keep-heading">Leave untouched</h2>
 				<div class="chips" role="group" aria-labelledby="keep-heading">
-					{#each entityList as entity}
+					{#each session.entityList as entity}
 						<Chip
-							pressed={kept.has(entity.name)}
+							pressed={session.kept.has(entity.name)}
 							label={entity.name}
 							category={categoryOf(entity.name)}
 							hint={entity.report_only
@@ -559,11 +245,11 @@
 			</section>
 
 			<section class="files">
-				{#each files as path}
-					{@const inspection = inspections[path]}
+				{#each session.files as path}
+					{@const inspection = session.inspections[path]}
 					<article>
 						<h3>{basename(path)}</h3>
-						{#if busy === path}
+						{#if session.busy === path}
 							<p class="muted">Reading…</p>
 						{:else if inspection}
 							<p class="muted">
@@ -575,9 +261,7 @@
 								<ul class="counts">
 									{#each summary(inspection) as [entity, total, action]}
 										<li>
-											<Badge tone="entity" category={categoryOf(entity)}>
-												{entity}
-											</Badge>
+											<Badge tone="entity" category={categoryOf(entity)}>{entity}</Badge>
 											<span class="mono">{total}</span>
 											<em>{action}</em>
 										</li>
@@ -649,29 +333,21 @@
 								<TextField
 									label="Also remove this value"
 									placeholder="a name, a number, anything the detectors missed"
-									bind:value={pending[path]}
+									bind:value={session.pending[path]}
 									onEnter={() => addValue(path)}
 								/>
 								<Button
 									icon="plus"
 									onclick={() => addValue(path)}
-									disabled={!(pending[path] ?? '').trim()}
+									disabled={!(session.pending[path] ?? '').trim()}
 								>
 									Add
 								</Button>
 							</div>
-							{#if (keptSpans[path] ?? []).length > 0}
+							{#if (session.keptSpans[path] ?? []).length > 0}
 								<p class="muted">
-									{(keptSpans[path] ?? []).length} kept on purpose.
-									<Button
-										variant="link"
-										onclick={() => {
-											keptSpans = { ...keptSpans, [path]: [] };
-											void loadInspection(path);
-										}}
-									>
-										undo all
-									</Button>
+									{(session.keptSpans[path] ?? []).length} kept on purpose.
+									<Button variant="link" onclick={() => clearSpans(path)}>undo all</Button>
 								</p>
 							{/if}
 							{#each inspection.warnings as warning}
@@ -683,7 +359,7 @@
 			</section>
 		{/if}
 
-		{#if progress}
+		{#if session.progress}
 			<section class="progress">
 				<!--
 					The bar counts files, because that is the only unit the engine
@@ -693,22 +369,24 @@
 				-->
 				<ProgressBar
 					label="Scrubbing"
-					value={progress.index}
-					max={progress.total}
-					valueText={`${basename(progress.file)} — file ${progress.index + 1} of ${progress.total}`}
+					value={session.progress.index}
+					max={session.progress.total}
+					valueText={`${basename(session.progress.file)} — file ${session.progress.index + 1} of ${session.progress.total}`}
 				/>
 			</section>
 		{/if}
 
-		{#if results.length}
+		{#if session.results.length}
 			<section class="results">
 				<h2>Result</h2>
-				{#each results as result}
+				{#each session.results as result}
 					<article class:failed={!result.ok}>
 						<h3>{basename(result.path)}</h3>
 						{#if result.ok}
 							<p>
-								{result.removed} removed{result.flagged ? `, ${result.flagged} flagged for review` : ''}
+								{result.removed} removed{result.flagged
+									? `, ${result.flagged} flagged for review`
+									: ''}
 							</p>
 							<p class="muted mono">{result.output}</p>
 							{#if result.hidden_removed?.length}
@@ -751,7 +429,7 @@
 											<li>
 												<span class="kind">{concern.kind.replace('_', ' ')}</span>
 												<code>{concern.quote}</code>
-												<span class="why">{concern.why}</span>
+												<span class="why" lang="en">{concern.why}</span>
 											</li>
 										{/each}
 									</ul>
@@ -767,12 +445,12 @@
 			</section>
 		{/if}
 
-		{#if caps?.caveats.length}
+		{#if session.caps?.caveats.length}
 			<!-- The engine's own words about what this tool does not guarantee. Quoted
 			     rather than paraphrased: report.CAVEATS is where they are maintained,
 			     and a second wording here would drift from the one on disk. -->
 			<footer lang="en">
-				{#each caps.caveats as caveat}<p>{caveat}</p>{/each}
+				{#each session.caps.caveats as caveat}<p>{caveat}</p>{/each}
 			</footer>
 		{/if}
 	{/if}
