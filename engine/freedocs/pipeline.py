@@ -25,7 +25,7 @@ from .core.errors import MissingDependency
 from .core.findings import Finding
 from .core.overrides import Override
 from .core.policy import Action, Policy, SurrogateAllocator, placeholder_labels
-from .core.stream import Edit
+from .core.stream import Edit, TextStream
 from .detect.llm_review import LlmReviewer, ReviewOutcome
 from .detect.registry import DetectorRegistry
 from .detect.validators import ValidatorDetector
@@ -41,6 +41,49 @@ class Decision:
     finding: Finding
     action: Action
     replacement: str | None
+
+
+@dataclass(frozen=True)
+class Extraction:
+    """What a file gave up before any detector looked at it.
+
+    Split out so a caller can hold on to it: extracting a scanned PDF means
+    OCRing every page, and a preview that is re-taken every time the user excuses
+    one occurrence would pay that again for a file that has not changed.
+    """
+
+    format_name: str
+    stream: TextStream
+    hidden: list[HiddenItem]
+    #: Compromises the handler had to make while reading. Never silently dropped.
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class Inspection:
+    """What would be removed, without writing anything."""
+
+    extraction: Extraction
+    findings: list[Finding]
+    #: What the *configuration* has to say: the registry's notes and any value a
+    #: caller asked to remove that is not in this document.
+    #:
+    #: Kept apart from the handler's own warnings rather than merged, because the
+    #: two are collected at different times. A handler goes on warning during
+    #: write-back — a placeholder shrunk to fit, a renamed sheet, an embedded
+    #: workbook — so a snapshot taken at extraction time is complete for a
+    #: preview and short for a scrub. Merging them here dropped three of those,
+    #: and the tests said so.
+    notes: list[str]
+
+    @property
+    def stream(self) -> TextStream:
+        return self.extraction.stream
+
+    @property
+    def warnings(self) -> list[str]:
+        """Everything a preview should say. Complete as of extraction."""
+        return [*self.extraction.warnings, *self.notes]
 
 
 @dataclass
@@ -186,10 +229,55 @@ class Scrubber:
     def scrub_file(self, path: Path) -> ScrubResult:
         return self.scrub(handler_for(path))
 
-    def scrub(self, handler: FormatHandler) -> ScrubResult:
+    def inspect_file(self, path: Path) -> Inspection:
+        return self.detect_in(self.read(handler_for(path)))
+
+    def read(self, handler: FormatHandler) -> Extraction:
+        """Stages one and two: route and extract, hidden content included.
+
+        Separated from detection so the expensive half can be reused. Note the
+        order: ``scrub_hidden`` runs *before* ``extract``, because a scan's OCR
+        layer is itself invisible text and dropping hidden content afterwards
+        would throw away what this pipeline can redact properly.
+        """
         hidden = handler.scrub_hidden()
         stream = handler.extract()
-        findings = self.overrides.apply(stream.text, self.registry.detect(stream.text))
+        return Extraction(
+            format_name=handler.name,
+            stream=stream,
+            hidden=hidden,
+            warnings=tuple(handler.warnings),
+        )
+
+    def detect_in(self, extraction: Extraction) -> Inspection:
+        """Stage three plus the human's decisions, on text already extracted.
+
+        One implementation, used by both the preview and the scrub. They used to
+        be two, in two modules, which is how a preview comes to show findings the
+        scrub that follows it does not agree with.
+        """
+        text = extraction.stream.text
+        findings = self.overrides.apply(text, self.registry.detect(text))
+        return Inspection(
+            extraction=extraction,
+            findings=findings,
+            notes=[
+                *self.registry.notes,
+                # "Removed" and "was not there" look identical in the output, and
+                # a caller who pasted a value expects to hear which happened.
+                *(
+                    f"the value {value!r} was asked to be removed but does not "
+                    f"appear in this document"
+                    for value in self.overrides.unmatched(text)
+                ),
+            ],
+        )
+
+    def scrub(self, handler: FormatHandler) -> ScrubResult:
+        inspection = self.detect_in(self.read(handler))
+        stream = inspection.stream
+        findings = inspection.findings
+        hidden = inspection.extraction.hidden
 
         allocator = SurrogateAllocator(placeholder_labels(self.policy.placeholder_locale))
         try:
@@ -220,19 +308,10 @@ class Scrubber:
             hidden_removed=hidden,
             verify=verify,
             source_chars=len(stream.text),
-            # Handler compromises and detector-configuration gaps land in the
-            # same place: both are things the output does not show on its own.
-            warnings=(
-                list(handler.warnings)
-                + list(self.registry.notes)
-                # "Removed" and "was not there" look identical in the output, and
-                # a caller who pasted a value expects to hear which happened.
-                + [
-                    f"the value {value!r} was asked to be removed but does not "
-                    f"appear in this document"
-                    for value in self.overrides.unmatched(stream.text)
-                ]
-            ),
+            # Read from the live handler, not from the extraction snapshot: a
+            # handler warns during write-back too, and those are the warnings
+            # that say a placeholder did not fit or a sheet was renamed.
+            warnings=[*handler.warnings, *inspection.notes],
             review=self._review(verify),
         )
         if self.strict and not verify.ok:

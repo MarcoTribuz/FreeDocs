@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -639,3 +640,134 @@ def test_a_scrub_honours_both_halves_and_still_verifies(
     assert kept["text"] in written
     assert "Scheda cliente" not in written
     assert "[REDACTED_1]" in written
+
+
+# -- the preview text ---------------------------------------------------------
+
+
+def test_inspect_does_not_send_the_document_text_unless_asked(session: Session, document: Path):
+    """The flat text is a superset of the findings: it holds what nothing caught."""
+    result = result_of(session, "inspect", path=str(document))
+    assert "text" not in result
+    assert "parts" not in result
+
+
+def test_the_preview_text_is_the_text_the_offsets_point_into(session: Session, document: Path):
+    """The load-bearing test: one coordinate system, pinned.
+
+    Every finding's span is an offset into the text this response carries, and
+    ``keep_spans`` sends those same offsets back. If the two ever disagree, a
+    caller excusing one occurrence names a range nobody saw — and the engine
+    would either refuse it as stale or keep whatever moved into it.
+    """
+    result = result_of(session, "inspect", path=str(document), include_text=True)
+    assert result["findings"], "the fixture is meant to contain findings"
+    for finding in result["findings"]:
+        assert result["text"][finding["start"] : finding["end"]] == finding["text"]
+
+
+def test_the_preview_names_which_part_each_region_came_from(session: Session, tmp_path: Path):
+    """Two sheets, two ranges, in stream order and not overlapping."""
+    pytest.importorskip("lxml")
+    from .xlsx_builder import Sheet, XlsxSpec, write_xlsx
+
+    path = write_xlsx(
+        tmp_path / "clienti.xlsx",
+        XlsxSpec(
+            sheets=[
+                Sheet(name="Clienti", rows=[["IBAN", CANARIES["IBAN"]]]),
+                Sheet(name="Note", rows=[["Codice", CANARIES["IT_CODICE_FISCALE"]]]),
+            ]
+        ),
+    )
+    parts = result_of(session, "inspect", path=str(path), include_text=True)["parts"]
+    assert len(parts) >= 2
+    assert [part["start"] for part in parts] == sorted(part["start"] for part in parts)
+    for earlier, later in pairwise(parts):
+        assert earlier["end"] <= later["start"]
+
+
+def test_a_long_document_is_truncated_and_says_so(session: Session, tmp_path: Path, monkeypatch):
+    """Stated, never silent — and `characters` still reports the whole file."""
+    from freedocs import rpc
+
+    monkeypatch.setattr(rpc, "MAX_PREVIEW_CHARS", 40)
+    path = tmp_path / "lungo.txt"
+    path.write_text("Scheda cliente. " * 40, encoding="utf-8")
+
+    result = result_of(session, "inspect", path=str(path), include_text=True)
+    assert len(result["text"]) == 40
+    assert result["text_end"] == 40
+    assert result["text_truncated"] is True
+    assert result["characters"] > 40
+    # The index must not point past the string it indexes.
+    assert all(part["end"] <= 40 for part in result["parts"])
+
+
+def test_a_finding_past_the_truncation_point_is_still_reported(
+    session: Session, tmp_path: Path, monkeypatch
+):
+    """Truncating the findings to match the text would hide one."""
+    from freedocs import rpc
+
+    monkeypatch.setattr(rpc, "MAX_PREVIEW_CHARS", 10)
+    path = tmp_path / "tardivo.txt"
+    path.write_text(
+        f"Premessa lunga senza nulla di riservato.\nIBAN: {CANARIES['IBAN']}\n",
+        encoding="utf-8",
+    )
+
+    result = result_of(session, "inspect", path=str(path), include_text=True)
+    assert result["text_truncated"] is True
+    found = [finding for finding in result["findings"] if finding["text"] == CANARIES["IBAN"]]
+    assert found, "a finding beyond the preview window must still be reported"
+    assert found[0]["start"] > result["text_end"]
+
+
+def test_the_scrub_report_never_carries_the_preview_text(
+    session: Session, document: Path, tmp_path: Path
+):
+    """The preview goes down the pipe; the report goes to disk.
+
+    Checked with a phrase that is not a finding, so this fails if the whole
+    extracted text ever reaches the report — which the value-free assertion above
+    would not catch, since it only looks for the values a detector claimed.
+    """
+    results = result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        include_text=True,
+    )["results"]
+    assert "Scheda cliente" not in json.dumps(results[0]["report"])
+
+
+# -- the extraction cache -----------------------------------------------------
+
+
+def test_the_extraction_is_reused_across_inspections(session: Session, document: Path, monkeypatch):
+    """Every kept occurrence re-inspects; re-reading a scan means re-OCRing it."""
+    from freedocs.pipeline import Scrubber
+
+    reads = []
+    original = Scrubber.read
+
+    def counting(self, handler):
+        reads.append(handler.path)
+        return original(self, handler)
+
+    monkeypatch.setattr(Scrubber, "read", counting)
+    result_of(session, "inspect", path=str(document))
+    result_of(session, "inspect", path=str(document))
+    assert len(reads) == 1
+
+
+def test_a_changed_file_is_read_again(session: Session, document: Path):
+    """A cache that serves old text shows a preview of a document that is gone."""
+    first = result_of(session, "inspect", path=str(document))
+    document.write_text(
+        f"Scheda cliente\nIBAN: {CANARIES['IBAN']}\nNuova riga aggiunta\n", encoding="utf-8"
+    )
+    second = result_of(session, "inspect", path=str(document))
+    assert second["characters"] != first["characters"]
