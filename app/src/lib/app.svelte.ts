@@ -22,6 +22,7 @@ import {
 } from './engine';
 import { announce } from './announce.svelte';
 import { basename } from './format';
+import { i18n } from './i18n/index.svelte';
 
 /**
  * The window's session: what the engine said, what the user picked, and the
@@ -121,12 +122,20 @@ export function summary(inspection: Inspection): [string, number, string][] {
 		.sort((a, b) => a[0].localeCompare(b[0]));
 }
 
+/**
+ * The engine's message, with the window's sentence in front of it where one
+ * helps.
+ *
+ * NEEDS_OCR is passed through untouched: that message already names the pages
+ * and what to install, and a preamble in front of it would be the window
+ * competing with an answer that is complete.
+ */
 export function describe(error: unknown): string {
 	const code = (error as { code?: number | null })?.code ?? null;
 	const message = error instanceof Error ? error.message : String(error);
 	if (code === NEEDS_OCR) return message;
-	if (code === UNSUPPORTED_FORMAT) return `This format is not supported. ${message}`;
-	if (code === MISSING_DEPENDENCY) return `A component is missing. ${message}`;
+	if (code === UNSUPPORTED_FORMAT) return i18n.m.errorUnsupportedFormat({ message });
+	if (code === MISSING_DEPENDENCY) return i18n.m.errorMissingComponent({ message });
 	return message;
 }
 
@@ -155,7 +164,13 @@ export async function start(): Promise<() => void> {
 				// Announced per file, which is what the engine reports. Announcing
 				// anything finer would be inventing a number it does not have.
 				if (value.file !== session.progress?.file) {
-					announce(`${basename(value.file)}, ${value.index + 1} of ${value.total}`);
+					announce(
+						i18n.m.progressFile({
+							file: basename(value.file),
+							index: value.index + 1,
+							total: value.total
+						})
+					);
 				}
 				session.progress = value;
 			},
@@ -255,9 +270,14 @@ export async function loadInspection(path: string): Promise<void> {
 		session.inspections[path] = inspection;
 		// Nothing here moves focus, so without this the result of a decision is
 		// silent: the table simply has a different number of rows.
-		announce(`${basename(path)}: ${inspection.findings.length} values found`);
+		announce(
+			i18n.m.announceValuesFound({
+				file: basename(path),
+				count: inspection.findings.length
+			})
+		);
 	} catch (error) {
-		fail(`${basename(path)}: ${describe(error)}`);
+		fail(i18n.m.errorInFile({ file: basename(path), message: describe(error) }));
 	} finally {
 		session.busy = null;
 	}
@@ -344,7 +364,7 @@ export async function runScrub(): Promise<void> {
 	const target = await open({
 		directory: true,
 		multiple: false,
-		title: 'Where to write the scrubbed copies'
+		title: i18n.m.chooseOutputDirectory()
 	});
 	if (!target || Array.isArray(target)) return;
 
@@ -372,8 +392,11 @@ export async function runScrub(): Promise<void> {
 		const failed = session.results.filter((result) => !result.ok).length;
 		announce(
 			failed === 0
-				? `Finished. ${session.results.length} files written.`
-				: `Finished with ${failed} of ${session.results.length} files not written.`,
+				? i18n.m.announceFinished({ files: session.results.length })
+				: i18n.m.announceFinishedWithFailures({
+						failed,
+						files: session.results.length
+					}),
 			{ assertive: failed > 0 }
 		);
 	} catch (error) {

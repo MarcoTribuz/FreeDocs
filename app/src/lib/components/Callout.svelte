@@ -2,6 +2,7 @@
 	import type { Snippet } from 'svelte';
 	import Icon from './Icon.svelte';
 	import type { IconName } from './icons';
+	import { i18n } from '$lib/i18n/index.svelte';
 
 	interface Props {
 		tone: 'info' | 'warn' | 'danger' | 'success';
@@ -49,6 +50,13 @@
 	<div class="body">
 		{#if title}<p class="title">{title}</p>{/if}
 		<div class="content" lang={verbatim ? 'en' : undefined}>{@render children()}</div>
+		{#if verbatim && i18n.locale !== 'en'}
+			<!-- One sentence, in the reader's language, saying that the sentences
+			     above are not. Better than silently showing English inside an Italian
+			     window, and better than a translation nobody verified of the text
+			     that says a document may still contain a name. -->
+			<p class="provenance">{i18n.m.quotedFromEngine()}</p>
+		{/if}
 	</div>
 </aside>
 
@@ -79,6 +87,12 @@
 
 	.content :global(p) {
 		margin: var(--space-1) 0;
+	}
+
+	.provenance {
+		margin-top: var(--space-2);
+		font-size: var(--text-xs);
+		opacity: 0.85;
 	}
 
 	.info {
