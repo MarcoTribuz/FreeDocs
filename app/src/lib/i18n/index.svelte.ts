@@ -1,6 +1,9 @@
 import { browser } from '$app/environment';
 import type { Messages } from './messages';
+import { de } from './de';
 import { en } from './en';
+import { fr } from './fr';
+import { it } from './it';
 
 /**
  * Which language the window speaks, and how it decided.
@@ -19,15 +22,7 @@ export type Locale = (typeof LOCALES)[number];
 
 const KEY = 'freedocs.locale';
 
-const catalogues: Record<Locale, Messages> = {
-	en,
-	// Filled in as the catalogues land. English is the fallback rather than a
-	// missing key, because a window with a hole in it is worse than an English
-	// sentence.
-	it: en,
-	de: en,
-	fr: en
-};
+const catalogues: Record<Locale, Messages> = { en, it, de, fr };
 
 function known(value: string | null): value is Locale {
 	return value !== null && (LOCALES as readonly string[]).includes(value);
