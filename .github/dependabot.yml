@@ -1,0 +1,114 @@
+# Dependency updates, one ecosystem per manifest.
+#
+# The point of this file is that an advisory arrives as a pull request that can
+# be read and measured, rather than as a warning printed on every push. Two of
+# the four stacks here carry alerts that cannot be fixed from this repository,
+# and the comments say which, so nobody spends an afternoon rediscovering it.
+#
+# Everything is monthly and grouped. This is a two-person project with a test
+# suite that takes half a minute and a benchmark that takes longer; a daily
+# stream of individual bumps would be read by nobody, which is the state that
+# lets a real advisory pass unnoticed. Security updates are configured at the
+# repository level, not here, and are unaffected by these schedules.
+
+version: 2
+updates:
+  # The engine. `uv` rather than `pip`, because the lockfile is `uv.lock` and a
+  # pip-ecosystem update would edit `pyproject.toml` and leave the lock stale —
+  # CI resolves from the lock, so the bump would not be what gets tested.
+  #
+  # `requires-python = ">=3.10"` is the declared floor and CI runs 3.10 and 3.12.
+  # A dependency that quietly raises its own floor breaks the 3.10 job rather
+  # than this file, which is the correct place to find out.
+  - package-ecosystem: uv
+    directory: /engine
+    schedule:
+      interval: monthly
+    groups:
+      # Patch and minor together: these are the ones where a green suite is
+      # enough evidence to merge.
+      engine-safe:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # The model stack is a measurement, not a version. `gliner2` and the torch
+      # it sits on decide what the NER layer finds, and every published number
+      # in CLAUDE.md and `report.CAVEATS` was measured against one resolution of
+      # them. A major bump here is a re-benchmark, so it is opened deliberately
+      # and not by a robot. CI omits the `ner` extra entirely, so a green run
+      # would prove nothing about it either.
+      - dependency-name: gliner2
+        update-types: ["version-update:semver-major"]
+      - dependency-name: torch
+        update-types: ["version-update:semver-major"]
+      # Same argument, different reason: this is where every checksum comes
+      # from. A new release can start accepting or rejecting values the corpus
+      # pins, and `test_corpus.py` asserts that every annotated identifier is
+      # still accepted by L1 — so a major bump is a corpus question.
+      - dependency-name: python-stdnum
+        update-types: ["version-update:semver-major"]
+
+  # The desktop frontend. Every JavaScript dependency here is a devDependency:
+  # the app is built by `adapter-static` into an SPA and served from the Tauri
+  # webview, so nothing in `node_modules` ships. That is why the standing
+  # `cookie` advisory (GHSA-pxg6-pf52-xh8x, via `@sveltejs/kit -> cookie ^0.6.0`)
+  # is not actionable — `npm audit --omit=dev` reports zero, the string does not
+  # appear in `build/`, and Kit still declares `^0.6.0` at its latest release, so
+  # there is no upstream version to move to.
+  - package-ecosystem: npm
+    directory: /app
+    schedule:
+      interval: monthly
+    groups:
+      frontend-safe:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+    ignore:
+      # A Svelte or Vite major is a rewrite of the build, not an upgrade, and the
+      # window is checked by `svelte-check` rather than by tests. Deliberate only.
+      - dependency-name: svelte
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@sveltejs/kit"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: vite
+        update-types: ["version-update:semver-major"]
+
+  # The Tauri shell. Worth watching for `tauri` itself, which is the only crate
+  # here we chose; the rest of the tree came with it.
+  #
+  # The standing `glib` advisory (GHSA-wrw7-89jp-8q8g) has no fix and will not
+  # get one from this side. It arrives through `gtk 0.18.2`, which is the last
+  # published release of the GTK3 bindings and is marked UNMAINTAINED, and which
+  # requires `glib ^0.18` — so the patched `glib 0.20` is unreachable until
+  # Tauri's Linux backend moves to GTK4. `cargo update -p glib` locks zero
+  # packages. It is also absent from the macOS dependency graph entirely
+  # (`cargo tree -i glib --target aarch64-apple-darwin` prints nothing), and the
+  # Linux bundle is configured rather than verified. Do not chase it.
+  - package-ecosystem: cargo
+    directory: /app/src-tauri
+    schedule:
+      interval: monthly
+    groups:
+      tauri-safe:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
+
+  # CI itself. An action pinned to a tag that moves is the one dependency here
+  # nobody thinks of as a dependency.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns:
+          - "*"
