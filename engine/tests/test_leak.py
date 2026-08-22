@@ -24,8 +24,14 @@ pytestmark = pytest.mark.leak
 
 @pytest.fixture
 def source(tmp_path: Path, document: str) -> Path:
+    # newline="" throughout this file, because `write_text` translates "\n" to the
+    # platform's terminator and the handler is required to give the terminators
+    # back exactly as it found them. Without it the fixture writes CRLF on
+    # Windows, the scrub correctly preserves CRLF, and the assertion compares it
+    # against the "\n" written here — so three tests failed on the Windows runner
+    # for a difference the test itself introduced.
     path = tmp_path / "scheda-cliente.txt"
-    path.write_text(document, encoding="utf-8")
+    path.write_text(document, encoding="utf-8", newline="")
     return path
 
 
@@ -74,7 +80,7 @@ def test_report_contains_no_confidential_values(source: Path):
 def test_repeated_value_gets_one_stable_placeholder(tmp_path: Path):
     iban = CANARIES["IBAN"]
     path = tmp_path / "doppio.txt"
-    path.write_text(f"IBAN {iban}\nconferma IBAN {iban}\n", encoding="utf-8")
+    path.write_text(f"IBAN {iban}\nconferma IBAN {iban}\n", encoding="utf-8", newline="")
     output = l1_scrubber().scrub_file(path).output.decode("utf-8")
     assert output == "IBAN [IBAN_1]\nconferma IBAN [IBAN_1]\n"
 
@@ -83,7 +89,7 @@ def test_keeping_an_entity_makes_verification_fail_loudly(tmp_path: Path):
     """Kept values are not reported as removed, so they must not count as leaks."""
     email = CANARIES["EMAIL"]
     path = tmp_path / "solo-email.txt"
-    path.write_text(f"Contatto: {email}\n", encoding="utf-8")
+    path.write_text(f"Contatto: {email}\n", encoding="utf-8", newline="")
 
     policy = Policy(overrides={EntityType.EMAIL: Action.KEEP})
     result = l1_scrubber(policy=policy).scrub_file(path)
@@ -97,7 +103,7 @@ def test_strict_mode_raises_when_a_value_survives(tmp_path: Path, monkeypatch):
     from freedocs.formats import plaintext
 
     path = tmp_path / "iban.txt"
-    path.write_text(f"IBAN {CANARIES['IBAN']}\n", encoding="utf-8")
+    path.write_text(f"IBAN {CANARIES['IBAN']}\n", encoding="utf-8", newline="")
 
     # Simulate the classic redaction bug: the tool reports success but the
     # original characters are still in the file.
@@ -114,7 +120,7 @@ def test_non_strict_mode_returns_the_failure_instead_of_raising(tmp_path: Path, 
     from freedocs.formats import plaintext
 
     path = tmp_path / "iban.txt"
-    path.write_text(f"IBAN {CANARIES['IBAN']}\n", encoding="utf-8")
+    path.write_text(f"IBAN {CANARIES['IBAN']}\n", encoding="utf-8", newline="")
     monkeypatch.setattr(
         plaintext.PlainTextHandler,
         "write_back",
@@ -128,7 +134,7 @@ def test_non_strict_mode_returns_the_failure_instead_of_raising(tmp_path: Path, 
 def test_clean_document_is_returned_unchanged(tmp_path: Path):
     text = "Il preventivo per il progetto e stato approvato in riunione.\n"
     path = tmp_path / "pulito.txt"
-    path.write_text(text, encoding="utf-8")
+    path.write_text(text, encoding="utf-8", newline="")
     result = l1_scrubber().scrub_file(path)
     assert result.output.decode("utf-8") == text
     assert not result.removed

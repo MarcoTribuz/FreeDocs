@@ -15,6 +15,15 @@ jobs:
     defaults:
       run:
         working-directory: engine
+    # Every `uv` invocation in the job, not just the sync. `--python` on the sync
+    # alone was silently not enough: the next step ran plain `uv run`, uv chose
+    # the runner's default 3.12, found a virtualenv built for another
+    # interpreter, *removed* it and made a new one with three packages in it. So
+    # the 3.10 job died on `Failed to spawn: ruff` before linting anything and
+    # never reached the suite at all — the declared floor in `pyproject.toml` was
+    # going unchecked while the matrix said otherwise.
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,7 +32,7 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra pdf --extra ooxml --python ${{ matrix.python-version }}
+        run: uv sync --extra dev --extra pdf --extra ooxml
 
       - name: Lint
         run: uv run ruff check .
