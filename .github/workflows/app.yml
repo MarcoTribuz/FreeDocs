@@ -109,6 +109,13 @@ jobs:
         working-directory: app
         run: npm run check
 
+      # The offset arithmetic behind the review pane. Node only, no browser: the
+      # things a browser would tell us are the things this suite deliberately
+      # does not claim to cover.
+      - name: Test the frontend
+        working-directory: app
+        run: npm test
+
       # No Apple signing variables here, and their absence is the fix. An unset
       # secret does not arrive as an absent environment variable — it arrives as
       # a *set and empty* one, `APPLE_CERTIFICATE:` with nothing after it, which
