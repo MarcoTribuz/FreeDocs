@@ -27,6 +27,14 @@ jobs:
             target: x86_64-pc-windows-msvc
 
     runs-on: ${{ matrix.runner }}
+    # Linux ships a .deb and not an AppImage. The AppImage step is what failed:
+    # `FreeDocs_0.1.0_amd64.deb` bundles fine and the run then dies on
+    # `failed to run linuxdeploy` with no diagnostic of its own, after nine
+    # minutes. This is a scope reduction, not a fix — nobody here has an
+    # AppImage to test — so it is stated rather than hidden, and the artifact
+    # list below still names the other formats for the platforms that make them.
+    env:
+      BUNDLES: ${{ matrix.runner == 'ubuntu-22.04' && '--bundles deb' || '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -76,21 +84,23 @@ jobs:
         working-directory: app
         run: npm run check
 
+      # No Apple signing variables here, and their absence is the fix. An unset
+      # secret does not arrive as an absent environment variable — it arrives as
+      # a *set and empty* one, `APPLE_CERTIFICATE:` with nothing after it, which
+      # `tauri build` reads as "sign this". Both macOS jobs spent five minutes
+      # bundling and then died in `security: SecKeychainItemImport: One or more
+      # parameters passed to a function were not valid`. The old comment here
+      # claimed an unsigned build would still be produced; it never was.
+      #
+      # This repository has no secrets at all (`gh api .../actions/secrets` ->
+      # `total_count: 0`), so signing has nothing to do yet. Restoring it means
+      # adding the certificate *and* these variables together, in that order.
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Signing is opt-in: these are unset on a fork, and an unsigned build is
-          # still worth having for testing. A release build for distribution needs
-          # them set as repository secrets.
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: app
-          args: --target ${{ matrix.target }}
+          args: --target ${{ matrix.target }} ${{ env.BUNDLES }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseDraft: true
 

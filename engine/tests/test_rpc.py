@@ -419,11 +419,25 @@ def test_the_registry_is_reused_across_requests(session: Session, document: Path
     assert session._registry is first
 
 
-def test_changing_the_detector_spec_rebuilds_the_registry(session: Session, document: Path):
-    result_of(session, "inspect", path=str(document), detectors="l1")
-    first = session._registry
-    result_of(session, "inspect", path=str(document), detectors="ner")
-    assert session._registry is not first
+def test_changing_the_detector_spec_rebuilds_the_registry(session: Session):
+    """The spec is part of the cache key, not just the countries.
+
+    Asked of ``registry`` directly, and with the *default* spec as the second
+    value, for one reason each. An explicit ``detectors="ner"`` is a request this
+    build cannot answer without the model, so the earlier version of this test
+    could only pass on a machine carrying 1.2 GB of weights — and CI deliberately
+    installs no ``ner`` extra, so it failed there every time. The default spec
+    degrades to L1 with a note when the extra is absent (see
+    ``pipeline.default_registry``) and is therefore answerable either way.
+
+    And building a registry is free while predicting is not: the backend loads
+    its model on first use, so going through ``inspect`` would pay for a model
+    load to test a dictionary lookup.
+    """
+    first = session.registry("l1")
+    assert session.registry(None) is not first
+    # And back again: one slot keyed on the spec, not a one-way flag.
+    assert session.registry("l1") is not first
 
 
 @pytest.mark.slow
