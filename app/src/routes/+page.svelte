@@ -326,7 +326,7 @@
 	);
 </script>
 
-<main>
+<main id="main">
 	<header>
 		<h1>FreeDocs</h1>
 		<p class="lead">
@@ -642,198 +642,275 @@ occurrence of the same value is still removed.">keep this one</button
 </main>
 
 <style>
-	:global(body) {
-		margin: 0;
-		font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
-		color: #1b1b1f;
-		background: #f7f7f8;
-	}
-	@media (prefers-color-scheme: dark) {
-		:global(body) {
-			color: #e8e8ea;
-			background: #16161a;
-		}
-	}
+	/*
+	 * Layout and local shape only. Every colour, space, radius and duration is a
+	 * token from app.css.
+	 *
+	 * Two things left this file when the tokens arrived. The `:global(body)`
+	 * rules, because a component styling the document is a component that cannot
+	 * be moved. And both `prefers-color-scheme` blocks, because dark mode is now
+	 * one attribute on <html> — which is also what lets a manual choice override
+	 * the OS in either direction.
+	 *
+	 * The old hierarchy was `opacity` — twelve of them, 0.6 to 0.75. Opacity
+	 * cannot be measured for contrast and dims a border along with the text it
+	 * surrounds, so secondary text is now --text-2 / --text-3, which have their
+	 * measured ratios written beside them.
+	 */
 
 	main {
 		max-width: 60rem;
 		margin: 0 auto;
-		padding: 2rem 1.5rem 4rem;
+		padding: var(--space-4) var(--space-5) var(--space-8);
 	}
+
 	h1 {
-		margin: 0;
-		font-size: 1.6rem;
+		font-size: var(--text-2xl);
+		line-height: var(--lh-2xl);
+		letter-spacing: var(--tracking-tight);
 	}
+
 	h2 {
-		font-size: 1rem;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		opacity: 0.7;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-3);
 	}
+
 	h3 {
-		margin: 0 0 0.25rem;
-		font-size: 1rem;
+		margin-bottom: var(--space-1);
+		font-size: var(--text-lg);
+		line-height: var(--lh-lg);
 	}
+
 	h4 {
-		margin: 0.75rem 0 0.25rem;
-		font-size: 0.85rem;
+		margin: var(--space-3) 0 var(--space-1);
+		font-size: var(--text-sm);
 	}
+
 	.lead {
 		max-width: 42rem;
-		opacity: 0.75;
+		margin-top: var(--space-2);
+		color: var(--text-2);
 	}
+
 	.muted {
-		opacity: 0.6;
+		color: var(--text-3);
 	}
+
 	.hint {
-		margin: 0 0 0.5rem;
+		margin: 0 0 var(--space-2);
 		max-width: 42rem;
-		font-size: 0.85rem;
-		opacity: 0.7;
+		font-size: var(--text-sm);
+		color: var(--text-3);
 	}
+
 	.mono {
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: var(--font-mono);
 		font-size: 0.85em;
 	}
 
 	.status {
 		display: flex;
-		gap: 0.5rem;
+		gap: var(--space-2);
 		flex-wrap: wrap;
-		margin-bottom: 1rem;
+		margin: var(--space-4) 0;
 	}
+
 	.pill {
-		padding: 0.2rem 0.6rem;
-		border-radius: 999px;
-		background: rgba(127, 127, 127, 0.15);
-		font-size: 0.8rem;
+		padding: var(--space-1) var(--space-3);
+		border: 1px solid var(--border);
+		border-radius: var(--radius-full);
+		background: var(--surface);
+		color: var(--text-2);
+		font-size: var(--text-xs);
 	}
+
 	.pill.warn {
-		background: rgba(200, 140, 0, 0.25);
+		border-color: var(--warn-border);
+		background: var(--warn-soft);
+		color: var(--warn-text);
 	}
 
 	.alert {
-		padding: 0.75rem 1rem;
-		border-radius: 0.5rem;
-		margin-bottom: 1rem;
+		padding: var(--space-3) var(--space-4);
+		border-radius: var(--radius-3);
+		margin-bottom: var(--space-4);
 	}
+
 	.alert p {
-		margin: 0.25rem 0;
+		margin: var(--space-1) 0;
 	}
+
 	.alert.warn {
-		background: rgba(200, 140, 0, 0.15);
-		border: 1px solid rgba(200, 140, 0, 0.4);
+		border: 1px solid var(--warn-border);
+		background: var(--warn-soft);
+		color: var(--warn-text);
 	}
+
 	.alert.error {
-		background: rgba(200, 60, 60, 0.12);
-		border: 1px solid rgba(200, 60, 60, 0.4);
+		border: 1px solid var(--danger-border);
+		background: var(--danger-soft);
+		color: var(--danger-text);
 	}
 
 	.settings {
-		border: 1px solid rgba(127, 127, 127, 0.25);
-		border-radius: 0.5rem;
-		padding: 0.6rem 1rem;
-		margin-bottom: 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-3);
+		background: var(--surface);
+		box-shadow: var(--shadow-1);
+		padding: var(--space-3) var(--space-4);
+		margin-bottom: var(--space-4);
 	}
+
 	.settings summary {
 		cursor: pointer;
-		font-size: 0.85rem;
+		font-size: var(--text-xs);
+		font-weight: var(--weight-medium);
 		text-transform: uppercase;
-		letter-spacing: 0.06em;
-		opacity: 0.7;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-3);
 	}
+
 	.settings p {
-		margin: 0.5rem 0;
-		font-size: 0.85rem;
+		margin: var(--space-2) 0;
+		font-size: var(--text-sm);
 	}
+
 	.settings .row {
 		display: flex;
 		align-items: center;
-		gap: 1rem;
+		gap: var(--space-4);
 		flex-wrap: wrap;
-		margin: 0.6rem 0;
+		margin: var(--space-3) 0;
 	}
+
 	.settings label {
 		display: flex;
 		align-items: center;
-		gap: 0.4rem;
-		font-size: 0.85rem;
+		gap: var(--space-2);
+		font-size: var(--text-sm);
 	}
+
 	input[type='text'] {
 		font: inherit;
-		padding: 0.3rem 0.45rem;
-		border-radius: 0.35rem;
-		border: 1px solid rgba(127, 127, 127, 0.4);
-		background: rgba(127, 127, 127, 0.08);
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-1);
+		border: 1px solid var(--border-strong);
+		background: var(--surface);
 		color: inherit;
 	}
+
+	input[type='text']:focus {
+		border-color: var(--accent-line);
+	}
+
 	.host {
 		width: 16rem;
 	}
 
 	.dropzone {
-		border: 2px dashed rgba(127, 127, 127, 0.5);
-		border-radius: 0.75rem;
-		padding: 2.5rem 1rem;
+		border: 2px dashed var(--border-strong);
+		border-radius: var(--radius-4);
+		background: var(--surface);
+		padding: var(--space-7) var(--space-4);
 		text-align: center;
 		cursor: pointer;
+		transition:
+			border-color var(--dur-2) var(--ease-out),
+			background var(--dur-2) var(--ease-out);
 	}
+
+	.dropzone:hover {
+		border-color: var(--accent-line);
+		background: var(--accent-soft);
+	}
+
 	.dropzone.busy {
-		opacity: 0.6;
+		border-style: solid;
+		cursor: default;
 	}
 
 	.controls {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
-		gap: 1rem;
-		margin: 1.5rem 0 0.5rem;
+		gap: var(--space-4);
+		margin: var(--space-5) 0 var(--space-2);
 		flex-wrap: wrap;
 	}
+
 	.controls label {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
+		gap: var(--space-2);
 	}
+
 	button {
 		font: inherit;
-		padding: 0.5rem 1rem;
-		border-radius: 0.5rem;
-		border: 1px solid rgba(127, 127, 127, 0.4);
-		background: rgba(127, 127, 127, 0.1);
+		padding: var(--space-2) var(--space-4);
+		border-radius: var(--radius-2);
+		border: 1px solid var(--border-strong);
+		background: var(--surface);
+		color: var(--text);
 		cursor: pointer;
+		transition:
+			background var(--dur-1) var(--ease-out),
+			border-color var(--dur-1) var(--ease-out);
 	}
+
+	button:hover:not(:disabled) {
+		background: var(--surface-hover);
+	}
+
+	button:active:not(:disabled) {
+		background: var(--surface-active);
+	}
+
+	/* Disabled is a colour and a cursor, not a transparency: an opacity swap
+	   dims the border to the point where the control stops looking like one. */
 	button:disabled {
-		opacity: 0.5;
+		color: var(--text-3);
+		border-color: var(--border);
 		cursor: default;
 	}
 
 	.chips {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.35rem;
+		gap: var(--space-1);
 	}
+
 	.chip {
-		font-size: 0.78rem;
-		padding: 0.2rem 0.5rem;
+		font-size: var(--text-xs);
+		padding: var(--space-1) var(--space-2);
+		border-radius: var(--radius-full);
+		color: var(--text-2);
 	}
+
 	.chip.on {
-		background: rgba(60, 140, 200, 0.3);
-		border-color: rgba(60, 140, 200, 0.6);
+		border-color: var(--accent-line);
+		background: var(--accent-soft);
+		color: var(--accent-text);
 	}
 
 	article {
-		border: 1px solid rgba(127, 127, 127, 0.25);
-		border-radius: 0.5rem;
-		padding: 0.9rem 1rem;
-		margin: 0.6rem 0;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-3);
+		background: var(--surface);
+		box-shadow: var(--shadow-1);
+		padding: var(--space-4);
+		margin: var(--space-3) 0;
 	}
+
 	article.failed {
-		border-color: rgba(200, 60, 60, 0.5);
+		border-color: var(--danger-border);
 	}
+
 	.failed-msg {
-		color: #b03a3a;
+		color: var(--danger-text);
 	}
+
 	/* An in-table action, not a call to action: the button must not compete with
 	   Scrub for attention, because the common case is not touching it at all. */
 	.linkish {
@@ -841,20 +918,21 @@ occurrence of the same value is still removed.">keep this one</button
 		border: none;
 		padding: 0;
 		font: inherit;
-		font-size: 0.85em;
-		color: var(--accent, #4a7);
+		font-size: var(--text-sm);
+		color: var(--accent-text);
 		text-decoration: underline;
 		cursor: pointer;
 	}
 
 	.linkish:hover {
-		opacity: 0.75;
+		background: none;
+		color: var(--accent-hover);
 	}
 
 	.addrow {
 		display: flex;
-		gap: 0.5rem;
-		margin-top: 0.6rem;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
 	}
 
 	.addrow input {
@@ -863,54 +941,56 @@ occurrence of the same value is still removed.">keep this one</button
 	}
 
 	.warnline {
-		margin: 0.35rem 0;
-		font-size: 0.85rem;
-		color: #8a6100;
-	}
-	@media (prefers-color-scheme: dark) {
-		.warnline {
-			color: #d3a44a;
-		}
+		margin: var(--space-1) 0;
+		font-size: var(--text-sm);
+		color: var(--warn-text);
 	}
 
 	.counts {
 		list-style: none;
-		padding: 0;
-		margin: 0.5rem 0;
+		margin: var(--space-2) 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.75rem;
+		gap: var(--space-3);
 	}
+
 	.concerns {
 		list-style: none;
-		padding: 0;
-		margin: 0.4rem 0 0;
+		margin: var(--space-2) 0 0;
 	}
+
 	.concerns li {
-		margin: 0.45rem 0;
-		padding-left: 0.6rem;
-		border-left: 2px solid rgba(200, 140, 0, 0.5);
+		margin: var(--space-2) 0;
+		padding-left: var(--space-2);
+		border-left: 2px solid var(--warn-border);
 	}
+
 	.kind {
 		display: inline-block;
-		font-size: 0.72rem;
+		font-size: var(--text-xs);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		opacity: 0.7;
-		margin-right: 0.4rem;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-3);
+		margin-right: var(--space-1);
 	}
+
 	.why {
 		display: block;
-		font-size: 0.85rem;
-		opacity: 0.75;
+		font-size: var(--text-sm);
+		color: var(--text-2);
 	}
+
 	select {
 		font: inherit;
-		padding: 0.25rem;
+		padding: var(--space-1);
+		border: 1px solid var(--border-strong);
+		border-radius: var(--radius-1);
+		background: var(--surface);
+		color: inherit;
 	}
 
 	.counts em {
-		opacity: 0.6;
+		color: var(--text-3);
 		font-style: normal;
 		font-size: 0.85em;
 	}
@@ -918,19 +998,24 @@ occurrence of the same value is still removed.">keep this one</button
 	table {
 		width: 100%;
 		border-collapse: collapse;
-		font-size: 0.85rem;
+		font-size: var(--text-sm);
 	}
+
 	td {
-		padding: 0.2rem 0.4rem;
-		border-top: 1px solid rgba(127, 127, 127, 0.2);
+		padding: var(--space-1) var(--space-2);
+		border-top: 1px solid var(--border);
 		vertical-align: top;
 	}
 
 	footer {
-		margin-top: 2.5rem;
-		padding-top: 1rem;
-		border-top: 1px solid rgba(127, 127, 127, 0.25);
-		font-size: 0.82rem;
-		opacity: 0.7;
+		margin-top: var(--space-6);
+		padding-top: var(--space-4);
+		border-top: 1px solid var(--border);
+		font-size: var(--text-sm);
+		color: var(--text-3);
+	}
+
+	footer p {
+		margin: var(--space-2) 0;
 	}
 </style>

@@ -1,0 +1,395 @@
+/*
+ * The design tokens, and the only global stylesheet.
+ *
+ * Every number beside a colour is a measured contrast ratio, not an estimate.
+ * They are written down so that an edit which lightens a token has something to
+ * violate: there is no contrast checker in this pipeline, and a comment with a
+ * number in it is the cheapest available substitute.
+ *
+ * Three constraints come from the app shell rather than from taste, and all
+ * three are load-bearing:
+ *
+ *  - `minimumSystemVersion: 11.0` in tauri.conf.json means WKWebView as old as
+ *    Safari 14, so no `oklch()`, no `color-mix()`, no `@container`. Colours are
+ *    hand-tuned hex. `:focus-visible` and `content-visibility` are used only
+ *    where their absence degrades to "more visible" or "slower", never "broken".
+ *  - The CSP is `default-src 'self'; style-src 'self' 'unsafe-inline'`, so no
+ *    webfont can be fetched. The system stack is not a preference.
+ *  - `ssr = false` means nothing paints before JavaScript has run, which is why
+ *    dark mode is one attribute and two blocks rather than a media query plus a
+ *    duplicated palette: theme.svelte.ts resolves the preference and stamps
+ *    `data-theme` before the first component renders, so there is no frame of
+ *    the wrong theme to flash.
+ */
+
+:root {
+	/* ---- spacing: 4px base ------------------------------------------------ */
+	--space-1: 0.25rem;
+	--space-2: 0.5rem;
+	--space-3: 0.75rem;
+	--space-4: 1rem;
+	--space-5: 1.5rem;
+	--space-6: 2rem;
+	--space-7: 3rem;
+	--space-8: 4rem;
+
+	/* ---- radii ------------------------------------------------------------ */
+	--radius-1: 4px; /* marks, chips, inputs */
+	--radius-2: 8px; /* buttons, badges      */
+	--radius-3: 12px; /* cards                */
+	--radius-4: 16px; /* panels               */
+	--radius-full: 999px;
+
+	/* ---- type ------------------------------------------------------------- */
+	--font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+	--font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+	--text-xs: 0.75rem;
+	--lh-xs: 1.4;
+	--text-sm: 0.8125rem;
+	--lh-sm: 1.5;
+	--text-md: 0.9375rem; /* 15px: the size the window was written at */
+	--lh-md: 1.55;
+	--text-lg: 1.0625rem;
+	--lh-lg: 1.5;
+	--text-xl: 1.375rem;
+	--lh-xl: 1.3;
+	--text-2xl: 1.75rem;
+	--lh-2xl: 1.2;
+	/* The document preview gets its own size, so the review pane can be zoomed
+	   without dragging the surrounding chrome with it. */
+	--text-doc: 0.9375rem;
+	--lh-doc: 1.7;
+
+	--weight-normal: 400;
+	--weight-medium: 500;
+	--weight-semibold: 600;
+	--tracking-caps: 0.06em;
+	--tracking-tight: -0.011em;
+
+	/* ---- motion ----------------------------------------------------------- */
+	--dur-1: 90ms; /* press, hover                     */
+	--dur-2: 160ms; /* chip, tooltip, small enter/leave */
+	--dur-3: 240ms; /* panel, step transition           */
+	--ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+	--ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+	--ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* overshoots: chips only */
+
+	/* ---- layering --------------------------------------------------------- */
+	--z-rail: 10;
+	--z-sticky: 20;
+	--z-panel: 30;
+	--z-tooltip: 40;
+}
+
+/* ---------------------------------------------------------------------------
+ * Light
+ *
+ * On the accent: the chosen brand green is #2f9e79, and it is not the fill.
+ * Measured, a white label on it is 3.34:1 — below the 4.5:1 a button label
+ * needs — so the fill is the same hue darkened to #22785c (5.37:1) and #2f9e79
+ * survives as the hue everything else is tuned around. Picking the brighter
+ * green and putting white on it would have been a button nobody can read.
+ * ------------------------------------------------------------------------- */
+:root,
+:root[data-theme='light'] {
+	color-scheme: light;
+
+	--bg: #f6f7f9;
+	--bg-subtle: #eceef2;
+	--surface: #ffffff;
+	--surface-2: #fafbfc;
+	--surface-hover: #f2f4f7;
+	--surface-active: #e9ecf1;
+
+	--border: #e3e6ec; /* the default hairline */
+	--border-strong: #cbd1da; /* inputs, dividers that must read */
+
+	--text: #14161a; /* 18.1:1 on --surface */
+	--text-2: #4b5260; /*  7.9:1 on --surface, 7.3:1 on --bg */
+	--text-3: #666e7c; /*  5.1:1 on --surface, 4.8:1 on --bg */
+
+	--accent: #22785c; /* fill; white label 5.4:1 */
+	--accent-hover: #1c6650;
+	--accent-active: #186049;
+	--accent-text: #1f6f54; /*  6.1:1 on --surface */
+	--accent-line: #268261; /*  4.2:1 on --accent-soft (2px graphic) */
+	--accent-soft: #e6f5ef;
+	--accent-border: #b9e0d0;
+	--on-accent: #ffffff;
+
+	--danger: #c0392f;
+	--danger-text: #b21e30; /*  6.7:1 on --surface */
+	--danger-soft: #fdecee;
+	--danger-border: #f5c2c8;
+	--on-danger: #ffffff;
+
+	--warn: #b45309;
+	--warn-text: #92400e; /*  7.1:1 on --surface */
+	--warn-soft: #fdf3e3;
+	--warn-border: #f0d9a8;
+
+	--success: #0f7b52;
+	--success-text: #0b6644; /*  7.0:1 on --surface */
+	--success-soft: #e6f6ee;
+	--success-border: #b6e2cd;
+
+	--info-text: #1d4ed8;
+	--info-soft: #eaf2fd;
+	--info-border: #c3d8f6;
+
+	--shadow-1: 0 1px 2px rgb(16 20 28 / 0.05), 0 1px 1px rgb(16 20 28 / 0.04);
+	--shadow-2: 0 2px 4px rgb(16 20 28 / 0.05), 0 4px 12px rgb(16 20 28 / 0.07);
+	--shadow-3: 0 8px 24px rgb(16 20 28 / 0.1), 0 2px 6px rgb(16 20 28 / 0.06);
+
+	--ring-color: var(--accent-line);
+	--ring-offset: var(--surface);
+}
+
+/* ---------------------------------------------------------------------------
+ * Dark
+ *
+ * Two things that are easy to get wrong and are deliberate here: the accent is
+ * *lighter* than its light-mode counterpart, because it has to read on a dark
+ * surface, and its label is therefore dark (#06211a, 7.0:1) rather than white,
+ * which measured 2.4:1 and was unreadable. Hover goes lighter, not darker.
+ * Shadows barely register on dark, so elevation is carried by --surface being
+ * lighter than --bg; the shadows only stop panels bleeding into each other.
+ * ------------------------------------------------------------------------- */
+:root[data-theme='dark'] {
+	color-scheme: dark;
+
+	--bg: #0e1013;
+	--bg-subtle: #14171c;
+	--surface: #191d23;
+	--surface-2: #1f242b;
+	--surface-hover: #22272f;
+	--surface-active: #2a3038;
+
+	--border: #262c34;
+	--border-strong: #39414c;
+
+	--text: #e8eaee; /* 14.1:1 on --surface */
+	--text-2: #a3abb8; /*  7.3:1 on --surface */
+	--text-3: #848d9b; /*  5.1:1 on --surface, 5.7:1 on --bg */
+
+	--accent: #3fbb92;
+	--accent-hover: #5bcaa5;
+	--accent-active: #7ad7b8;
+	--accent-text: #6fd0ab; /*  9.1:1 on --surface */
+	--accent-line: #3fbb92; /*  6.6:1 on --accent-soft */
+	--accent-soft: #0f2620;
+	--accent-border: #1f4b3c;
+	--on-accent: #06211a; /*  7.0:1 on --accent */
+
+	--danger: #e05263;
+	--danger-text: #f3a3ad; /*  8.6:1 on --surface */
+	--danger-soft: #2a1518;
+	--danger-border: #55272d;
+	--on-danger: #ffffff;
+
+	--warn: #d08a2a;
+	--warn-text: #e8b96a; /*  9.3:1 on --surface */
+	--warn-soft: #241c0f;
+	--warn-border: #4a3a1c;
+
+	--success: #2ea678;
+	--success-text: #6cd0a6; /*  9.0:1 on --surface */
+	--success-soft: #0f2118;
+	--success-border: #22452f;
+
+	--info-text: #8ab4f8;
+	--info-soft: #101c2e;
+	--info-border: #233a5c;
+
+	--shadow-1: 0 1px 2px rgb(0 0 0 / 0.35);
+	--shadow-2: 0 2px 4px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.3);
+	--shadow-3: 0 12px 32px rgb(0 0 0 / 0.5), 0 2px 8px rgb(0 0 0 / 0.35);
+}
+
+/* ---------------------------------------------------------------------------
+ * The entity scale
+ *
+ * Three tokens per category: `tint` (the mark's fill, which must keep --text
+ * legible on top of it — every pair below measures over 13:1), `line` (the 2px
+ * underline, which is the channel that carries identity when the tint is too
+ * pale to tell apart, so it is held to the 3:1 a non-text graphic needs), and
+ * `text` (the same hue used as text, for the badge and the table).
+ *
+ * `org` is olive rather than the obvious green because the accent is green: a
+ * teal-green organisation mark would read as "selected" instead of as a
+ * category. `time` is deliberately quiet slate — DATE and AGE are usually
+ * REPORT_ONLY, and hundreds of them would otherwise turn a page into confetti.
+ * ------------------------------------------------------------------------- */
+:root,
+:root[data-theme='light'] {
+	--e-person-tint: #efe9fd;
+	--e-person-line: #7c5cf0; /* 3.8:1 on its tint */
+	--e-person-text: #5b3fd0;
+
+	--e-org-tint: #eaf1e2;
+	--e-org-line: #4f7a2e; /* 4.4:1 */
+	--e-org-text: #3d5f22;
+
+	--e-place-tint: #fbf0dc;
+	--e-place-line: #a06f08; /* 3.9:1 — #c2860a measured 2.8:1 and was dropped */
+	--e-place-text: #8f6206;
+
+	--e-financial-tint: #fceaef;
+	--e-financial-line: #d94a72; /* 3.5:1 */
+	--e-financial-text: #a82d51;
+
+	--e-official-tint: #e6eefc;
+	--e-official-line: #3b74dc; /* 3.8:1 */
+	--e-official-text: #2757ab;
+
+	--e-contact-tint: #e3f1fb;
+	--e-contact-line: #1f88c4; /* 3.4:1 */
+	--e-contact-text: #10648f;
+
+	--e-time-tint: #eceef3;
+	--e-time-line: #6b7280; /* 4.2:1 */
+	--e-time-text: #4b5260;
+
+	--e-role-tint: #f4eee6;
+	--e-role-line: #96703f; /* 3.9:1 */
+	--e-role-text: #6f512c;
+
+	/* The user's own additions. They get the accent, because they are the one
+	   category no detector produced. */
+	--e-other-tint: var(--accent-soft);
+	--e-other-line: var(--accent-line);
+	--e-other-text: var(--accent-text);
+}
+
+:root[data-theme='dark'] {
+	--e-person-tint: #221c3a;
+	--e-person-line: #9d85f7; /* 5.5:1 on its tint */
+	--e-person-text: #b7a5fa;
+
+	--e-org-tint: #1b2616;
+	--e-org-line: #8fb36a; /* 6.6:1 */
+	--e-org-text: #a8c98a;
+
+	--e-place-tint: #2a2110;
+	--e-place-line: #d3a044; /* 6.7:1 */
+	--e-place-text: #e3bd77;
+
+	--e-financial-tint: #2c1620;
+	--e-financial-line: #e0708f; /* 5.5:1 */
+	--e-financial-text: #f0a3b6;
+
+	--e-official-tint: #131f36;
+	--e-official-line: #6193ea; /* 5.4:1 */
+	--e-official-text: #94b8f5;
+
+	--e-contact-tint: #10222e;
+	--e-contact-line: #47a6d9; /* 6.0:1 */
+	--e-contact-text: #85c8e9;
+
+	--e-time-tint: #1d2128;
+	--e-time-line: #8b93a1; /* 5.2:1 */
+	--e-time-text: #a9b0bc;
+
+	--e-role-tint: #262015;
+	--e-role-line: #b8905c; /* 5.5:1 */
+	--e-role-text: #d3b489;
+
+	--e-other-tint: var(--accent-soft);
+	--e-other-line: var(--accent-line);
+	--e-other-text: var(--accent-text);
+}
+
+/* ---- reset and base ------------------------------------------------------ */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+html {
+	background: var(--bg);
+}
+
+body {
+	margin: 0;
+	font-family: var(--font-sans);
+	font-size: var(--text-md);
+	line-height: var(--lh-md);
+	color: var(--text);
+	background: var(--bg);
+	-webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p,
+ul,
+ol {
+	margin: 0;
+}
+
+ul,
+ol {
+	padding: 0;
+}
+
+code,
+kbd,
+samp {
+	font-family: var(--font-mono);
+	font-size: 0.9em;
+}
+
+::selection {
+	background: var(--accent-soft);
+	color: var(--text);
+}
+
+/*
+ * The focus ring.
+ *
+ * The base rule fires on plain :focus, so a webview without :focus-visible
+ * (Safari before 15.4) shows the ring too often rather than never. The opt-out
+ * below is ignored exactly where the support is missing, which is the point.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus {
+	outline: 2px solid var(--ring-color);
+	outline-offset: 2px;
+}
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus:not(:focus-visible) {
+	outline: none;
+}
+
+/* Clipped rather than display:none, so it is still read aloud. */
+.sr-only {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	clip-path: inset(50%);
+	white-space: nowrap;
+	border: 0;
+}
+
+/*
+ * 1ms rather than 0s: it keeps `transitionend` firing, so code that waits for
+ * one does not hang for a user who asked for less motion.
+ */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 1ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 1ms !important;
+		scroll-behavior: auto !important;
+	}
+}
