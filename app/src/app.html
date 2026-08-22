@@ -4,7 +4,14 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%sveltekit.assets%/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Tauri + SvelteKit + Typescript App</title>
+    <!-- Tells the webview to render its own furniture (scrollbars, form
+         controls) in the right theme. The palette is `data-theme`, stamped by
+         lib/theme.svelte.ts before the first render. -->
+    <meta name="color-scheme" content="light dark" />
+    <!-- `lang` is the pre-hydration default only: lib/i18n corrects it from the
+         OS locale. The CSP forbids the inline script that would normally set it
+         earlier, and with ssr = false nothing reads the DOM before that runs. -->
+    <title>FreeDocs</title>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">
