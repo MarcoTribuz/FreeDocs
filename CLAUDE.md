@@ -56,9 +56,33 @@ uv run freedocs benchmark --apply-min-confidence 0.5     # what a scrub would do
 use. CI deliberately omits it: the `slow`-marked tests skip themselves, and
 detection quality is measured by `benchmark`, not asserted in CI.
 
-CI (`.github/workflows/engine.yml`) runs lint, format, the suite and the leak
-checks on Python 3.10 and 3.12. Keep both green: 3.10 is the declared floor in
-`pyproject.toml`, so avoid 3.11+ syntax.
+CI (`.github/workflows/engine.yml`) runs lint, format, the suite, the leak checks
+and the corpus check on every pull request and every push to `main`: Python 3.10
+and 3.12 on Linux, and 3.12 on Windows. It takes about thirty seconds. Keep all
+three green — 3.10 is the declared floor in `pyproject.toml`, so avoid 3.11+
+syntax, and Windows is there because that is where the cross-platform failures
+have actually been.
+
+**It had never passed once before 22 August 2026, and two of the reasons are
+worth not reinventing.** The 3.10 job was never running 3.10: `--python` was
+passed to `uv sync` and to nothing else, so the next plain `uv run` chose the
+runner's default interpreter, *deleted* the virtualenv it did not recognise, made
+a three-package one and died on `Failed to spawn: ruff` before linting a line.
+`UV_PYTHON` is job-level for that reason; do not go back to flagging one command.
+And one RPC test asked for `detectors="ner"`, which no build without the extra can
+answer, so it failed on every run — a model-backed test has to skip itself or ask
+something the model is not needed for.
+
+`.github/workflows/app.yml` is the expensive one and it does **not** run on pull
+requests. Bundling is 8 minutes on macOS, 13 on Linux and 26 on Windows, three
+times over, and it was running on every push to every open branch. It now runs on
+a push to `main`, on a `v*` tag, and on `workflow_dispatch`. The trade is
+deliberate: a change that breaks packaging is found just after it lands rather
+than just before, and the engine workflow — which is what a pull request runs —
+covers Windows so the class of bug that motivated the bundle on PRs is still
+caught early. Do not add a `paths` filter to it: the same filter would apply to
+the tag trigger, and a release tag whose commit touches nothing under `app/`
+would silently skip the build that makes the release.
 
 ## The desktop app
 
@@ -128,10 +152,26 @@ arrange icons in a Finder window; without Finder automation permission it fails
 with `AppleEvent timed out (-1712)` after minutes of bundling. Tauri passes
 `--skip-jenkins` when `CI` is set. The `.app` is unaffected.
 
-**Multi-platform is configured, not verified.** `.github/workflows/app.yml` builds
-macOS arm64/x86_64, Linux and Windows on their own runners, because neither
-PyInstaller nor Tauri cross-compiles. Only macOS has been built and run here. Do
-not describe the other three as working.
+**Multi-platform is built, not run.** `.github/workflows/app.yml` bundles macOS
+arm64 (`macos-15`), Linux (`.deb`) and Windows on their own runners, because
+neither PyInstaller nor Tauri cross-compiles, and all three are green. That means
+the sidecar builds, the smoke test loads the model and the installer is produced
+— it does not mean anyone has launched the result anywhere but macOS. Say "builds"
+and not "works" for Linux and Windows.
+
+Two platforms are absent and the reasons differ. **Linux ships a `.deb` and no
+AppImage**: the `.deb` bundles fine and the run then dies in `failed to run
+linuxdeploy` with no diagnostic of its own. **Intel macOS is not built at all**:
+`macos-13` was retired and the job simply queued forever with no runner assigned
+— which looks exactly like a slow build — while the replacement `macos-15-intel`
+is a billed larger runner. Cross-compiling from arm64 would cover the Rust half
+and not the sidecar, so an Intel bundle needs an Intel machine. Both are gaps
+rather than decisions about who to support.
+
+`macos-14` was working when it was replaced by `macos-15`. It is *deprecated*,
+which is the state `macos-13` was in shortly before it stopped being assigned
+anything, so a deprecated runner label is worth moving off before it becomes a
+job that hangs instead of failing.
 
 ## Architecture
 
