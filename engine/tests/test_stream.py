@@ -126,3 +126,48 @@ def test_apply_anchor_edits_splices_in_offset_order():
 
 def test_apply_anchor_edits_with_no_edits_is_identity():
     assert apply_anchor_edits("unchanged", []) == "unchanged"
+
+
+def test_part_at_finds_the_part_an_offset_belongs_to():
+    builder = TextStreamBuilder()
+    builder.add("Mario", part="page:1", locator=0)
+    builder.add_filler("\n")
+    builder.add("Rossi", part="page:2", locator=1)
+    stream = builder.build()
+
+    assert stream.part_at(0) == "page:1"
+    assert stream.part_at(4) == "page:1"
+    # The filler between two parts belongs to neither.
+    assert stream.part_at(5) == ""
+    assert stream.part_at(6) == "page:2"
+    # Past the end is not an error: an offset nobody anchored has no part.
+    assert stream.part_at(999) == ""
+
+
+def test_part_segments_coalesce_one_part_into_one_range():
+    """Three runs of one page are one heading, not three."""
+    builder = TextStreamBuilder()
+    builder.add("Mario", part="page:1", locator=0)
+    builder.add(" ", part="page:1", locator=1)
+    builder.add("Rossi", part="page:1", locator=2)
+    segments = builder.build().part_segments()
+
+    assert len(segments) == 1
+    assert (segments[0].part, segments[0].start, segments[0].end) == ("page:1", 0, 11)
+
+
+def test_a_segment_boundary_falls_between_parts_and_not_inside_one():
+    """The newline separating two pages is claimed by neither of them.
+
+    Claiming it for the earlier page would put a trailing blank line inside it;
+    claiming it for the later one would put it above that page's heading.
+    """
+    builder = TextStreamBuilder()
+    builder.add("uno", part="page:1", locator=0)
+    builder.add_filler("\n")
+    builder.add("due", part="page:2", locator=1)
+    first, second = builder.build().part_segments()
+
+    assert (first.start, first.end) == (0, 3)
+    assert (second.start, second.end) == (4, 7)
+    assert first.end < second.start

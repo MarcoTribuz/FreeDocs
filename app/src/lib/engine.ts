@@ -73,12 +73,36 @@ export interface Finding {
 	text: string;
 }
 
+/** A stretch of the extracted text that came from one page, sheet or slide. */
+export interface Part {
+	/** The engine's own name for it: `page:3`, a sheet's part path, a slide. */
+	part: string;
+	start: number;
+	end: number;
+}
+
 export interface Inspection {
 	path: string;
 	format: string;
+	/** The whole document's length, even when the preview below is truncated. */
 	characters: number;
 	warnings: string[];
 	findings: Finding[];
+	/**
+	 * The extracted text, present only when `includeText` was asked for.
+	 *
+	 * The same coordinate system as every `Finding.start`, which is what makes a
+	 * highlight and a `KeptSpan` describe the same characters — with one caveat
+	 * this file cannot fix: these are Python code-point offsets, and JavaScript
+	 * string indices are UTF-16 code units. They differ once the document
+	 * contains anything outside the BMP. Convert before slicing, and convert back
+	 * before sending a span.
+	 */
+	text?: string;
+	/** Where the text stops. A finding beyond it is still reported in full. */
+	text_end?: number;
+	text_truncated?: boolean;
+	parts?: Part[];
 }
 
 export interface HiddenItem {
@@ -165,6 +189,15 @@ export interface ScrubOptions {
 	review?: string | null;
 	/** Which Ollama to ask. Omitted means the engine's own default. */
 	reviewHost?: string | null;
+	/**
+	 * Ask `inspect` for the extracted text as well as the findings.
+	 *
+	 * Opt-in because that text is a superset of the matched values: it contains
+	 * the confidential text no layer detected. Only a caller that renders a
+	 * preview should receive a document, and it must go no further — not to a
+	 * report, not to a log.
+	 */
+	includeText?: boolean;
 }
 
 /**
@@ -259,6 +292,7 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	// as sending none, and the engine refuses an empty list rather than reading it
 	// as "no countries" — see _countries_from.
 	if (options.countries?.length) params.countries = options.countries;
+	if (options.includeText) params.include_text = true;
 	if (options.placeholderLanguage) params.placeholder_language = options.placeholderLanguage;
 	if (options.review) params.review = options.review;
 	// Only alongside a model: a host on its own configures nothing, and sending it

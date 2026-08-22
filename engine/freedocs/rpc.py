@@ -16,6 +16,12 @@ preview has to show the user which of their own text is about to be removed, so
 ``inspect`` returns the matched text. That is fine down a local pipe to an app
 the user is looking at; it is not fine in a log file. Anything written to disk —
 the JSON report in particular — carries counts and positions only.
+
+The same rule, one step further out: with ``include_text`` the whole extracted
+document comes down this channel, which is a superset of the matched values — it
+contains the confidential text *no layer detected*. It is opt-in for that reason,
+so a caller that renders no preview never receives a document, and it must never
+reach a report, a warning or an error's ``data`` block.
 """
 
 from __future__ import annotations
@@ -24,7 +30,7 @@ import json
 import sys
 import traceback
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
@@ -43,7 +49,7 @@ from .detect.llm_review import (
 from .detect.validators import SUPPORTED_COUNTRIES
 from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
 from .formats.router import UnsupportedFormat, handler_for
-from .pipeline import LAYER_SPECS, Scrubber, build_registry, default_registry
+from .pipeline import LAYER_SPECS, Extraction, Scrubber, build_registry, default_registry
 from .report import CAVEATS, build_report
 from .verify import LeakDetected
 
@@ -57,6 +63,24 @@ UNSUPPORTED_FORMAT = 1
 NEEDS_OCR = 2
 LEAK_DETECTED = 3
 MISSING_DEPENDENCY = 4
+
+#: How much flat text ``inspect`` will put on the wire when asked for a preview.
+#:
+#: Chosen rather than measured, unlike ``MAX_CHUNK_CHARS``: it covers a 250-page
+#: PDF and a large spreadsheet whole, and past it the window is holding more text
+#: than a person will scroll. Truncation is stated in the response — never
+#: silent — and the finding list is never truncated with it, because a finding
+#: hidden to make the numbers agree is the one failure this feature must not
+#: introduce.
+MAX_PREVIEW_CHARS = 500_000
+
+#: How many extractions one session keeps.
+#:
+#: Four, so moving between the files of a small batch still hits, and no more: an
+#: extraction holds the whole flat text and every anchor. The point is the
+#: expensive half — every kept occurrence re-runs detection, and without this it
+#: also re-OCRs every page of a scan for a file that has not changed.
+MAX_CACHED_EXTRACTIONS = 4
 
 
 class RpcError(Exception):
@@ -81,6 +105,10 @@ class Session:
     out: TextIO
     _registry: object | None = None
     _registry_spec: str | None = None
+    #: Extractions kept for reuse, keyed on the file's identity *and* its
+    #: modification time and size. Serving a cached extraction for a file that
+    #: has changed would show a preview of a document that no longer exists.
+    _extractions: dict[tuple[str, int, int], Extraction] = field(default_factory=dict)
 
     # -- transport -------------------------------------------------------------
 
@@ -112,6 +140,42 @@ class Session:
             )
             self._registry_spec = key
         return self._registry
+
+    def extraction(self, scrubber: Scrubber, path: Path) -> Extraction:
+        """Read the file, or hand back the reading already taken.
+
+        Every kept occurrence and every added value re-runs `inspect`, because
+        propagation means one decision can change other findings and the caller
+        is not allowed to guess the new answer. Extraction is the half of that
+        which cannot change: for a scanned PDF it is seconds of OCR per click.
+
+        A file whose size or modification time moved is a different file and is
+        read again. That is the whole safety condition, and it is why the key is
+        not just the path.
+        """
+        try:
+            stat = path.stat()
+            key: tuple[str, int, int] | None = (str(path), stat.st_mtime_ns, stat.st_size)
+        except OSError:
+            # Unreadable stat is not a reason to refuse: the handler is about to
+            # open the file and will say something better than we could. It is a
+            # reason not to cache, since there is nothing to invalidate against.
+            key = None
+
+        if key is not None:
+            cached = self._extractions.get(key)
+            if cached is not None:
+                return cached
+
+        extraction = _read(scrubber, _open(path))
+
+        if key is not None:
+            if len(self._extractions) >= MAX_CACHED_EXTRACTIONS:
+                # Oldest first: dicts preserve insertion order, and the file being
+                # reviewed right now is the one most recently inserted.
+                self._extractions.pop(next(iter(self._extractions)))
+            self._extractions[key] = extraction
+        return extraction
 
     # -- methods ---------------------------------------------------------------
 
@@ -187,16 +251,26 @@ class Session:
         }
 
     def inspect(self, params: dict[str, Any]) -> dict[str, Any]:
-        """What would be removed from one file, without writing anything."""
+        """What would be removed from one file, without writing anything.
+
+        Runs the same read-and-detect the scrub runs, through `Scrubber`, rather
+        than a second copy of those stages. The copy is how a preview comes to
+        show findings the scrub that follows it does not agree with.
+        """
         path = _require_path(params, "path")
         policy = _policy_from(params)
         scoped = _override_from(params).for_path(str(path))
-        registry = self.registry(params.get("detectors"), _countries_from(params))
+        scrubber = Scrubber(
+            policy=policy,
+            registry=self.registry(  # type: ignore[arg-type]
+                params.get("detectors"), _countries_from(params)
+            ),
+            overrides=scoped,
+        )
 
-        handler = _open(path)
-        stream = _extract(handler, path)
+        extraction = self.extraction(scrubber, path)
         try:
-            findings = scoped.apply(stream.text, registry.detect(stream.text))  # type: ignore[attr-defined]
+            inspection = scrubber.detect_in(extraction)
         except StaleOverride as exc:
             # A decision pointing at text that has since changed is refused, never
             # applied to whatever moved into that range. See overrides.py.
@@ -207,24 +281,16 @@ class Session:
             # told "internal error" for what is really "a component is missing".
             raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
 
-        return {
+        stream = inspection.stream
+        payload: dict[str, Any] = {
             "path": str(path),
-            "format": handler.name,
+            "format": extraction.format_name,
             "characters": len(stream.text),
             # The registry's notes belong here too. A preview taken with the
             # checksum layer narrowed to two countries looks exactly like a
             # preview taken with all thirteen, and the difference is the whole
-            # point of the option — the scrub path already carries them through
-            # ScrubResult.warnings.
-            "warnings": [
-                *handler.warnings,
-                *registry.notes,  # type: ignore[attr-defined]
-                *(
-                    f"the value {value!r} was asked to be removed but does not "
-                    f"appear in this document"
-                    for value in scoped.unmatched(stream.text)
-                ),
-            ],
+            # point of the option.
+            "warnings": inspection.warnings,
             "findings": [
                 {
                     "start": finding.span.start,
@@ -233,15 +299,18 @@ class Session:
                     "action": policy.action_for(finding).value,
                     "confidence": round(finding.confidence, 3),
                     "detector": finding.detector,
-                    "part": _part_of(stream, finding.span.start),
+                    "part": stream.part_at(finding.span.start),
                     # The value itself: a preview that cannot show what is about
                     # to be removed is not a preview. See the module docstring on
                     # why this is safe down this channel and nowhere else.
                     "text": finding.text,
                 }
-                for finding in findings
+                for finding in inspection.findings
             ],
         }
+        if params.get("include_text"):
+            payload.update(_preview(stream))
+        return payload
 
     def scrub(self, params: dict[str, Any]) -> dict[str, Any]:
         """Write scrubbed copies, reporting progress per file."""
@@ -464,22 +533,44 @@ def _open(path: Path) -> Any:
         raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
 
 
-def _extract(handler: Any, path: Path) -> Any:
+def _read(scrubber: Scrubber, handler: Any) -> Extraction:
     try:
-        handler.scrub_hidden()
-        return handler.extract()
+        return scrubber.read(handler)
     except ScannedPdfNotSupported as exc:
         raise RpcError(NEEDS_OCR, str(exc)) from exc
     except MissingDependency as exc:
         raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
 
 
-def _part_of(stream: Any, offset: int) -> str:
-    """Which page, sheet or part an offset falls in, for the preview."""
-    for anchor in stream.anchors:
-        if anchor.start <= offset < anchor.end:
-            return anchor.part
-    return ""
+def _preview(stream: Any) -> dict[str, Any]:
+    """The extracted text, and which part each region of it came from.
+
+    One blob rather than a window around each finding. The findings' offsets are
+    offsets into this text, and ``keep_spans`` sends those same offsets back, so a
+    window would introduce a second coordinate system and a second place doing the
+    arithmetic — the class of bug ``core/stream.py`` exists to prevent. It is also
+    what the screen needs: the sentence *around* a value is what tells a reader
+    whether a city is a party's address or a jurisdiction clause.
+
+    ``text_end`` and ``text_truncated`` are both sent although either implies the
+    other. The banner needs the boolean and the highlighter needs the offset, and
+    making the caller derive one from the other is making it hold a rule about
+    this cap.
+    """
+    text = stream.text
+    end = min(len(text), MAX_PREVIEW_CHARS)
+    return {
+        "text": text[:end],
+        "text_end": end,
+        "text_truncated": end < len(text),
+        # Clipped to what was actually sent, so the index never points past the
+        # end of the string it indexes.
+        "parts": [
+            {"part": segment.part, "start": segment.start, "end": min(segment.end, end)}
+            for segment in stream.part_segments()
+            if segment.start < end
+        ],
+    }
 
 
 def _failure(path: Path, code: int, message: str, data: Any = None) -> dict[str, Any]:

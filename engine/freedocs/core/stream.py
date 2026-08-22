@@ -64,6 +64,20 @@ class Edit:
     replacement: str
 
 
+@dataclass(frozen=True)
+class PartSegment:
+    """A contiguous stretch of the flat stream that came from one part.
+
+    Consecutive anchors naming the same part are one segment, so a caller
+    rendering the text can put a page or sheet heading in front of each without
+    knowing how many runs, cells or spans it was assembled from.
+    """
+
+    part: str
+    start: int
+    end: int
+
+
 class TextStreamBuilder:
     """Accumulates anchored chunks into a :class:`TextStream`."""
 
@@ -145,6 +159,40 @@ class TextStream:
             if overlap_start < overlap_end:
                 hits.append((anchor, overlap_start - anchor.start, overlap_end - anchor.start))
         return hits
+
+    def part_at(self, offset: int) -> str:
+        """Which part of the source an offset came from, or ``""`` for filler.
+
+        A binary search rather than a scan, because the caller is a loop over
+        findings: the previous implementation walked every anchor once per
+        finding, which on a 200-page PDF is tens of thousands of anchors times
+        hundreds of findings. ``_starts`` is already cached for :meth:`resolve`.
+        """
+        if not self.anchors:
+            return ""
+        idx = bisect.bisect_right(self._starts, offset) - 1
+        if idx < 0:
+            return ""
+        anchor = self.anchors[idx]
+        return anchor.part if anchor.start <= offset < anchor.end else ""
+
+    def part_segments(self) -> tuple[PartSegment, ...]:
+        """Coalesce the anchors into one range per run of the same part.
+
+        Filler between two anchors of the same part falls *inside* the segment,
+        because it is the separator this stream inserted rather than a gap in the
+        source. Filler between two different parts falls between segments and is
+        left unassigned: it belongs to neither, and claiming it for one would put
+        a page's trailing newline under the next page's heading.
+        """
+        segments: list[PartSegment] = []
+        for anchor in self.anchors:
+            if segments and segments[-1].part == anchor.part:
+                last = segments[-1]
+                segments[-1] = PartSegment(part=last.part, start=last.start, end=anchor.end)
+            else:
+                segments.append(PartSegment(part=anchor.part, start=anchor.start, end=anchor.end))
+        return tuple(segments)
 
     def plan_edits(self, edits: list[Edit]) -> list[AnchorEdit]:
         """Translate stream-coordinate edits into per-anchor edits.
