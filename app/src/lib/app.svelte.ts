@@ -1,0 +1,385 @@
+import { open } from '@tauri-apps/plugin-dialog';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import {
+	type Capabilities,
+	type EntityInfo,
+	type Finding,
+	type Inspection,
+	type KeptSpan,
+	type Progress,
+	type RemovedValue,
+	type ScrubResult,
+	MISSING_DEPENDENCY,
+	NEEDS_OCR,
+	UNSUPPORTED_FORMAT,
+	capabilities,
+	engineStatus,
+	entities,
+	inspect,
+	onNotify,
+	reviewModels,
+	scrub
+} from './engine';
+import { announce } from './announce.svelte';
+import { basename } from './format';
+
+/**
+ * The window's session: what the engine said, what the user picked, and the
+ * actions that move between the two.
+ *
+ * Extracted from `+page.svelte`, which was doing this as well as layout,
+ * presentation and copywriting in one 936-line file. Nothing here decides
+ * anything about confidentiality — it collects spans and strings and sends
+ * them, and the engine decides what happens to them. That constraint is the
+ * reason this module can exist at all: there is no rule in it to duplicate.
+ *
+ * One `$state` object rather than a dozen exported variables, because a module
+ * cannot export reassignable state — an importer would see the value as it was
+ * at import time. Fields of a reactive object stay live, and they stay
+ * bindable, which is what `bind:value={session.reviewHost}` needs.
+ */
+export const session = $state({
+	/** Why the engine did not start. Null when it did. */
+	engineProblem: null as string | null,
+	caps: null as Capabilities | null,
+	entityList: [] as EntityInfo[],
+
+	files: [] as string[],
+	inspections: {} as Record<string, Inspection>,
+	/** The path being read, or 'scrub' during a run, or null. */
+	busy: null as string | null,
+	progress: null as Progress | null,
+	results: [] as ScrubResult[],
+	problem: null as string | null,
+
+	/** Entity types the user has chosen to leave alone, everywhere. */
+	kept: new Set<string>(),
+	/**
+	 * Single occurrences the user has excused, per file. A different control from
+	 * `kept` above and deliberately so: that one says "no location in this
+	 * document is confidential", this one says "not *this* one". The same city is
+	 * confidential in a party's address and not in a jurisdiction clause, which is
+	 * a judgement only the person reading the preview can make.
+	 */
+	keptSpans: {} as Record<string, KeptSpan[]>,
+	/** Values the user says to remove that no detector found, per file. */
+	extraValues: {} as Record<string, RemovedValue[]>,
+	/** What is typed in the "also remove" box, per file, before it is added. */
+	pending: {} as Record<string, string>,
+	/**
+	 * Countries switched *off*. Empty means every supported one, which is why
+	 * this is a set of exclusions rather than inclusions: nothing selected has to
+	 * mean "all", never "none".
+	 */
+	dropped: new Set<string>(),
+	/** Prefilled from capabilities, because the default is the engine's to pick. */
+	placeholderLanguage: '',
+	minConfidence: 0.5,
+	/** Empty means no review. Off by default: it is slow and changes nothing. */
+	reviewModel: '',
+	/**
+	 * Where to look for Ollama, and what was found there.
+	 *
+	 * `models` is kept separate from `caps.review_models` rather than editing
+	 * that in place: the capabilities are what the engine reported at startup,
+	 * and overwriting them would lose the ability to tell "the default host has
+	 * nothing" from "the host I typed has nothing".
+	 */
+	reviewHost: '',
+	models: null as string[] | null,
+	modelsProblem: null as string | null,
+	modelsBusy: false,
+	settingsOpen: false
+});
+
+/** What the model dropdown offers: the typed host's answer, else the startup one. */
+export function offeredModels(): string[] {
+	return session.models ?? session.caps?.review_models ?? [];
+}
+
+export function totalFindings(): number {
+	return session.files.reduce(
+		(sum, path) => sum + (session.inspections[path]?.findings.length ?? 0),
+		0
+	);
+}
+
+/** A finding the user put there, rather than one a detector nominated. */
+export function isMine(finding: Finding): boolean {
+	return finding.detector === 'human';
+}
+
+/** Counts per entity type, which is what a preview is actually for. */
+export function summary(inspection: Inspection): [string, number, string][] {
+	const counts = new Map<string, [number, string]>();
+	for (const finding of inspection.findings) {
+		const [count] = counts.get(finding.entity) ?? [0, finding.action];
+		counts.set(finding.entity, [count + 1, finding.action]);
+	}
+	return [...counts.entries()]
+		.map(([entity, [count, action]]) => [entity, count, action] as [string, number, string])
+		.sort((a, b) => a[0].localeCompare(b[0]));
+}
+
+export function describe(error: unknown): string {
+	const code = (error as { code?: number | null })?.code ?? null;
+	const message = error instanceof Error ? error.message : String(error);
+	if (code === NEEDS_OCR) return message;
+	if (code === UNSUPPORTED_FORMAT) return `This format is not supported. ${message}`;
+	if (code === MISSING_DEPENDENCY) return `A component is missing. ${message}`;
+	return message;
+}
+
+/** A failure the user must not miss: said once, shown until it is replaced. */
+function fail(message: string): void {
+	session.problem = message;
+	announce(message, { assertive: true });
+}
+
+/**
+ * Start the engine conversation and the drag-and-drop subscription.
+ *
+ * Returns the teardown rather than registering it, because an async function
+ * cannot hand Svelte a cleanup callback: both subscriptions are set up after an
+ * await, so `onMount` has already returned by the time they exist.
+ */
+export async function start(): Promise<() => void> {
+	const unsubscribes: (() => void)[] = [];
+
+	session.engineProblem = await engineStatus();
+	if (session.engineProblem) return () => {};
+
+	unsubscribes.push(
+		await onNotify({
+			progress: (value) => {
+				// Announced per file, which is what the engine reports. Announcing
+				// anything finer would be inventing a number it does not have.
+				if (value.file !== session.progress?.file) {
+					announce(`${basename(value.file)}, ${value.index + 1} of ${value.total}`);
+				}
+				session.progress = value;
+			},
+			ready: adoptCaps
+		})
+	);
+
+	try {
+		adoptCaps(await capabilities());
+		session.entityList = (await entities()).entities;
+	} catch (error) {
+		fail(describe(error));
+	}
+
+	unsubscribes.push(
+		await getCurrentWebview().onDragDropEvent((event) => {
+			if (event.payload.type === 'drop') addFiles(event.payload.paths);
+		})
+	);
+
+	return () => {
+		for (const unsubscribe of unsubscribes) unsubscribe();
+	};
+}
+
+/**
+ * Take the engine's report, and seed the review host from it the first time.
+ *
+ * Seeded rather than defaulted here: the address Ollama listens on is the
+ * engine's business, and a second copy in the window is a second thing to be
+ * wrong. Only when the field is untouched, so a re-announced `ready` cannot
+ * discard what the user typed.
+ */
+function adoptCaps(value: Capabilities): void {
+	const first = session.caps === null;
+	session.caps = value;
+	if (!session.reviewHost) session.reviewHost = value.review_host;
+	if (!session.placeholderLanguage) session.placeholderLanguage = value.placeholder_language;
+	/*
+	 * Open when there is a choice to make.
+	 *
+	 * Seeded once from the startup report rather than bound to it: expanding a
+	 * panel the user has just collapsed is worse than the click it saves. Closed
+	 * when Ollama has nothing, because an empty control is a distraction, and the
+	 * label stays visible either way — being invisible was the original
+	 * complaint.
+	 */
+	if (first) session.settingsOpen = value.review_models.length > 0;
+}
+
+/** Ask a specific Ollama what it has, and say so where the host was typed. */
+export async function refreshModels(): Promise<void> {
+	session.modelsBusy = true;
+	session.modelsProblem = null;
+	try {
+		const found = (await reviewModels(session.reviewHost)).models;
+		session.models = found;
+		// A model the new host does not have would otherwise stay selected and
+		// fail at scrub time, pointing at the wrong thing entirely.
+		if (session.reviewModel && !found.includes(session.reviewModel)) session.reviewModel = '';
+	} catch (error) {
+		session.models = [];
+		session.modelsProblem = describe(error);
+	} finally {
+		session.modelsBusy = false;
+	}
+}
+
+/** The typed host's answer is about that host, so a new host invalidates it. */
+export function forgetModels(): void {
+	session.models = null;
+	session.modelsProblem = null;
+}
+
+export function addFiles(paths: string[]): void {
+	session.files = [...new Set([...session.files, ...paths])];
+	for (const path of paths) void loadInspection(path);
+}
+
+export async function pickFiles(): Promise<void> {
+	const chosen = await open({ multiple: true, directory: false });
+	if (!chosen) return;
+	addFiles(Array.isArray(chosen) ? chosen : [chosen]);
+}
+
+export async function loadInspection(path: string): Promise<void> {
+	session.busy = path;
+	session.problem = null;
+	try {
+		const inspection = await inspect(path, {
+			keep: [...session.kept],
+			keepSpans: session.keptSpans[path] ?? [],
+			remove: session.extraValues[path] ?? [],
+			minConfidence: session.minConfidence,
+			countries: activeCountries()
+		});
+		session.inspections[path] = inspection;
+		// Nothing here moves focus, so without this the result of a decision is
+		// silent: the table simply has a different number of rows.
+		announce(`${basename(path)}: ${inspection.findings.length} values found`);
+	} catch (error) {
+		fail(`${basename(path)}: ${describe(error)}`);
+	} finally {
+		session.busy = null;
+	}
+}
+
+export async function reinspectAll(): Promise<void> {
+	for (const path of session.files) await loadInspection(path);
+}
+
+/**
+ * Excuse or re-include one occurrence.
+ *
+ * The span carries the text it covered, which is what lets the engine refuse
+ * the decision if the file changes underneath it: the offsets would then point
+ * at something the user never saw, and honouring them would keep whatever moved
+ * into that range.
+ */
+export function toggleSpan(path: string, finding: Finding): void {
+	const current = session.keptSpans[path] ?? [];
+	const already = current.some((span) => span.start === finding.start && span.end === finding.end);
+	session.keptSpans = {
+		...session.keptSpans,
+		[path]: already
+			? current.filter((span) => !(span.start === finding.start && span.end === finding.end))
+			: [...current, { start: finding.start, end: finding.end, text: finding.text, path }]
+	};
+	void loadInspection(path);
+}
+
+export function clearSpans(path: string): void {
+	session.keptSpans = { ...session.keptSpans, [path]: [] };
+	void loadInspection(path);
+}
+
+export function addValue(path: string): void {
+	const value = (session.pending[path] ?? '').trim();
+	if (!value) return;
+	const current = session.extraValues[path] ?? [];
+	if (!current.some((item) => item.value === value)) {
+		session.extraValues = { ...session.extraValues, [path]: [...current, { value, path }] };
+	}
+	session.pending = { ...session.pending, [path]: '' };
+	void loadInspection(path);
+}
+
+export function dropValue(path: string, value: string): void {
+	session.extraValues = {
+		...session.extraValues,
+		[path]: (session.extraValues[path] ?? []).filter((item) => item.value !== value)
+	};
+	void loadInspection(path);
+}
+
+export function toggleKeep(name: string): void {
+	const next = new Set(session.kept);
+	if (next.has(name)) next.delete(name);
+	else next.add(name);
+	session.kept = next;
+	void reinspectAll();
+}
+
+/**
+ * Undefined when nothing is switched off, so the engine hears no opinion and
+ * uses every country. Sending the full list would mean the same thing, but it
+ * would also make the request claim a choice nobody made.
+ */
+export function activeCountries(): string[] | undefined {
+	if (!session.caps || session.dropped.size === 0) return undefined;
+	return session.caps.countries.filter((code) => !session.dropped.has(code));
+}
+
+export function toggleCountry(code: string): void {
+	const next = new Set(session.dropped);
+	if (next.has(code)) next.delete(code);
+	else next.add(code);
+	// Never all of them: an empty selection is refused by the engine, and it
+	// would mean scrubbing with the whole checksum layer switched off.
+	if (session.caps && next.size === session.caps.countries.length) return;
+	session.dropped = next;
+	void reinspectAll();
+}
+
+export async function runScrub(): Promise<void> {
+	const target = await open({
+		directory: true,
+		multiple: false,
+		title: 'Where to write the scrubbed copies'
+	});
+	if (!target || Array.isArray(target)) return;
+
+	session.busy = 'scrub';
+	session.problem = null;
+	session.results = [];
+	try {
+		session.results = (
+			await scrub(session.files, target, {
+				keep: [...session.kept],
+				// Every file's decisions in one request, each carrying its own path.
+				// The engine scopes them per document, because a span is an offset
+				// into one extraction and would be stale anywhere else — see
+				// Override.for_path.
+				keepSpans: session.files.flatMap((path) => session.keptSpans[path] ?? []),
+				remove: session.files.flatMap((path) => session.extraValues[path] ?? []),
+				minConfidence: session.minConfidence,
+				countries: activeCountries(),
+				placeholderLanguage: session.placeholderLanguage,
+				review: session.reviewModel || null,
+				reviewHost: session.reviewHost
+			})
+		).results;
+
+		const failed = session.results.filter((result) => !result.ok).length;
+		announce(
+			failed === 0
+				? `Finished. ${session.results.length} files written.`
+				: `Finished with ${failed} of ${session.results.length} files not written.`,
+			{ assertive: failed > 0 }
+		);
+	} catch (error) {
+		fail(describe(error));
+	} finally {
+		session.busy = null;
+		session.progress = null;
+	}
+}
