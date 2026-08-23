@@ -158,12 +158,22 @@ jobs:
       # A portable copy is unzipped onto a machine that installed nothing and may
       # have no network, so it carries the 1.2 GB of model weights the installers
       # fetch on first use.
+      #
+      # **Off unless `BUILD_PORTABLE` is set to `true`.** These steps roughly
+      # double the expensive half of this workflow — a second bundling pass over
+      # a 2.3 GB tree on three runners, and macOS bills at 10x — which emptied
+      # this private repository's Actions allowance the first time they ran. So
+      # they are gated rather than deleted: set the repository variable when a
+      # portable release is wanted, unset it the rest of the time. Meanwhile
+      # `app/packaging/portable.py` builds one locally on any platform, which is
+      # the only place a portable bundle has actually been launched anyway.
 
       # No download here: `Build the engine sidecar` above runs a smoke test that
       # loads the model, so the weights are already in this runner's Hugging Face
       # cache and this only dereferences them into a flat directory. That ordering
       # is the reason the sidecar step did not have to change.
       - name: Stage the NER model
+        if: vars.BUILD_PORTABLE == 'true'
         working-directory: engine
         run: uv run python packaging/model.py
 
@@ -179,7 +189,7 @@ jobs:
       # both sides because the next disk failure should be readable rather than
       # re-diagnosed.
       - name: Make room for a 2.3 GB bundle
-        if: runner.os == 'Linux'
+        if: vars.BUILD_PORTABLE == 'true' && runner.os == 'Linux'
         run: |
           df -h /
           # Not $AGENT_TOOLSDIRECTORY, tempting as its size is: that is the
@@ -197,7 +207,7 @@ jobs:
       # APPIMAGE_EXTRACT_AND_RUN, set by the build script, which needs no FUSE at
       # all and so survives a runner image that stops carrying this package.
       - name: AppImage prerequisites
-        if: runner.os == 'Linux'
+        if: vars.BUILD_PORTABLE == 'true' && runner.os == 'Linux'
         run: sudo apt-get install -y libfuse2
 
       # Windows portable needs a WebView2 runtime beside the executable, or the
@@ -214,7 +224,7 @@ jobs:
       # link on https://developer.microsoft.com/microsoft-edge/webview2, and until
       # then the zip is built without it and the build script says so out loud.
       - name: Bundle the WebView2 runtime
-        if: runner.os == 'Windows' && vars.WEBVIEW2_FIXED_RUNTIME_URL != ''
+        if: vars.BUILD_PORTABLE == 'true' && runner.os == 'Windows' && vars.WEBVIEW2_FIXED_RUNTIME_URL != ''
         working-directory: app/src-tauri
         shell: pwsh
         run: |
@@ -231,9 +241,11 @@ jobs:
           }
 
       - name: Build the portable bundle
+        if: vars.BUILD_PORTABLE == 'true'
         run: python app/packaging/portable.py
 
       - uses: actions/upload-artifact@v7
+        if: vars.BUILD_PORTABLE == 'true'
         with:
           name: freedocs-portable-${{ matrix.target }}
           path: |

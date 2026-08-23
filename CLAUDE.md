@@ -1162,7 +1162,11 @@ Only ever added, never removed.
 
 A fourth artifact per platform: unzip and run, no installer, no network. Built by
 `app/packaging/portable.py` with `src-tauri/tauri.portable.conf.json` merged in,
-and **additive by construction** — `tauri.conf.json` is untouched, `env.BUNDLES`
+run locally — **the CI steps are gated on a `BUILD_PORTABLE` repository variable
+and off by default**, because a second bundling pass over a 2.3 GB tree on three
+runners (macOS billed at 10x) emptied this private repository's Actions allowance
+the first time it ran. Gated rather than deleted, so a portable release is one
+variable away. The feature is **additive by construction** — `tauri.conf.json` is untouched, `env.BUNDLES`
 is untouched, and the portable CI steps are appended after the installer upload so
 a failure here cannot cost installers that already succeeded. Verify that claim by
 checking the `.dmg` is still a few hundred MB and not 1.5 GB, and that its
@@ -1213,8 +1217,14 @@ a portable zip is replaced, an installer reinstalled — and the engine does not
 which it is inside. This closes the defect `rpc.doctor` used to admit in its own
 docstring.
 
-**The AppImage failure was FUSE.** `linuxdeploy` is itself an AppImage and must
-mount itself; `ubuntu-22.04` ships FUSE 3 only. `APPIMAGE_EXTRACT_AND_RUN=1` is the
+**The AppImage failure was probably FUSE, and that is still unverified.**
+`linuxdeploy` is itself an AppImage and must mount itself; `ubuntu-22.04` ships
+FUSE 3 only. But the first CI run with these fixes never reached `linuxdeploy` —
+it died in `No space left on device` while copying resources, because the
+artifact fits in the runner's 14 GB and the peak working set does not (a torch
+venv, the sidecar, a cargo release tree, the `.deb`, and the model copied twice).
+The cleanup step addresses the disk; whether FUSE was ever the problem remains
+untested. `APPIMAGE_EXTRACT_AND_RUN=1` is the
 fix that needs no FUSE and survives a runner image change, so it comes before
 installing `libfuse2`. `NO_STRIP=true` is not caution: the spec sets `strip=False`
 because the engine speaks on stdout, and a `linuxdeploy` strip would undo that
