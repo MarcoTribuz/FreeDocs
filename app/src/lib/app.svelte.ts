@@ -207,6 +207,16 @@ export async function start(): Promise<() => void> {
 				}
 				session.progress = value;
 			},
+			// Subscribed, and it had not been: the notification was emitted,
+			// forwarded, typed, translated in four catalogues and rendered by the
+			// page, with nothing on this line to receive it. `session.stage` was
+			// written null twice and never anything else, so the inner bar had
+			// never drawn. Nothing in the toolchain could see it - the field is
+			// declared, written and read, and the catalogue check proves the keys
+			// exist, not that anyone consumes them.
+			stage: (value) => {
+				session.stage = value;
+			},
 			ready: adoptCaps
 		})
 	);
