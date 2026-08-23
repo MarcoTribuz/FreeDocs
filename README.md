@@ -262,6 +262,8 @@ Two consequences worth knowing before using it on a workbook full of formulas:
 ```bash
 cd app
 npm install
+npm run check            # types, and proof that all four message catalogues are complete
+npm test                 # the offset arithmetic behind the marked text
 npm run tauri dev        # uses the engine from engine/.venv, no bundle needed
 CI=true npm run tauri build   # needs the sidecar built first, see below
 ```
@@ -272,15 +274,42 @@ warned about stays in Python: two places deciding what an IBAN looks like is two
 answers that can disagree.
 
 They talk newline-delimited JSON over a pipe — `engine/freedocs/rpc.py`, exercised
-by 36 tests that need no GUI. One engine process serves the whole session, because
+by 82 tests that need no GUI. One engine process serves the whole session, because
 loading the NER model takes seconds and running it takes milliseconds. The engine
 is **never** a socket: it reads and writes files named by whoever is on the other
 end, so its only safe caller is a parent process that already has the user's
 permission.
 
+Three steps — pick the files, read what was found, see what was written — with the
+extracted document shown and every finding marked in place. That is what makes the
+per-occurrence decision usable: the sentence *around* a value is what says whether
+a city is a party's address or a jurisdiction clause, which is the distinction the
+engine keeps `keep` and `keep_spans` apart for. The marks are walkable from the
+keyboard, `x` excuses one, and every decision goes back to Python to be judged
+there.
+
 What the window shows, deliberately: the detection layers actually loaded, whether
-OCR is available, every warning the engine raised, and the hidden content that was
-removed — not just the counts. A build that quietly finds less has to say so.
+OCR is available *and which half of Tesseract is missing when it is not*, what
+each country actually gets (the United States has no check digit behind its
+numbers, and its chip says so), which rules a raised threshold has silenced, every
+warning the engine raised, the hidden content that was removed, and whether stage
+6 re-opened the output and found nothing. A build that quietly finds less has to
+say so.
+
+Two things it deliberately does not do. It never invents a percentage: progress
+counts files and stages and pages, because how long detection takes next to
+extraction on an unseen document is not a fact the engine has. And it does not
+translate the engine's own sentences — warnings, caveats, review summaries and
+errors are quoted in English inside a window that is otherwise Italian, German,
+French or English, with one line saying so. A mistranslated "not installed" that
+reads as "not required" is the failure this project refuses, and the test suite
+asserts on those strings.
+
+The frontend has no UI framework and one test dependency. What Vitest covers is
+the offset arithmetic behind the marked text, and it covers it because that is
+where being wrong is silent: Python counts code points and JavaScript counts
+UTF-16 code units, so one emoji in a document moves every highlight after it —
+and, worse, moves every span the window sends back.
 
 ### Building for distribution
 
