@@ -17,6 +17,7 @@
 	import Card from '$lib/components/Card.svelte';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 	import Select from '$lib/components/Select.svelte';
+	import Skeleton from '$lib/components/Skeleton.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import AdvancedPanel from './AdvancedPanel.svelte';
 	import DocumentText from './DocumentText.svelte';
@@ -78,7 +79,9 @@
 {#if !path}
 	<EmptyState icon="file-text" title={m.stepReviewLocked()} level={3} />
 {:else if session.busy === path && !inspection}
-	<p class="muted">{m.reading()}</p>
+	<Card>
+		<Skeleton label={m.reading()} lines={8} />
+	</Card>
 {:else if inspection}
 	<div class="toolbar">
 		<div class="modes" role="group" aria-label={m.stepReview()}>
@@ -329,8 +332,4 @@
 		color: var(--text-3);
 	}
 
-	.muted {
-		padding: var(--space-6) 0;
-		color: var(--text-3);
-	}
 </style>

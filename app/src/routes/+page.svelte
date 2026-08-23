@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
+	import { fly } from 'svelte/transition';
 	import { goTo, session, start, type Step } from '$lib/app.svelte';
 	import { announce } from '$lib/announce.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
+	import { DUR, duration } from '$lib/motion';
 	import Callout from '$lib/components/Callout.svelte';
 	import ProgressBar from '$lib/components/Progress.svelte';
 	import StepRail from '$lib/components/StepRail.svelte';
@@ -161,13 +163,26 @@
 				</div>
 			{/if}
 
-			{#if step === 'file'}
-				<FileStep />
-			{:else if step === 'review'}
-				<ReviewStep />
-			{:else}
-				<ResultStep />
-			{/if}
+			<!--
+				One transition, on the thing that changed. `duration()` returns zero for
+				a reader who asked for less motion — a Svelte transition animates in
+				JavaScript, so the media query the stylesheet honours in one rule has to
+				be asked explicitly here.
+
+				Keyed on the step so the old screen leaves and the new one arrives,
+				rather than the contents cross-fading in place.
+			-->
+			{#key step}
+				<div in:fly={{ y: 8, duration: duration(DUR.slow) }}>
+					{#if step === 'file'}
+						<FileStep />
+					{:else if step === 'review'}
+						<ReviewStep />
+					{:else}
+						<ResultStep />
+					{/if}
+				</div>
+			{/key}
 		</main>
 	</div>
 {/if}
