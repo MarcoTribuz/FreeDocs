@@ -123,13 +123,23 @@ def appimage_env() -> dict[str, str]:
     }
 
 
+#: The Tauri CLI's own entry point, run with `node` rather than through `npm`.
+#:
+#: `npm` on Windows is `npm.cmd`, a batch file, and `CreateProcess` cannot find
+#: or launch it from the bare name — `subprocess.run(["npm", ...])` dies with
+#: `FileNotFoundError: [WinError 2]` in under a second, before compiling
+#: anything. `node` is a real executable on all three platforms and
+#: `setup-node` puts it on PATH, so this has no platform-specific behaviour to
+#: get wrong. Going through `npm run tauri` bought nothing but a shell.
+TAURI_CLI = APP / "node_modules" / "@tauri-apps" / "cli" / "tauri.js"
+
+
 def tauri_build(*args: str, env: dict[str, str] | None = None) -> None:
+    if not TAURI_CLI.is_file():
+        raise SystemExit(f"{TAURI_CLI} is missing; run `npm ci` in {APP}")
     command = [
-        "npm",
-        "run",
-        "--silent",
-        "tauri",
-        "--",
+        "node",
+        str(TAURI_CLI),
         "build",
         "--config",
         str(PORTABLE_CONF),

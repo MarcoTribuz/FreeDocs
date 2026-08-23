@@ -167,6 +167,30 @@ jobs:
         working-directory: engine
         run: uv run python packaging/model.py
 
+      # The Linux job ran out of disk before it ever reached linuxdeploy:
+      # `Failed to copy resource files: No space left on device (os error 28)`.
+      # The runner has ~14 GB free and this job holds a torch virtualenv, the
+      # 650 MB sidecar, a cargo release tree, the finished .deb and the staged
+      # 1.25 GB model — and then the AppImage build copies that model again as a
+      # resource. The artifact fits; the peak working set did not.
+      #
+      # So: drop the preinstalled toolchains this repository never uses, and the
+      # bundle directory, which the upload above has already taken. `df` runs on
+      # both sides because the next disk failure should be readable rather than
+      # re-diagnosed.
+      - name: Make room for a 2.3 GB bundle
+        if: runner.os == 'Linux'
+        run: |
+          df -h /
+          # Not $AGENT_TOOLSDIRECTORY, tempting as its size is: that is the
+          # hosted tool cache, which holds the node that `setup-node` installed
+          # and the portable build is about to run. Deleting it frees several GB
+          # and breaks the next step.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost || true
+          rm -rf app/src-tauri/target/${{ matrix.target }}/release/bundle
+          df -h /
+
       # linuxdeploy is itself an AppImage and has to mount itself to run, and
       # ubuntu-22.04 ships FUSE 3 only — which is what `failed to run linuxdeploy`
       # was. This is the second half of the fix; the first is
