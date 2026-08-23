@@ -215,6 +215,19 @@ export const de = {
 	openFolder: () => 'Ordner öffnen',
 	scrubAgain: () => 'Neu beginnen',
 
+	diagnosticsTitle: () => 'Was dieser Rechner kann',
+	diagnosticsOk: () => 'Alles, was dieser Build braucht, ist vorhanden.',
+	diagnosticsFix: () => 'Abhilfe',
+	diagnosticsDegraded: () => 'findet weniger',
+	diagnosticsBroken: () => 'fehlt',
+	countryModelOnly: () => 'nur Modell',
+	rulesSilenced: ({ count }) =>
+		plural(L, count, {
+			one: '{n} Regel findet bei dieser Schwelle nichts ohne Schlüsselwort daneben.',
+			other: '{n} Regeln finden bei dieser Schwelle nichts ohne Schlüsselwort daneben.'
+		}),
+	placeholderExample: ({ example }) => `geschrieben als ${example}`,
+
 	/*
 	 * Die Typen bleiben allgemein: die Engine setzt das Land auf den Fund und nie
 	 * in den Typ, weil ein Stamm für zwölf Länder steht und ein nationaler Name

@@ -5,6 +5,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import Callout from '$lib/components/Callout.svelte';
 	import AdvancedPanel from './AdvancedPanel.svelte';
+	import Diagnostics from './Diagnostics.svelte';
 
 	const m = $derived(i18n.m);
 	let heading: HTMLHeadingElement | undefined = $state();
@@ -71,6 +72,10 @@
 	it. Same component, same state: the two are one panel in two places.
 -->
 <div class="advanced">
+	<!-- What this machine can do, with the engine's own fix beside each thing it
+	     cannot. Every `Check.fix` was written to be read by a person and until now
+	     only a terminal could show one. -->
+	<Diagnostics />
 	<AdvancedPanel />
 </div>
 

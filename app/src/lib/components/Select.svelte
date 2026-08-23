@@ -9,6 +9,12 @@
 		hint?: string;
 		inline?: boolean;
 		disabled?: boolean;
+		/**
+		 * For a choice whose consequence is not local — one that has to be sent to
+		 * the engine before the window can say what it did. Two-way binding alone
+		 * would leave the caller watching the value it already owns.
+		 */
+		onchange?: (value: string) => void;
 	}
 
 	let {
@@ -17,7 +23,8 @@
 		label,
 		hint,
 		inline = false,
-		disabled = false
+		disabled = false,
+		onchange
 	}: Props = $props();
 </script>
 
@@ -29,7 +36,14 @@
 -->
 <Field {label} {hint} {inline}>
 	{#snippet children({ id, describedBy })}
-		<select {id} class="select" aria-describedby={describedBy} {disabled} bind:value>
+		<select
+			{id}
+			class="select"
+			aria-describedby={describedBy}
+			{disabled}
+			bind:value
+			onchange={() => onchange?.(value)}
+		>
 			{#each options as option (option.value)}
 				<option value={option.value}>{option.label}</option>
 			{/each}

@@ -37,19 +37,37 @@ from typing import Any, TextIO
 from .core.errors import MissingDependency
 from .core.findings import EntityType
 from .core.overrides import Override, StaleOverride, parse_override
-from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, REPORT_ONLY, Action, Policy
+from .core.policy import (
+    DEFAULT_LOCALE,
+    PLACEHOLDER_LOCALES,
+    REPORT_ONLY,
+    Action,
+    Policy,
+    SurrogateAllocator,
+    placeholder_labels,
+)
 from .detect.llm_review import (
     DEFAULT_HOST as REVIEW_HOST,
 )
 from .detect.llm_review import (
+    MAX_REVIEW_CHARS,
     LlmReviewer,
     RemoteHostRefused,
     available_models,
 )
 from .detect.validators import SUPPORTED_COUNTRIES
+from .diagnostics import run_checks
 from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
 from .formats.router import UnsupportedFormat, handler_for
-from .pipeline import LAYER_SPECS, Extraction, Scrubber, build_registry, default_registry
+from .pipeline import (
+    LAYER_SPEC_NOTES,
+    LAYER_SPECS,
+    Extraction,
+    Scrubber,
+    build_registry,
+    country_coverage,
+    default_registry,
+)
 from .report import CAVEATS, build_report
 from .verify import LeakDetected
 
@@ -215,8 +233,59 @@ class Session:
             # The default the app should prefill, sent rather than hardcoded there:
             # where Ollama lives is a judgement, and the app holds no judgements.
             "review_host": REVIEW_HOST,
+            # How much of a document the reviewer reads. Sent because it is the
+            # only thing that makes `review.partial` explicable: without it the
+            # window can report "first part only" and not say what part.
+            "review_max_characters": MAX_REVIEW_CHARS,
+            "preview_max_characters": MAX_PREVIEW_CHARS,
+            # A new field rather than richer `detector_specs` entries: changing
+            # the element type of a published list is not an additive change.
+            "detector_spec_notes": dict(LAYER_SPEC_NOTES),
             "caveats": list(CAVEATS),
         }
+
+    def doctor(self, params: dict[str, Any]) -> dict[str, Any]:
+        """What this machine can actually do, and how to fix what it cannot.
+
+        Every `Check` carries a `fix` written to be shown to a person, and until
+        now the only person who could see one was in a terminal. Cheap to ask:
+        the checks use ``find_spec`` and never import the model.
+
+        One honesty defect, named rather than papered over: the fixes say
+        ``uv sync --extra ner``, which means nothing inside a packaged app. They
+        are still rendered verbatim, because inventing a second set of strings
+        would be two answers to one question; making them aware of
+        ``sys.frozen`` is a follow-up with a test of its own.
+        """
+        checks = run_checks(str(params.get("review_host") or REVIEW_HOST))
+        return {
+            "version": _version(),
+            "ok": all(check.ok for check in checks if check.required),
+            "checks": [
+                {
+                    "name": check.name,
+                    "ok": check.ok,
+                    "detail": check.detail,
+                    "fix": check.fix,
+                    "required": check.required,
+                    # Computed here because the CLI computes it too, from the
+                    # same property. A window deriving `not ok and not required`
+                    # itself would be the window holding a rule.
+                    "degraded": check.degraded,
+                }
+                for check in checks
+            ],
+        }
+
+    def countries(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Which countries get what, and what narrowing to some of them costs."""
+        selection = _countries_from(params)
+        confidence = params.get("min_confidence")
+        if confidence is None:
+            confidence = 0.5
+        if not isinstance(confidence, (int, float)) or not 0 <= float(confidence) <= 1:
+            raise RpcError(INVALID_REQUEST, "'min_confidence' must be between 0 and 1")
+        return country_coverage(selection, float(confidence))
 
     def review_models(self, params: dict[str, Any]) -> dict[str, Any]:
         """Which models one particular Ollama has pulled.
@@ -235,9 +304,19 @@ class Session:
             raise RpcError(INVALID_REQUEST, str(exc)) from exc
         return {"host": host, "models": models}
 
-    def entities(self) -> dict[str, Any]:
-        """Every entity type, and whether it is removed or only flagged."""
+    def entities(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Every entity type, whether it is removed, and what replaces it.
+
+        The placeholder is composed by the same allocator that writes the
+        document, so a preview of `[PERSONA_1]` cannot disagree with the
+        `[PERSON_1]` the file ends up with. Before this the window could offer a
+        locale and show only its ISO code, which tells the reader nothing about
+        what the choice does.
+        """
+        locale = _locale_from(params or {})
+        labels = placeholder_labels(locale)
         return {
+            "placeholder_language": locale,
             "entities": [
                 {
                     "name": entity.value,
@@ -245,9 +324,10 @@ class Session:
                         Action.REPORT.value if entity in REPORT_ONLY else Action.REDACT.value
                     ),
                     "report_only": entity in REPORT_ONLY,
+                    "placeholder": SurrogateAllocator(labels).placeholder_for(entity, "example"),
                 }
                 for entity in EntityType
-            ]
+            ],
         }
 
     def inspect(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -299,6 +379,14 @@ class Session:
                     "action": policy.action_for(finding).value,
                     "confidence": round(finding.confidence, 3),
                     "detector": finding.detector,
+                    # Which layer claimed it: L1 a checksum, L2 the model, H the
+                    # caller. The most useful thing on a row a person is judging,
+                    # and computed here rather than guessed from the detector
+                    # string — which is what the window was reduced to doing.
+                    "layer": finding.layer.value,
+                    # Reaches the report and never the placeholder. Without it a
+                    # narrowed country selection is unverifiable from the preview.
+                    "country": finding.country,
                     "part": stream.part_at(finding.span.start),
                     # The value itself: a preview that cannot show what is about
                     # to be removed is not a preview. See the module docstring on
@@ -459,6 +547,21 @@ def _policy_from(params: dict[str, Any]) -> Policy:
     minimum = params.get("min_confidence", 0.5)
     if not isinstance(minimum, (int, float)) or not 0.0 <= minimum <= 1.0:
         raise RpcError(INVALID_REQUEST, "'min_confidence' must be between 0 and 1")
+    return Policy(
+        overrides=overrides,
+        min_confidence=float(minimum),
+        placeholder_locale=_locale_from(params),
+    )
+
+
+def _locale_from(params: dict[str, Any]) -> str:
+    """The placeholder locale, validated once for every method that takes one.
+
+    Shared rather than copied: `entities` composes an example placeholder from
+    the same locale a scrub would write, so an unknown locale has to be the same
+    error in both places or the preview and the scrub disagree about what is
+    valid.
+    """
     locale = params.get("placeholder_language") or DEFAULT_LOCALE
     if locale not in PLACEHOLDER_LOCALES:
         raise RpcError(
@@ -466,9 +569,7 @@ def _policy_from(params: dict[str, Any]) -> Policy:
             f"unknown placeholder language {locale!r}; expected one of "
             f"{', '.join(PLACEHOLDER_LOCALES)}",
         )
-    return Policy(
-        overrides=overrides, min_confidence=float(minimum), placeholder_locale=str(locale)
-    )
+    return str(locale)
 
 
 def _override_from(params: dict[str, Any]) -> Override:
@@ -587,7 +688,9 @@ def _failure(path: Path, code: int, message: str, data: Any = None) -> dict[str,
 def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str, Any]]]:
     return {
         "capabilities": lambda _params: session.capabilities(),
-        "entities": lambda _params: session.entities(),
+        "entities": session.entities,
+        "doctor": session.doctor,
+        "countries": session.countries,
         "review_models": session.review_models,
         "inspect": session.inspect,
         "scrub": session.scrub,

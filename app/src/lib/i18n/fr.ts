@@ -218,6 +218,19 @@ export const fr = {
 	openFolder: () => 'Ouvrir le dossier',
 	scrubAgain: () => 'Recommencer',
 
+	diagnosticsTitle: () => 'Ce que cette machine sait faire',
+	diagnosticsOk: () => 'Tout ce qu\'il faut à cette version est présent.',
+	diagnosticsFix: () => 'Remède',
+	diagnosticsDegraded: () => 'trouve moins',
+	diagnosticsBroken: () => 'manquant',
+	countryModelOnly: () => 'modèle seulement',
+	rulesSilenced: ({ count }) =>
+		plural(L, count, {
+			one: '{n} règle ne trouve rien à ce seuil sans un mot-clé à côté.',
+			other: '{n} règles ne trouvent rien à ce seuil sans un mot-clé à côté.'
+		}),
+	placeholderExample: ({ example }) => `écrit comme ${example}`,
+
 	/*
 	 * Les types restent génériques : le moteur met le pays sur le résultat et
 	 * jamais dans le type, parce qu'un même intitulé couvre douze pays et qu'un

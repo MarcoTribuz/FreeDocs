@@ -771,3 +771,124 @@ def test_a_changed_file_is_read_again(session: Session, document: Path):
     )
     second = result_of(session, "inspect", path=str(document))
     assert second["characters"] != first["characters"]
+
+
+# -- what the window could not ask before -------------------------------------
+
+
+def test_inspect_says_which_layer_claimed_each_finding(session: Session, document: Path):
+    """A checksum, a model, or the caller. The window was reduced to guessing."""
+    result = result_of(session, "inspect", path=str(document), remove=["Scheda cliente"])
+    layers = {finding["text"]: finding["layer"] for finding in result["findings"]}
+    assert layers[CANARIES["IT_CODICE_FISCALE"]] == "L1"
+    assert layers["Scheda cliente"] == "H"
+
+
+def test_inspect_names_the_country_of_a_country_issued_identifier(session: Session, document: Path):
+    """One global algorithm settles an IBAN; a tax number belongs to somebody."""
+    findings = result_of(session, "inspect", path=str(document))["findings"]
+    by_text = {finding["text"]: finding["country"] for finding in findings}
+    assert by_text[CANARIES["IT_CODICE_FISCALE"]] == "it"
+    assert by_text[CANARIES["IBAN"]] is None
+
+
+def test_capabilities_says_how_much_text_the_reviewer_reads(session: Session):
+    """Without this, "first part of the document only" names no part."""
+    capabilities = result_of(session, "capabilities")
+    assert capabilities["review_max_characters"] > 0
+    assert capabilities["preview_max_characters"] > 0
+
+
+def test_every_detector_spec_is_explained(session: Session):
+    """A fourth spec must not ship as an opaque string in a menu."""
+    from freedocs.pipeline import LAYER_SPECS
+
+    capabilities = result_of(session, "capabilities")
+    assert set(capabilities["detector_spec_notes"]) == set(LAYER_SPECS)
+    assert set(capabilities["detector_specs"]) == set(LAYER_SPECS)
+
+
+def test_entities_shows_the_placeholder_a_locale_would_write(session: Session):
+    """Composed by the allocator that writes the file, so it cannot disagree."""
+    english = {
+        item["name"]: item["placeholder"] for item in result_of(session, "entities")["entities"]
+    }
+    italian = {
+        item["name"]: item["placeholder"]
+        for item in result_of(session, "entities", placeholder_language="it")["entities"]
+    }
+    assert english["PERSON"] == "[PERSON_1]"
+    assert italian["PERSON"] == "[PERSONA_1]"
+    # The country-issued types are deliberately not translated: one stem stands
+    # for twelve countries and a national name for it would be wrong on eleven.
+    assert italian["TAX_ID"] == "[TAX_ID_1]"
+
+
+def test_an_unknown_placeholder_language_is_a_request_error(session: Session):
+    assert error_of(session, "entities", placeholder_language="xx")["code"] == INVALID_REQUEST
+
+
+def test_doctor_reports_a_fix_for_every_failing_check(session: Session):
+    """`Check.fix` was written to be shown to a person and never could be."""
+    report = result_of(session, "doctor", review_host="http://127.0.0.1:1")
+    assert report["checks"], "a machine always has something to report"
+    names = {check["name"] for check in report["checks"]}
+    assert "OCR" in names
+    for check in report["checks"]:
+        assert check["degraded"] == (not check["ok"] and not check["required"])
+        if not check["ok"]:
+            # Either something to run, or a sentence saying what to install. What
+            # it must never be is a bare failure with no next step.
+            assert check["fix"] or check["detail"]
+
+
+def test_countries_says_which_ones_are_checksum_confirmed(session: Session):
+    """An undifferentiated list lets a reader believe a US SSN is confirmed."""
+    coverage = result_of(session, "countries")
+    by_code = {country["code"]: country for country in coverage["countries"]}
+    assert by_code["ch"]["checksum_confirmed"] is True
+    assert by_code["us"]["checksum_confirmed"] is False
+    assert by_code["us"]["detail"]
+    assert by_code["us"]["entities"] == []
+
+
+def test_countries_explains_what_a_narrowed_selection_costs(session: Session):
+    coverage = result_of(session, "countries", countries=["ch", "it"])
+    assert coverage["selected"] == ["ch", "it"]
+    assert "de" in coverage["excluded"]
+    assert "NOT being detected" in coverage["note"]
+
+
+def test_countries_publishes_the_confidence_table(session: Session):
+    """Asserted against the constants, so the table cannot drift from them."""
+    from freedocs.detect.validators import MEDIUM_CHECK, STRONG_CHECK, WEAK_CHECK
+
+    levels = {
+        level["name"]: level["value"]
+        for level in result_of(session, "countries")["confidence_levels"]
+    }
+    assert levels == {"strong": STRONG_CHECK, "medium": MEDIUM_CHECK, "weak": WEAK_CHECK}
+
+
+def test_a_raised_threshold_marks_the_rules_it_switches_off(session: Session):
+    """A threshold slider with nothing to see is a mystery control."""
+    low = result_of(session, "countries", min_confidence=0.4)
+    high = result_of(session, "countries", min_confidence=0.6)
+
+    def inert(coverage):
+        return {
+            rule["name"]
+            for country in coverage["countries"]
+            for rule in country["rules"]
+            if rule["inert_without_context"]
+        }
+
+    assert inert(low) == set()
+    assert inert(high), "raising the threshold has to silence the weak rules"
+
+
+def test_the_countries_command_and_the_rpc_answer_agree(session: Session):
+    """The CLI prints from the same function, so there is one answer."""
+    from freedocs.pipeline import country_coverage
+
+    assert result_of(session, "countries")["countries"] == country_coverage()["countries"]

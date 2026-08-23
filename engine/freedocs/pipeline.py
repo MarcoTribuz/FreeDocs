@@ -190,6 +190,117 @@ NO_NER_NOTE = (
 )
 
 
+#: What each layer name covers, in the words the report already uses. Published
+#: so a caller offering the choice can explain it instead of showing three
+#: opaque strings, and kept beside LAYER_SPECS so a fourth spec cannot ship
+#: unexplained — a test pins that the two agree.
+LAYER_SPEC_NOTES: dict[str, str] = {
+    "l1": (
+        "checksums only: identifiers, IBANs, card numbers and phone numbers. "
+        "Measured coverage of the removable entities in the corpus: 53.7%. Names, "
+        "organisations, locations and addresses are NOT detected"
+    ),
+    "ner": (
+        "the multilingual model only: names, organisations, locations, addresses "
+        "and job titles, with no checksum to confirm a structured claim"
+    ),
+    "all": (
+        "every layer, plus value propagation and the three correction passes. "
+        "Measured coverage of the removable entities in the corpus: 99.6%"
+    ),
+}
+
+
+def country_coverage(
+    countries: Sequence[str] | None = None, min_confidence: float = 0.5
+) -> dict[str, object]:
+    """What each country actually gets, and what narrowing to some of them costs.
+
+    Composed here rather than in the CLI or the RPC layer, because both need the
+    same answer and "supported" means two different things: twelve countries have
+    identifiers a checksum confirms, and the United States is in the list for its
+    numbering plan and the model alone. An undifferentiated list of chips lets a
+    reader believe a US social security number is checksum-confirmed, which is
+    exactly the misreading ``freedocs countries`` was written to prevent.
+
+    ``min_confidence`` is not applied to anything — it is used to say which rules
+    a threshold has switched off. A rule below the threshold is inert unless a
+    keyword is beside it, and that is the design; a slider over the threshold
+    with no way to see what it silenced is a mystery control.
+    """
+    from .detect.validators import (
+        MEDIUM_CHECK,
+        STRONG_CHECK,
+        SUPPORTED_COUNTRIES,
+        WEAK_CHECK,
+        build_rules,
+    )
+
+    try:
+        rules = build_rules()
+    except MissingDependency:
+        rules = []
+
+    selected = tuple(countries) if countries else None
+    out = []
+    for code in SUPPORTED_COUNTRIES:
+        own = [rule for rule in rules if rule.country == code]
+        out.append(
+            {
+                "code": code,
+                "selected": selected is None or code in selected,
+                # False for the United States, and the reason it is a separate
+                # field: its numbers have no check digit at all, so `stdnum`
+                # accepts 89% and 83% of random values of their shape.
+                "checksum_confirmed": bool(own),
+                "phone_plan": True,
+                "entities": sorted({rule.entity.value for rule in own}),
+                "rules": [
+                    {
+                        "name": rule.name,
+                        "entity": rule.entity.value,
+                        "confidence_without_context": rule.confidence_without_context,
+                        "needs_context": rule.confidence_without_context < 1.0,
+                        "inert_without_context": (rule.confidence_without_context < min_confidence),
+                    }
+                    for rule in own
+                ],
+                "detail": (None if own else "phone numbers and the NER layer only"),
+            }
+        )
+
+    return {
+        "default_min_confidence": 0.5,
+        "min_confidence": min_confidence,
+        "selected": list(selected) if selected else None,
+        "excluded": [code for code in SUPPORTED_COUNTRIES if selected and code not in selected],
+        # Said while the choice is being made, not afterwards in a report the
+        # reader has already decided is clean.
+        "note": narrowed_note(selected) if selected else None,
+        "confidence_levels": [
+            {
+                "name": "strong",
+                "value": STRONG_CHECK,
+                "accepts": "under 1% of format-plausible values",
+                "meaning": "redacted even with no keyword nearby",
+            },
+            {
+                "name": "medium",
+                "value": MEDIUM_CHECK,
+                "accepts": "1% to 5%",
+                "meaning": "redacted by default, dropped by any raised threshold",
+            },
+            {
+                "name": "weak",
+                "value": WEAK_CHECK,
+                "accepts": "over 5%",
+                "meaning": "found and reported, never redacted without a keyword nearby",
+            },
+        ],
+        "countries": out,
+    }
+
+
 def default_registry(countries: Sequence[str] | None = None) -> DetectorRegistry:
     """Every available layer, with any absence stated rather than hidden.
 

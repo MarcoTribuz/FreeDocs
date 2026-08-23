@@ -3,6 +3,7 @@
 	import { dropValue, isMine, session, toggleKeep, toggleSpan } from '$lib/app.svelte';
 	import { review } from '$lib/review.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
+	import { countryName } from '$lib/format';
 	import { categoryOf } from '$lib/entities';
 	import Badge from '$lib/components/Badge.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -30,15 +31,17 @@
 	/**
 	 * Which layer claimed it, said in words.
 	 *
-	 * Derived from the detector name because that is what the wire carries today.
-	 * The engine knows the layer outright — `Finding.layer` is L1, L2 or H — and
-	 * once that crosses the wire this stops being a guess about a string.
+	 * Read from `finding.layer`, which is the engine's own answer. This used to
+	 * be inferred from the shape of the detector string — a colon meant the model
+	 * — which was the window holding a rule about the engine's naming, and would
+	 * have started lying the moment a backend was renamed.
 	 */
 	const provenance = $derived.by(() => {
 		if (!finding) return '';
-		if (isMine(finding)) return m.foundByYou();
-		if (finding.detector.includes(':')) return m.foundByModel();
-		return m.foundByChecksum();
+		if (finding.layer === 'H') return m.foundByYou();
+		if (finding.layer === 'L2') return m.foundByModel();
+		if (finding.layer === 'L1') return m.foundByChecksum();
+		return m.foundBy({ detector: finding.detector });
 	});
 
 	const entityLabel = $derived(
@@ -74,6 +77,16 @@
 
 			<dt>{m.detailConfidence()}</dt>
 			<dd class="mono">{finding.confidence.toFixed(2)}</dd>
+
+			{#if finding.country}
+				<!-- The country lives on the finding and never in the type: one stem
+				     stands for twelve countries, so `[TAX_ID_1]` says nothing about
+				     whose number it was — and the placeholder must not, because that
+				     would hand the reader of the scrubbed text one more thing to
+				     re-identify with. Here, where nothing is written, it can be shown. -->
+				<dt>{m.countriesTitle()}</dt>
+				<dd>{countryName(finding.country, i18n.locale)}</dd>
+			{/if}
 
 			{#if finding.part}
 				<dt>{m.detailWhere()}</dt>

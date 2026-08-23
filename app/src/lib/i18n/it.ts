@@ -211,6 +211,19 @@ export const it = {
 	openFolder: () => 'Apri la cartella',
 	scrubAgain: () => 'Ricomincia',
 
+	diagnosticsTitle: () => 'Cosa può fare questa macchina',
+	diagnosticsOk: () => 'Tutto ciò che serve a questa build è presente.',
+	diagnosticsFix: () => 'Rimedio',
+	diagnosticsDegraded: () => 'trova meno',
+	diagnosticsBroken: () => 'manca',
+	countryModelOnly: () => 'solo modello',
+	rulesSilenced: ({ count }) =>
+		plural(L, count, {
+			one: '{n} regola non trova nulla a questa soglia senza una parola chiave vicina.',
+			other: '{n} regole non trovano nulla a questa soglia senza una parola chiave vicina.'
+		}),
+	placeholderExample: ({ example }) => `scritto come ${example}`,
+
 	/*
 	 * I tipi restano generici anche qui: il motore mette il paese sul finding e
 	 * mai nel tipo, perché uno stem sta per dodici paesi e un nome nazionale
