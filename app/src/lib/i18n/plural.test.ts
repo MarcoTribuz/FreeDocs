@@ -79,7 +79,18 @@ describe('the catalogues', () => {
 		announceFinishedWithFailures: { failed: 1, files: 3 },
 		errorUnsupportedFormat: { message: 'no handler for .zip' },
 		errorMissingComponent: { message: 'PyMuPDF is required' },
-		errorInFile: { file: 'contratto.docx', message: 'boom' }
+		errorInFile: { file: 'contratto.docx', message: 'boom' },
+		stepAnnounce: { position: 2, total: 3, name: 'Review' },
+		removeFile: { file: 'contratto.docx' },
+		reviewOf: { file: 'contratto.docx' },
+		findingCount: { count: 12 },
+		documentLabel: { file: 'contratto.docx' },
+		markName: { entity: 'Person', action: 'will be removed', kept: false },
+		skippedParagraphs: { count: 48 },
+		previewTruncated: { shown: 500000, total: 812345 },
+		foundBy: { detector: 'it_codice_fiscale' },
+		keepEveryOne: { entity: 'Place' },
+		verificationPassedHint: { checked: 9 }
 	};
 
 	for (const [name, catalogue] of catalogues) {

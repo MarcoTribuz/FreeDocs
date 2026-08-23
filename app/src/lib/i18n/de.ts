@@ -138,6 +138,83 @@ export const de = {
 	errorMissingComponent: ({ message }) => `Eine Komponente fehlt. ${message}`,
 	errorInFile: ({ file, message }) => `${file}: ${message}`,
 
+	stepsLabel: () => 'Schritte',
+	stepFile: () => 'Datei',
+	stepReview: () => 'Prüfen',
+	stepResult: () => 'Ergebnis',
+	stepAnnounce: ({ position, total, name }) => `Schritt ${position} von ${total}: ${name}`,
+	stepReviewLocked: () => 'Zuerst ein Dokument hinzufügen.',
+	stepResultLocked: () => 'Es wurde noch nichts bereinigt.',
+	filesTitle: () => 'Dokumente',
+	removeFile: ({ file }) => `${file} entfernen`,
+	clearFiles: () => 'alle entfernen',
+	back: () => 'Zurück',
+	continueToReview: () => 'Gefundenes prüfen',
+
+	reviewOf: ({ file }) => `Prüfung von ${file}`,
+	findingCount: ({ count }) =>
+		plural(L, count, { one: '{n} Wert gefunden', other: '{n} Werte gefunden' }),
+	documentLabel: ({ file }) => `Der aus ${file} gelesene Text, mit jedem Wert markiert`,
+	markName: ({ entity, action, kept }) =>
+		kept ? `${entity}, behalten` : `${entity}, ${action}`,
+	viewDocument: () => 'Dokument',
+	viewList: () => 'Liste',
+	onlyFindings: () => 'Nur das Gefundene',
+	wholeDocument: () => 'Ganzes Dokument',
+	skippedParagraphs: ({ count }) =>
+		plural(L, count, {
+			one: '{n} Absatz ohne Fund — zeigen',
+			other: '{n} Absätze ohne Fund — zeigen'
+		}),
+	previewTruncated: ({ shown, total }) =>
+		`Die ersten ${new Intl.NumberFormat(L).format(shown)} von ` +
+		`${new Intl.NumberFormat(L).format(total)} Zeichen. Alles darüber hinaus Gefundene ist ` +
+		'weiterhin aufgeführt und wird weiterhin entfernt.',
+	noPreview: () => 'Dieses Dokument hat keinen Text zu zeigen.',
+	keyboardHelp: () =>
+		'Pfeiltasten oder j und k wechseln zwischen den Werten. x behält den gewählten Wert ' +
+		'oder gibt ihn frei. a fügt einen übersehenen Wert hinzu. f zeigt oder verbirgt den ' +
+		'unberührten Text.',
+	filterByType: () => 'Typ',
+	allTypes: () => 'jeder Typ',
+	searchValues: () => 'Werte durchsuchen',
+	nothingForThisFilter: () => 'Kein Wert passt zu diesem Filter.',
+
+	detailNothingSelected: () => 'Nichts ausgewählt',
+	detailNothingSelectedHint: () =>
+		'Einen markierten Wert wählen, um zu sehen, wer ihn gefunden hat und wie sicher.',
+	detailType: () => 'Typ',
+	detailConfidence: () => 'Konfidenz',
+	detailFound: () => 'Gefunden von',
+	detailWhere: () => 'Wo',
+	detailAction: () => 'Was passiert',
+	detailKept: () => 'Sie haben entschieden, dieses Vorkommen zu behalten.',
+	foundByChecksum: () => 'eine Prüfsumme hat es bestätigt',
+	foundByModel: () => 'das Modell hat es erkannt',
+	foundByYou: () => 'Sie haben danach gefragt',
+	foundBy: ({ detector }) => `Regel: ${detector}`,
+	keepThisOccurrence: () => 'Dieses Vorkommen behalten',
+	stopKeeping: () => 'Doch entfernen',
+	keepEveryOne: ({ entity }) => `Jeden Eintrag "${entity}" im Dokument behalten`,
+
+	advancedTitle: () => 'Erweitert',
+	advancedHint: () =>
+		'Die Voreinstellungen suchen überall nach allem. Jede Einstellung hier kann die Suche ' +
+		'nur einschränken, und ein eingeschränkter Lauf sagt es im Ergebnis.',
+	detectorSpec: () => 'Erkennungsschichten',
+	detectorSpecHint: () =>
+		'Welche Schichten laufen. Weniger Schichten finden weniger; die Engine sagt, was jede ' +
+		'abdeckt.',
+
+	verificationPassed: () => 'Geprüft',
+	verificationPassedHint: ({ checked }) =>
+		plural(L, checked, {
+			one: 'Die Ausgabe wurde erneut geöffnet und durchsucht: {n} Wert ist weg.',
+			other: 'Die Ausgabe wurde erneut geöffnet und durchsucht: alle {n} Werte sind weg.'
+		}),
+	openFolder: () => 'Ordner öffnen',
+	scrubAgain: () => 'Neu beginnen',
+
 	/*
 	 * Die Typen bleiben allgemein: die Engine setzt das Land auf den Fund und nie
 	 * in den Typ, weil ein Stamm für zwölf Länder steht und ein nationaler Name

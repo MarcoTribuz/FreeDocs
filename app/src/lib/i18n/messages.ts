@@ -131,6 +131,68 @@ export interface Messages {
 	errorMissingComponent(a: { message: string }): string;
 	errorInFile(a: { file: string; message: string }): string;
 
+	// ---- the three steps ----------------------------------------------------
+	stepsLabel(): string;
+	stepFile(): string;
+	stepReview(): string;
+	stepResult(): string;
+	stepAnnounce(a: { position: number; total: number; name: string }): string;
+	stepReviewLocked(): string;
+	stepResultLocked(): string;
+	filesTitle(): string;
+	removeFile(a: { file: string }): string;
+	clearFiles(): string;
+	back(): string;
+	continueToReview(): string;
+
+	// ---- the review pane ----------------------------------------------------
+	reviewOf(a: { file: string }): string;
+	findingCount(a: { count: number }): string;
+	documentLabel(a: { file: string }): string;
+	/** The accessible name of one highlight: what it is, and what happens to it. */
+	markName(a: { entity: string; action: string; kept: boolean }): string;
+	viewDocument(): string;
+	viewList(): string;
+	onlyFindings(): string;
+	wholeDocument(): string;
+	skippedParagraphs(a: { count: number }): string;
+	previewTruncated(a: { shown: number; total: number }): string;
+	noPreview(): string;
+	keyboardHelp(): string;
+	filterByType(): string;
+	allTypes(): string;
+	searchValues(): string;
+	nothingForThisFilter(): string;
+
+	// ---- the detail panel ---------------------------------------------------
+	detailNothingSelected(): string;
+	detailNothingSelectedHint(): string;
+	detailType(): string;
+	detailConfidence(): string;
+	detailFound(): string;
+	detailWhere(): string;
+	detailAction(): string;
+	detailKept(): string;
+	foundByChecksum(): string;
+	foundByModel(): string;
+	foundByYou(): string;
+	foundBy(a: { detector: string }): string;
+	keepThisOccurrence(): string;
+	stopKeeping(): string;
+	keepEveryOne(a: { entity: string }): string;
+
+	// ---- advanced ----------------------------------------------------------
+	advancedTitle(): string;
+	advancedHint(): string;
+	detectorSpec(): string;
+	detectorSpecHint(): string;
+
+	// ---- the result --------------------------------------------------------
+	verificationPassed(): string;
+	verificationPassedHint(a: { checked: number }): string;
+	openFolder(): string;
+	scrubAgain(): string;
+
 	// ---- engine vocabulary: enumerable, so translated ----------------------
 	entity: Record<string, () => string>;
 	action: Record<'redact' | 'surrogate' | 'report' | 'keep', () => string>;

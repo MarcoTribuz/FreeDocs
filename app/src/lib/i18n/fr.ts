@@ -143,6 +143,81 @@ export const fr = {
 	errorMissingComponent: ({ message }) => `Un composant manque. ${message}`,
 	errorInFile: ({ file, message }) => `${file} : ${message}`,
 
+	stepsLabel: () => 'Étapes',
+	stepFile: () => 'Fichier',
+	stepReview: () => 'Relecture',
+	stepResult: () => 'Résultat',
+	stepAnnounce: ({ position, total, name }) => `Étape ${position} sur ${total} : ${name}`,
+	stepReviewLocked: () => "Ajoutez d'abord un document.",
+	stepResultLocked: () => "Rien n'a encore été nettoyé.",
+	filesTitle: () => 'Documents',
+	removeFile: ({ file }) => `Retirer ${file}`,
+	clearFiles: () => 'tout retirer',
+	back: () => 'Retour',
+	continueToReview: () => 'Relire ce qui a été trouvé',
+
+	reviewOf: ({ file }) => `Relecture de ${file}`,
+	findingCount: ({ count }) =>
+		plural(L, count, { one: '{n} valeur trouvée', other: '{n} valeurs trouvées' }),
+	documentLabel: ({ file }) => `Le texte extrait de ${file}, chaque valeur marquée`,
+	markName: ({ entity, action, kept }) => (kept ? `${entity}, gardée` : `${entity}, ${action}`),
+	viewDocument: () => 'Document',
+	viewList: () => 'Liste',
+	onlyFindings: () => 'Seulement ce qui a été trouvé',
+	wholeDocument: () => 'Tout le document',
+	skippedParagraphs: ({ count }) =>
+		plural(L, count, {
+			one: '{n} paragraphe sans rien — afficher',
+			other: '{n} paragraphes sans rien — afficher'
+		}),
+	previewTruncated: ({ shown, total }) =>
+		`Les ${new Intl.NumberFormat(L).format(shown)} premiers caractères sur ` +
+		`${new Intl.NumberFormat(L).format(total)}. Tout ce qui a été trouvé au-delà reste ` +
+		'listé, et reste supprimé.',
+	noPreview: () => "Ce document n'a pas de texte à montrer.",
+	keyboardHelp: () =>
+		'Les flèches ou j et k passent d\'une valeur à l\'autre. x garde ou relâche celle qui ' +
+		'est choisie. a ajoute une valeur manquée. f affiche ou masque le texte intact.',
+	filterByType: () => 'Type',
+	allTypes: () => 'tous les types',
+	searchValues: () => 'Chercher dans les valeurs',
+	nothingForThisFilter: () => 'Aucune valeur ne correspond à ce filtre.',
+
+	detailNothingSelected: () => 'Rien de sélectionné',
+	detailNothingSelectedHint: () =>
+		'Choisissez une valeur marquée pour voir ce qui l\'a trouvée et avec quelle confiance.',
+	detailType: () => 'Type',
+	detailConfidence: () => 'Confiance',
+	detailFound: () => 'Trouvée par',
+	detailWhere: () => 'Où',
+	detailAction: () => 'Ce qui se passe',
+	detailKept: () => 'Vous avez décidé de garder cette occurrence.',
+	foundByChecksum: () => 'une somme de contrôle l\'a confirmée',
+	foundByModel: () => 'le modèle l\'a reconnue',
+	foundByYou: () => 'vous l\'avez demandée',
+	foundBy: ({ detector }) => `règle : ${detector}`,
+	keepThisOccurrence: () => 'Garder cette occurrence',
+	stopKeeping: () => 'La supprimer finalement',
+	keepEveryOne: ({ entity }) => `Garder chaque ${entity} du document`,
+
+	advancedTitle: () => 'Avancé',
+	advancedHint: () =>
+		'Par défaut, tout est cherché partout. Chaque réglage ici ne peut que restreindre la ' +
+		'recherche, et une recherche restreinte le dit dans le résultat.',
+	detectorSpec: () => 'Couches de détection',
+	detectorSpecHint: () =>
+		'Quelles couches tournent. Moins de couches trouvent moins ; le moteur dit ce que ' +
+		'chacune couvre.',
+
+	verificationPassed: () => 'Vérifié',
+	verificationPassedHint: ({ checked }) =>
+		plural(L, checked, {
+			one: 'Le résultat a été réouvert et fouillé : {n} valeur a disparu.',
+			other: 'Le résultat a été réouvert et fouillé : les {n} valeurs ont disparu.'
+		}),
+	openFolder: () => 'Ouvrir le dossier',
+	scrubAgain: () => 'Recommencer',
+
 	/*
 	 * Les types restent génériques : le moteur met le pays sur le résultat et
 	 * jamais dans le type, parce qu'un même intitulé couvre douze pays et qu'un

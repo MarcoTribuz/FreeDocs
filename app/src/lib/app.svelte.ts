@@ -23,6 +23,7 @@ import {
 import { announce } from './announce.svelte';
 import { basename } from './format';
 import { i18n } from './i18n/index.svelte';
+import { resetReview } from './review.svelte';
 
 /**
  * The window's session: what the engine said, what the user picked, and the
@@ -39,7 +40,20 @@ import { i18n } from './i18n/index.svelte';
  * at import time. Fields of a reactive object stay live, and they stay
  * bindable, which is what `bind:value={session.reviewHost}` needs.
  */
+export type Step = 'file' | 'review' | 'result';
+
 export const session = $state({
+	/**
+	 * Which of the three steps is showing.
+	 *
+	 * Reachability is *not* stored beside it: a step the user cannot be on cannot
+	 * be the current one, and two sources for that fact is a window showing the
+	 * review screen with nothing to review. The page derives it.
+	 */
+	step: 'file' as Step,
+	/** Which document the review screen is looking at. */
+	activePath: null as string | null,
+
 	/** Why the engine did not start. Null when it did. */
 	engineProblem: null as string | null,
 	caps: null as Capabilities | null,
@@ -247,7 +261,44 @@ export function forgetModels(): void {
 
 export function addFiles(paths: string[]): void {
 	session.files = [...new Set([...session.files, ...paths])];
+	// Reviewing is the default, not a gate: the user lands on the preview and can
+	// scrub straight from it. Nobody is made to read anything.
+	if (!session.activePath) select(paths[0] ?? null);
+	if (paths.length) session.step = 'review';
 	for (const path of paths) void loadInspection(path);
+}
+
+/** Show one document in the review pane, dropping the previous selection. */
+export function select(path: string | null): void {
+	session.activePath = path;
+	resetReview();
+}
+
+export function removeFile(path: string): void {
+	session.files = session.files.filter((item) => item !== path);
+	delete session.inspections[path];
+	// The decisions went with the file. Keeping them would apply a span from a
+	// document nobody is looking at to whatever is opened next.
+	const { [path]: _keptSpans, ...spans } = session.keptSpans;
+	const { [path]: _values, ...values } = session.extraValues;
+	session.keptSpans = spans;
+	session.extraValues = values;
+	if (session.activePath === path) select(session.files[0] ?? null);
+	if (!session.files.length) session.step = 'file';
+}
+
+export function clearFiles(): void {
+	session.files = [];
+	session.inspections = {};
+	session.keptSpans = {};
+	session.extraValues = {};
+	session.results = [];
+	select(null);
+	session.step = 'file';
+}
+
+export function goTo(step: Step): void {
+	session.step = step;
 }
 
 export async function pickFiles(): Promise<void> {
@@ -265,7 +316,11 @@ export async function loadInspection(path: string): Promise<void> {
 			keepSpans: session.keptSpans[path] ?? [],
 			remove: session.extraValues[path] ?? [],
 			minConfidence: session.minConfidence,
-			countries: activeCountries()
+			countries: activeCountries(),
+			// The review pane renders the document, so it asks for it. Opt-in on the
+			// wire because this text contains the confidential values no layer
+			// detected, which is more than the findings alone.
+			includeText: true
 		});
 		session.inspections[path] = inspection;
 		// Nothing here moves focus, so without this the result of a decision is
@@ -389,6 +444,7 @@ export async function runScrub(): Promise<void> {
 			})
 		).results;
 
+		session.step = 'result';
 		const failed = session.results.filter((result) => !result.ok).length;
 		announce(
 			failed === 0

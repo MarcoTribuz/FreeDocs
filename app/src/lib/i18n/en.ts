@@ -136,6 +136,80 @@ export const en = {
 	errorMissingComponent: ({ message }) => `A component is missing. ${message}`,
 	errorInFile: ({ file, message }) => `${file}: ${message}`,
 
+	stepsLabel: () => 'Steps',
+	stepFile: () => 'File',
+	stepReview: () => 'Review',
+	stepResult: () => 'Result',
+	stepAnnounce: ({ position, total, name }) => `Step ${position} of ${total}: ${name}`,
+	stepReviewLocked: () => 'Add a document first.',
+	stepResultLocked: () => 'Nothing has been scrubbed yet.',
+	filesTitle: () => 'Documents',
+	removeFile: ({ file }) => `Remove ${file}`,
+	clearFiles: () => 'remove all',
+	back: () => 'Back',
+	continueToReview: () => 'Review what was found',
+
+	reviewOf: ({ file }) => `Reviewing ${file}`,
+	findingCount: ({ count }) =>
+		plural(L, count, { one: '{n} value found', other: '{n} values found' }),
+	documentLabel: ({ file }) => `The text extracted from ${file}, with every value marked`,
+	markName: ({ entity, action, kept }) => (kept ? `${entity}, kept` : `${entity}, ${action}`),
+	viewDocument: () => 'Document',
+	viewList: () => 'List',
+	onlyFindings: () => 'Only what was found',
+	wholeDocument: () => 'Whole document',
+	skippedParagraphs: ({ count }) =>
+		plural(L, count, {
+			one: '{n} paragraph with nothing found — show',
+			other: '{n} paragraphs with nothing found — show'
+		}),
+	previewTruncated: ({ shown, total }) =>
+		`Showing the first ${new Intl.NumberFormat(L).format(shown)} of ` +
+		`${new Intl.NumberFormat(L).format(total)} characters. Everything found beyond that ` +
+		'point is still listed, and still removed.',
+	noPreview: () => 'This document has no text to show.',
+	keyboardHelp: () =>
+		'Arrow keys or j and k move between values. x keeps or unkeeps the selected one. ' +
+		'a adds a value the detectors missed. f shows or hides the untouched text.',
+	filterByType: () => 'Type',
+	allTypes: () => 'every type',
+	searchValues: () => 'Search the values',
+	nothingForThisFilter: () => 'No value matches this filter.',
+
+	detailNothingSelected: () => 'Nothing selected',
+	detailNothingSelectedHint: () =>
+		'Pick a marked value to see what found it and how sure it is.',
+	detailType: () => 'Type',
+	detailConfidence: () => 'Confidence',
+	detailFound: () => 'Found by',
+	detailWhere: () => 'Where',
+	detailAction: () => 'What happens',
+	detailKept: () => 'You decided to keep this one.',
+	foundByChecksum: () => 'a checksum confirmed it',
+	foundByModel: () => 'the model recognised it',
+	foundByYou: () => 'you asked for it',
+	foundBy: ({ detector }) => `rule: ${detector}`,
+	keepThisOccurrence: () => 'Keep this occurrence',
+	stopKeeping: () => 'Remove it after all',
+	keepEveryOne: ({ entity }) => `Keep every ${entity} in the document`,
+
+	advancedTitle: () => 'Advanced',
+	advancedHint: () =>
+		'The defaults look for everything, everywhere. Every control here can only make the ' +
+		'search narrower, and a narrowed run says so in the result.',
+	detectorSpec: () => 'Detection layers',
+	detectorSpecHint: () =>
+		'Which layers run. Fewer layers find less; the engine states what each one covers.',
+
+	verificationPassed: () => 'Verified',
+	verificationPassedHint: ({ checked }) =>
+		plural(L, checked, {
+			one: 'The output was re-opened and searched: {n} value is gone.',
+			other: 'The output was re-opened and searched: all {n} values are gone.'
+		}),
+	openFolder: () => 'Open the folder',
+	scrubAgain: () => 'Start again',
+
 	/*
 	 * The engine's own type names, as words.
 	 *

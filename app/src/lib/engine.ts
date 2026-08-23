@@ -111,6 +111,39 @@ export interface HiddenItem {
 	detail: string;
 }
 
+/**
+ * Stage six, as a count.
+ *
+ * The output is re-opened, re-extracted with hidden parts included, and searched
+ * for every value that was supposed to be gone. `passed` false means nothing was
+ * written at all, so this is the one fact on the result screen worth its own
+ * line: a nearly-clean file is more dangerous than an obviously dirty one,
+ * because it gets sent.
+ */
+export interface Verification {
+	passed: boolean;
+	values_checked: number;
+	/** Too short to search for without matching ordinary text. */
+	values_too_short_to_check: number;
+	leaks: { entity: string; detector: string; occurrences: number }[];
+}
+
+/** The machine-readable summary. Counts and positions, never values. */
+export interface Report {
+	source: string;
+	format: string;
+	source_characters: number;
+	entities: Record<
+		string,
+		{ removed: number; reported: number; kept: number; countries?: string[] }
+	>;
+	totals: { removed: number; reported_only: number };
+	hidden_content_removed: HiddenItem[];
+	warnings: string[];
+	verification: Verification;
+	caveats: string[];
+}
+
 export interface ScrubResult {
 	path: string;
 	ok: boolean;
@@ -121,7 +154,7 @@ export interface ScrubResult {
 	hidden_removed?: HiddenItem[];
 	/** Null when no review was requested. */
 	review?: Review | null;
-	report?: unknown;
+	report?: Report;
 	error?: { code: number; message: string; data?: unknown };
 }
 
