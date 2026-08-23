@@ -1,0 +1,48 @@
+name: frontend
+
+# Its own workflow because of where the other two are aimed. `app.yml` builds
+# bundles and therefore deliberately does not run on a pull request — 8 minutes
+# on macOS, 13 on Linux, 26 on Windows — so a `npm test` step living in it
+# guards nothing until after a merge. `engine.yml` is the fast pull-request
+# gate, and it is Python: giving it a Node job would make every matrix entry
+# install npm to run the same checks three times.
+#
+# This is seconds, and it is the only thing standing behind the offset
+# arithmetic in `lib/highlight.ts` — where being wrong is silent, because a bad
+# offset does not throw, it highlights the wrong characters and then sends those
+# offsets back to the engine as a decision.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # Also the completeness test for the four message catalogues: each one is
+      # `satisfies Messages`, so a missing key and a misspelled extra one are
+      # both type errors rather than a hole somebody notices in the window.
+      - name: Type-check
+        run: npm run check
+
+      # Node only. No jsdom and no browser: what a browser would tell us is
+      # exactly what this suite does not claim to cover, and `tauri-driver`
+      # supports only Linux and Windows — the two platforms this app has been
+      # built for and never launched on.
+      - name: Test
+        run: npm test
