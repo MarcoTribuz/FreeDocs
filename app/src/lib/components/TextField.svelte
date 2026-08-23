@@ -11,6 +11,13 @@
 		inline?: boolean;
 		/** Enter is a submit in every one of this window's text fields. */
 		onEnter?: () => void;
+		/**
+		 * The input itself, for a caller that has to move focus into it — the
+		 * review screen's `a` shortcut. Exposed rather than looked up by id: an id
+		 * is generated inside `Field`, so a caller searching the DOM for it would
+		 * be reaching around the component that owns it.
+		 */
+		element?: HTMLInputElement;
 	}
 
 	let {
@@ -21,6 +28,7 @@
 		mono = false,
 		inline = false,
 		onEnter,
+		element = $bindable(),
 		...rest
 	}: Props = $props();
 </script>
@@ -29,6 +37,7 @@
 	{#snippet children({ id, describedBy })}
 		<input
 			{id}
+			bind:this={element}
 			type="text"
 			class="input"
 			class:mono
