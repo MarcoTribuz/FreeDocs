@@ -276,6 +276,16 @@ class PdfTextHandler(FormatHandler):
 
             self._add_page(builder, raw, part, page_index)
 
+            # Every page, not only the machine-read ones. Reporting only the OCR
+            # pages of a mixed document makes the bar fly through the
+            # born-digital pages and then appear to stall, which reads as a
+            # hang on the one stage that really does take minutes.
+            self.report_progress(
+                page_index + 1,
+                self._doc.page_count,
+                "read by OCR" if page_index + 1 in self.ocr_pages else "",
+            )
+
         if unreadable:
             raise ScannedPdfNotSupported(
                 f"{self.path.name} has no usable text layer on page(s) "

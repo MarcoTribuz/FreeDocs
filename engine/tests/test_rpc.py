@@ -753,9 +753,9 @@ def test_the_extraction_is_reused_across_inspections(session: Session, document:
     reads = []
     original = Scrubber.read
 
-    def counting(self, handler):
-        reads.append(handler.path)
-        return original(self, handler)
+    def counting(self, source, *args, **kwargs):
+        reads.append(source)
+        return original(self, source, *args, **kwargs)
 
     monkeypatch.setattr(Scrubber, "read", counting)
     result_of(session, "inspect", path=str(document))
@@ -892,3 +892,171 @@ def test_the_countries_command_and_the_rpc_answer_agree(session: Session):
     from freedocs.pipeline import country_coverage
 
     assert result_of(session, "countries")["countries"] == country_coverage()["countries"]
+
+
+# -- stage progress -----------------------------------------------------------
+
+
+def stages_of(out: io.StringIO) -> list[dict]:
+    return [
+        json.loads(line)["params"]
+        for line in out.getvalue().splitlines()
+        if line and json.loads(line).get("method") == "stage"
+    ]
+
+
+def run(requests: list[dict]) -> io.StringIO:
+    out = io.StringIO()
+    serve(
+        stdin=io.StringIO("\n".join(json.dumps(request) for request in requests)),
+        stdout=out,
+    )
+    return out
+
+
+def test_inspect_announces_its_stages(document: Path):
+    """Three, because an inspection stops after detection.
+
+    Reporting six and finishing at three would be a bar that stops halfway and
+    calls itself done.
+    """
+    out = run(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "inspect",
+                "params": {"path": str(document), "detectors": "l1"},
+            }
+        ]
+    )
+    stages = stages_of(out)
+    assert [item["stage"] for item in stages] == ["router", "extract", "detect"]
+    assert all(item["count"] == 3 for item in stages)
+    assert [item["index"] for item in stages] == [1, 2, 3]
+    assert all(item["id"] == 1 for item in stages)
+
+
+def test_a_scrub_announces_every_stage_in_order(document: Path, tmp_path: Path):
+    out = run(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "scrub",
+                "params": {
+                    "paths": [str(document)],
+                    "output_dir": str(tmp_path / "out"),
+                    "detectors": "l1",
+                },
+            }
+        ]
+    )
+    assert [item["stage"] for item in stages_of(out)] == [
+        "router",
+        "extract",
+        "detect",
+        "policy",
+        "write-back",
+        "verify",
+    ]
+
+
+def test_the_review_stage_is_only_counted_when_a_review_was_asked_for(
+    document: Path, tmp_path: Path, monkeypatch
+):
+    """A stepper drawn from a constant would show a step this run never runs."""
+    import freedocs.rpc as rpc_module
+
+    class FakeReviewer:
+        model = "stub"
+
+        def review_outcome(self, _text):
+            from freedocs.detect.llm_review import ReviewOutcome
+
+            return ReviewOutcome(model="stub", ran=True)
+
+    monkeypatch.setattr(rpc_module, "_reviewer_from", lambda _params: FakeReviewer())
+    out = run(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "scrub",
+                "params": {
+                    "paths": [str(document)],
+                    "output_dir": str(tmp_path / "out"),
+                    "detectors": "l1",
+                },
+            }
+        ]
+    )
+    stages = stages_of(out)
+    assert all(item["count"] == 7 for item in stages)
+    assert stages[-1]["stage"] == "review"
+
+
+def test_no_stage_notification_claims_a_percentage(document: Path, tmp_path: Path):
+    """The guard on the thing that must not be faked.
+
+    How long detection takes next to extraction on an unseen document is not a
+    fact the engine has, so there is no honest overall fraction and there must be
+    no field that looks like one.
+    """
+    out = run(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "scrub",
+                "params": {
+                    "paths": [str(document)],
+                    "output_dir": str(tmp_path / "out"),
+                    "detectors": "l1",
+                },
+            }
+        ]
+    )
+    for line in out.getvalue().splitlines():
+        if line:
+            assert "percent" not in line
+
+
+def test_a_pdf_reports_the_page_it_is_on(session: Session, tmp_path: Path):
+    """Pages are the real unit of the stage that can take minutes."""
+    pymupdf = pytest.importorskip("pymupdf")
+    path = tmp_path / "tre.pdf"
+    document = pymupdf.open()
+    for number in range(3):
+        page = document.new_page()
+        page.insert_text((72, 72), f"Pagina {number + 1}")
+    document.save(path)
+    document.close()
+
+    out = run(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "inspect",
+                "params": {"path": str(path), "detectors": "l1"},
+            }
+        ]
+    )
+    counted = [item for item in stages_of(out) if item.get("of")]
+    assert counted, "a PDF has pages to count"
+    assert counted[-1]["done"] == 3
+    assert all(item["of"] == 3 for item in counted)
+
+
+def test_the_stage_names_are_a_closed_vocabulary():
+    """The window translates these by key, so a rename is a visible change.
+
+    Not a style test: a stage whose name the catalogues have never heard of
+    renders as its wire string in the middle of a translated sentence.
+    """
+    from freedocs.pipeline import INSPECT_STAGES, REVIEW_STAGE, STAGES
+
+    assert STAGES == ("router", "extract", "detect", "policy", "write-back", "verify")
+    assert REVIEW_STAGE == "review"
+    assert set(INSPECT_STAGES) <= set(STAGES)

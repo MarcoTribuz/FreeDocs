@@ -223,6 +223,18 @@ export const en = {
 		}),
 	placeholderExample: ({ example }) => `written as ${example}`,
 
+	stage: {
+		router: () => 'choosing a reader',
+		extract: () => 'reading the document',
+		detect: () => 'looking for values',
+		policy: () => 'deciding',
+		'write-back': () => 'writing the copy',
+		verify: () => 'searching the copy',
+		review: () => 'second opinion'
+	},
+	stageOf: ({ name, index, count }) => `${name} — step ${index} of ${count}`,
+	stagePages: ({ done, of }) => `page ${done} of ${of}`,
+
 	/*
 	 * The engine's own type names, as words.
 	 *

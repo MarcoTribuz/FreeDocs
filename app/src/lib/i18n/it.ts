@@ -224,6 +224,18 @@ export const it = {
 		}),
 	placeholderExample: ({ example }) => `scritto come ${example}`,
 
+	stage: {
+		router: () => 'scelgo il lettore',
+		extract: () => 'leggo il documento',
+		detect: () => 'cerco i valori',
+		policy: () => 'decido',
+		'write-back': () => 'scrivo la copia',
+		verify: () => 'cerco nella copia',
+		review: () => 'seconda opinione'
+	},
+	stageOf: ({ name, index, count }) => `${name} — passo ${index} di ${count}`,
+	stagePages: ({ done, of }) => `pagina ${done} di ${of}`,
+
 	/*
 	 * I tipi restano generici anche qui: il motore mette il paese sul finding e
 	 * mai nel tipo, perché uno stem sta per dodici paesi e un nome nazionale

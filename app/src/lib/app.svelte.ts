@@ -9,6 +9,7 @@ import {
 	type Inspection,
 	type KeptSpan,
 	type Progress,
+	type Stage,
 	type RemovedValue,
 	type ScrubResult,
 	MISSING_DEPENDENCY,
@@ -77,6 +78,11 @@ export const session = $state({
 	/** The path being read, or 'scrub' during a run, or null. */
 	busy: null as string | null,
 	progress: null as Progress | null,
+	/**
+	 * Which stage of one file is running. Cleared when the run ends, because a
+	 * stale stage on screen is a claim that something is still happening.
+	 */
+	stage: null as Stage | null,
 	results: [] as ScrubResult[],
 	problem: null as string | null,
 
@@ -393,6 +399,7 @@ export async function loadInspection(path: string): Promise<void> {
 		fail(i18n.m.errorInFile({ file: basename(path), message: describe(error) }));
 	} finally {
 		session.busy = null;
+		session.stage = null;
 	}
 }
 
@@ -525,5 +532,6 @@ export async function runScrub(): Promise<void> {
 	} finally {
 		session.busy = null;
 		session.progress = null;
+		session.stage = null;
 	}
 }

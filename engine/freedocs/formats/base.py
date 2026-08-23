@@ -13,6 +13,7 @@ pptx and two flavours of PDF tractable.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -52,10 +53,31 @@ class FormatHandler(ABC):
         #: rather than being swallowed, so the report surfaces whatever lands
         #: here.
         self.warnings: list[str] = []
+        #: Where to report extraction progress, when anyone is listening.
+        self._progress: Callable[[int, int, str], None] | None = None
 
     def warn(self, message: str) -> None:
         if message not in self.warnings:
             self.warnings.append(message)
+
+    def set_progress(self, report: Callable[[int, int, str], None] | None) -> None:
+        """Take somewhere to report progress to, or nowhere.
+
+        The handler learns nothing about stages, notifications or JSON: it counts
+        the unit it actually has — pages, mostly — and the pipeline decides what
+        that means to a caller.
+        """
+        self._progress = report
+
+    def report_progress(self, done: int, of: int, detail: str = "") -> None:
+        """Say how far reading has got, when the handler can count it honestly.
+
+        Optional on purpose. A handler with no countable unit calls nothing
+        rather than inventing a denominator, and a caller that sees no counts
+        knows only that the stage is running — which is the truth.
+        """
+        if self._progress is not None:
+            self._progress(done, of, detail)
 
     @classmethod
     def sniff(cls, path: Path, head: bytes) -> bool:

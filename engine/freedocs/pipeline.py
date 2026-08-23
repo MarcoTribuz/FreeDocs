@@ -17,7 +17,7 @@ must not leave a re-identification key in a live process.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -52,6 +52,9 @@ class Extraction:
     one occurrence would pay that again for a file that has not changed.
     """
 
+    #: The handler that read it, kept because write-back goes through the same
+    #: object: its parsed state is where the edits land.
+    handler: FormatHandler
     format_name: str
     stream: TextStream
     hidden: list[HiddenItem]
@@ -111,6 +114,44 @@ class ScrubResult:
 
 
 _REWRITING_ACTIONS = frozenset({Action.REDACT, Action.SURROGATE})
+
+
+#: The stages, in the order this module runs them.
+#:
+#: Published only through the events a run emits, never as a list a caller can
+#: draw a stepper from ahead of time: that stepper would be wrong for a run
+#: without a review and wrong for every inspection, which runs three of these.
+STAGES = ("router", "extract", "detect", "policy", "write-back", "verify")
+REVIEW_STAGE = "review"
+
+#: An inspection stops after detection. Reporting six stages and finishing at
+#: three would be a bar that stops halfway and calls itself done.
+INSPECT_STAGES = ("router", "extract", "detect")
+
+
+@dataclass(frozen=True)
+class StageEvent:
+    """Where a run has got to.
+
+    There is no ``percent`` field and there will not be one: how long detection
+    takes next to extraction on a document nobody has seen is not a fact this
+    module has. ``index``/``count`` counts *stages*, which is honest as such, and
+    the field names are what stop a consumer turning it into a time estimate by
+    accident.
+
+    ``done``/``of`` are set only where a stage has a real unit to count — pages,
+    so far — and left None elsewhere rather than filled with a guess.
+    """
+
+    stage: str
+    index: int
+    count: int
+    done: int | None = None
+    of: int | None = None
+    detail: str = ""
+
+
+ProgressFn = Callable[[StageEvent], None]
 
 
 #: Layer combinations addressable by name, for the CLI and the benchmark.
@@ -336,37 +377,90 @@ class Scrubber:
     #: is not a detector, and the registry has already resolved overlaps by the
     #: time a person has an opinion.
     overrides: Override = field(default_factory=Override)
+    #: Where to report stage progress. None means nobody is listening, which is
+    #: the CLI and every test: the callback is optional so adding it changed no
+    #: existing caller.
+    progress: ProgressFn | None = None
 
     def scrub_file(self, path: Path) -> ScrubResult:
-        return self.scrub(handler_for(path))
+        return self.scrub(path)
 
     def inspect_file(self, path: Path) -> Inspection:
-        return self.detect_in(self.read(handler_for(path)))
+        return self.detect_in(self.read(path))
 
-    def read(self, handler: FormatHandler) -> Extraction:
+    def _announce(
+        self,
+        plan: Sequence[str],
+        stage: str,
+        *,
+        done: int | None = None,
+        of: int | None = None,
+        detail: str = "",
+    ) -> None:
+        if self.progress is None:
+            return
+        self.progress(
+            StageEvent(
+                stage=stage,
+                index=plan.index(stage) + 1,
+                count=len(plan),
+                done=done,
+                of=of,
+                detail=detail,
+            )
+        )
+
+    def read(
+        self, source: Path | FormatHandler, plan: Sequence[str] = INSPECT_STAGES
+    ) -> Extraction:
         """Stages one and two: route and extract, hidden content included.
+
+        Takes a path as well as a handler, so that routing happens *inside* the
+        stage that reports it. A caller that opened the handler itself would be
+        doing the router's work and the run would report a stage it never ran.
 
         Separated from detection so the expensive half can be reused. Note the
         order: ``scrub_hidden`` runs *before* ``extract``, because a scan's OCR
         layer is itself invisible text and dropping hidden content afterwards
         would throw away what this pipeline can redact properly.
         """
-        hidden = handler.scrub_hidden()
-        stream = handler.extract()
+        if isinstance(source, Path):
+            self._announce(plan, "router")
+            handler = handler_for(source)
+        else:
+            handler = source
+
+        self._announce(plan, "extract")
+        handler.set_progress(
+            lambda done, of, detail: self._announce(
+                plan, "extract", done=done, of=of, detail=detail
+            )
+        )
+        try:
+            hidden = handler.scrub_hidden()
+            stream = handler.extract()
+        finally:
+            # The handler outlives this method — `scrub` writes back through it —
+            # and a callback left behind would report extraction progress during
+            # a later stage.
+            handler.set_progress(None)
+
         return Extraction(
+            handler=handler,
             format_name=handler.name,
             stream=stream,
             hidden=hidden,
             warnings=tuple(handler.warnings),
         )
 
-    def detect_in(self, extraction: Extraction) -> Inspection:
+    def detect_in(self, extraction: Extraction, plan: Sequence[str] = INSPECT_STAGES) -> Inspection:
         """Stage three plus the human's decisions, on text already extracted.
 
         One implementation, used by both the preview and the scrub. They used to
         be two, in two modules, which is how a preview comes to show findings the
         scrub that follows it does not agree with.
         """
+        self._announce(plan, "detect")
         text = extraction.stream.text
         findings = self.overrides.apply(text, self.registry.detect(text))
         return Inspection(
@@ -384,12 +478,19 @@ class Scrubber:
             ],
         )
 
-    def scrub(self, handler: FormatHandler) -> ScrubResult:
-        inspection = self.detect_in(self.read(handler))
+    def scrub(self, source: Path | FormatHandler) -> ScrubResult:
+        # Six stages, seven with a reviewer. The plan comes from this run rather
+        # than from a constant, so a caller drawing a stepper from it cannot show
+        # a review step for a run that has no reviewer.
+        plan = (*STAGES, REVIEW_STAGE) if self.reviewer is not None else STAGES
+
+        inspection = self.detect_in(self.read(source, plan), plan)
+        handler = inspection.extraction.handler
         stream = inspection.stream
         findings = inspection.findings
         hidden = inspection.extraction.hidden
 
+        self._announce(plan, "policy")
         allocator = SurrogateAllocator(placeholder_labels(self.policy.placeholder_locale))
         try:
             decisions = self._decide(findings, allocator)
@@ -398,10 +499,12 @@ class Scrubber:
                 for d in decisions
                 if d.replacement is not None
             ]
+            self._announce(plan, "write-back")
             output = handler.write_back(stream.plan_edits(edits))
         finally:
             allocator.close()
 
+        self._announce(plan, "verify")
         removed = [d.finding for d in decisions if d.action in _REWRITING_ACTIONS]
         verify = verify_output(
             type(handler),
@@ -423,13 +526,13 @@ class Scrubber:
             # handler warns during write-back too, and those are the warnings
             # that say a placeholder did not fit or a sheet was renamed.
             warnings=[*handler.warnings, *inspection.notes],
-            review=self._review(verify),
+            review=self._review(verify, plan),
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)
         return result
 
-    def _review(self, verify: VerifyResult) -> ReviewOutcome | None:
+    def _review(self, verify: VerifyResult, plan: Sequence[str] = STAGES) -> ReviewOutcome | None:
         """Ask the reviewer about the scrubbed text, if there is one to ask.
 
         Runs on the text ``verify`` already re-extracted from the output: that is
@@ -442,6 +545,7 @@ class Scrubber:
         """
         if self.reviewer is None or not verify.ok:
             return None
+        self._announce(plan, REVIEW_STAGE)
         return self.reviewer.review_outcome(verify.extracted)
 
     def _decide(self, findings: list[Finding], allocator: SurrogateAllocator) -> list[Decision]:

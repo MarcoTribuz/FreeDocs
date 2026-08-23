@@ -114,6 +114,10 @@ export interface Messages {
 	chooseOutputDirectory(): string;
 	progressLabel(): string;
 	progressFile(a: { file: string; index: number; total: number }): string;
+	/** Stage names: enumerable on the wire, so translated rather than quoted. */
+	stage: Record<string, () => string>;
+	stageOf(a: { name: string; index: number; count: number }): string;
+	stagePages(a: { done: number; of: number }): string;
 
 	// ---- what this machine can do ------------------------------------------
 	diagnosticsTitle(): string;
