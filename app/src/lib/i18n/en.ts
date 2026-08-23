@@ -20,6 +20,7 @@ export const en = {
 	ocrAvailable: () => 'OCR available',
 	ocrMissing: () => 'OCR not installed',
 	nothingLeaves: () => 'nothing leaves this machine',
+	modelBundled: () => 'model included',
 	ocrReasonTitle: () => 'Scanned pages cannot be read',
 	limitationsTitle: () => 'What this build is not detecting',
 	engineNotStarted: () => 'The engine did not start',

@@ -257,6 +257,12 @@ class Session:
             # first scan could not deliver.
             "ocr_available": ocr_unavailable_reason() is None,
             "ocr_unavailable_reason": ocr_unavailable_reason(),
+            # Whether the model travels with this build or is fetched on first
+            # use. Sent because the window cannot work it out: it is a property
+            # of how the app was packaged, and a portable copy that says
+            # "downloading" once would be a portable copy nobody trusts offline
+            # again. An enum, so the window translates it rather than quoting it.
+            "model_source": _model_source_kind(),
             # Offered so the app can present a real choice instead of a free-text
             # box that 404s. Empty when Ollama is not running, which is the
             # honest answer to "what can I review with".
@@ -282,11 +288,10 @@ class Session:
         now the only person who could see one was in a terminal. Cheap to ask:
         the checks use ``find_spec`` and never import the model.
 
-        One honesty defect, named rather than papered over: the fixes say
-        ``uv sync --extra ner``, which means nothing inside a packaged app. They
-        are still rendered verbatim, because inventing a second set of strings
-        would be two answers to one question; making them aware of
-        ``sys.frozen`` is a follow-up with a test of its own.
+        The fixes are ``sys.frozen``-aware: a packaged build has no virtualenv to
+        ``uv sync``, so those fixes become absent rather than being rewritten into
+        advice the engine cannot know is right — a portable zip is replaced, an
+        installer is reinstalled, and which one this is is not a fact in here.
         """
         checks = run_checks(str(params.get("review_host") or REVIEW_HOST))
         return {
@@ -536,6 +541,29 @@ def _supported_extensions() -> set[str]:
     from .formats.router import HANDLERS
 
     return {extension for handler in HANDLERS for extension in handler.extensions}
+
+
+def _model_source_kind() -> str:
+    """``"bundled"`` or ``"hub"`` — never the path.
+
+    A closed vocabulary, so the window translates it by key rather than quoting
+    it, which is the rule for anything that came from an enum. The directory
+    itself is deliberately not sent: it is a local filesystem path, it tells the
+    window nothing it can act on, and ``doctor`` is where a path belongs.
+
+    Reports what the loader *will* do, not what a previous run did. It asks the
+    same function the backend asks, so the answer cannot drift from the
+    behaviour — and it tolerates the refusal, because a misconfigured path must
+    still let ``capabilities`` answer. A window that cannot ask what this build
+    can do has no way to report that it is broken.
+    """
+    from .core.errors import ModelNotFound
+    from .detect.backends.gliner_backend import DEFAULT_MODEL, model_source
+
+    try:
+        return "hub" if model_source() == DEFAULT_MODEL else "bundled"
+    except ModelNotFound:
+        return "bundled"
 
 
 def _as_path(value: Any) -> Path:

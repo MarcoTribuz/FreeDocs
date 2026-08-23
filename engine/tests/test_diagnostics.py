@@ -92,3 +92,56 @@ def test_the_check_does_not_load_the_model():
     if not ner:
         pytest.skip("the NER extra is not installed in this environment")
     assert ner[0]._backend is None
+
+
+def test_a_packaged_build_does_not_advise_uv_sync(monkeypatch):
+    """Advice a user cannot act on is worse than no advice.
+
+    Inside a PyInstaller bundle there is no virtualenv to sync and no
+    `pyproject.toml` to sync it from. The fix becomes absent rather than being
+    rewritten, because what a packaged user should do depends on which build they
+    have — a portable zip is replaced, an installer is reinstalled — and the
+    engine does not know which one it is inside.
+    """
+    monkeypatch.setattr(diagnostics.sys, "frozen", True, raising=False)
+    for check in run_checks("http://127.0.0.1:11434"):
+        assert "uv sync" not in (check.fix or "")
+
+
+def test_a_checkout_still_advises_uv_sync(monkeypatch):
+    """The other direction, so the branch above cannot pass by saying nothing."""
+    monkeypatch.delattr(diagnostics.sys, "frozen", raising=False)
+    monkeypatch.setattr(diagnostics, "_module_present", lambda module: False)
+    fixes = [check.fix for check in run_checks("http://127.0.0.1:11434")]
+    assert any("uv sync" in (fix or "") for fix in fixes)
+
+
+def test_the_ner_check_reports_a_bundled_model_as_bundled(monkeypatch, tmp_path):
+    """Where the weights are is worth saying, and it is not "downloading"."""
+    from tests.test_portable import write_payload
+
+    if not diagnostics._module_present("gliner2"):
+        pytest.skip("the NER extra is not installed in this environment")
+    payload = write_payload(tmp_path / "ner-model")
+    monkeypatch.setenv("FREEDOCS_NER_MODEL", str(payload))
+    check = diagnostics._ner_check()
+    assert check.ok
+    assert "bundled" in check.detail
+
+
+def test_an_incomplete_bundled_model_fails_the_check(monkeypatch, tmp_path):
+    """`doctor` is where a truncated payload is meant to surface.
+
+    The alternative is the first document failing deep inside `from_pretrained`,
+    which reads as "this tool is broken" rather than "this copy is incomplete".
+    """
+    from tests.test_portable import write_payload
+
+    if not diagnostics._module_present("gliner2"):
+        pytest.skip("the NER extra is not installed in this environment")
+    payload = write_payload(tmp_path / "ner-model")
+    (payload / "model.safetensors").write_text("truncated", encoding="utf-8")
+    monkeypatch.setenv("FREEDOCS_NER_MODEL", str(payload))
+    check = diagnostics._ner_check()
+    assert not check.ok
+    assert check.fix

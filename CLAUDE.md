@@ -1157,3 +1157,85 @@ Only ever added, never removed.
   national name for it would be wrong on eleven.
 - Never claim the output is guaranteed clean. `report.CAVEATS` states the limits
   and should be updated as milestones change what is actually true.
+
+## The portable bundle
+
+A fourth artifact per platform: unzip and run, no installer, no network. Built by
+`app/packaging/portable.py` with `src-tauri/tauri.portable.conf.json` merged in,
+and **additive by construction** — `tauri.conf.json` is untouched, `env.BUNDLES`
+is untouched, and the portable CI steps are appended after the installer upload so
+a failure here cannot cost installers that already succeeded. Verify that claim by
+checking the `.dmg` is still a few hundred MB and not 1.5 GB, and that its
+`Contents/Resources` holds no `ner-model`; if it grew, the model resource leaked
+into the shared config. Verified after this landed: 366 MB, no `ner-model`. See `docs/portable.md`.
+
+**The whole design follows from one fact: `GLiNER2.from_pretrained` accepts a local
+directory.** Its `download_or_local` branches on `os.path.isdir`, so a portable
+copy ships the weights as five plain files and points at them — no HF cache, no
+redirected `HF_HOME`, no symlink farm (`snapshots/` is entirely symlinks into
+`blobs/`, which `upload-artifact` drops and Windows zip either fails on or
+duplicates). Because nothing is fetched, **the portable build needs no writable
+state at all**, which is what makes a read-only AppImage mount and a macOS `.app`
+non-problems. "Portable" reduces to resources resolved relative to the executable,
+which `resource_dir()` already does in all three shapes.
+
+**The engine is told, never asked.** `portable_env()` in `engine.rs` sets
+`FREEDOCS_NER_MODEL`, `FREEDOCS_TESSDATA`, `FREEDOCS_TESSERACT` and — only
+alongside a bundled model — `HF_HUB_OFFLINE`/`TRANSFORMERS_OFFLINE`. Only paths
+that exist are passed and an already-set variable is never overwritten, matching
+`FREEDOCS_ENGINE`. So an installer build's sidecar environment is unchanged. The
+offline pair is not belt-and-braces: without it an air-gapped machine spends a DNS
+timeout inside `from_pretrained` before reading weights it already has.
+
+**`model_source()` raises on a path it cannot load.** Falling back to the pinned
+repo id would be a silent 1.2 GB download on a networked machine and a 404 about a
+repository nobody named on an offline one. It is resolved per call, not at import:
+`load_backend` is `@cache`d, so a module-level `os.environ` read is taken once by
+whichever caller was first — the same trap `DEFAULT_LABELS` carries.
+
+**`FREEDOCS_TESSERACT` must also put its directory on `PATH`.** Nothing in the
+engine runs Tesseract; PyMuPDF does, by shelling out, and it resolves the binary
+through `PATH` with no argument for it — only for the language data. An override
+that merely satisfied `tesseract_binary()` would make `capabilities` promise OCR
+and then fail on the first scan, which is the bug that made
+`ocr_unavailable_reason()` the single authority. The binary is never bundled and
+cannot be; the `.traineddata` are.
+
+**A bundled payload can be incomplete in a way a downloaded one cannot** — a full
+disk, a stick pulled mid-write. `core/model_manifest.py` owns the format because
+`packaging/model.py` writes it and `diagnostics._weights()` reads it; sizes on
+every `doctor`, hashes only on request, because hashing 1.2 GB catches only bytes
+that changed without the length changing.
+
+**`doctor`'s fixes are `sys.frozen`-aware and become absent, not rewritten.** What
+a packaged user should do about a missing extra depends on which build they have —
+a portable zip is replaced, an installer reinstalled — and the engine does not know
+which it is inside. This closes the defect `rpc.doctor` used to admit in its own
+docstring.
+
+**The AppImage failure was FUSE.** `linuxdeploy` is itself an AppImage and must
+mount itself; `ubuntu-22.04` ships FUSE 3 only. `APPIMAGE_EXTRACT_AND_RUN=1` is the
+fix that needs no FUSE and survives a runner image change, so it comes before
+installing `libfuse2`. `NO_STRIP=true` is not caution: the spec sets `strip=False`
+because the engine speaks on stdout, and a `linuxdeploy` strip would undo that
+silently. The `.deb` step is left exactly as it was.
+
+**Windows WebView2 has no stable download URL.** The fixed-version package is
+published only under a per-version unguessable GUID and de-listed outside the two
+newest releases, so CI reads `WEBVIEW2_FIXED_RUNTIME_URL` (a repository variable)
+and skips when unset, with the build script saying so out loud. Hardcoding a URL is
+a 404 waiting to happen; the evergreen installer is no use because it installs.
+`adopt_bundled_webview()` runs at the top of `run()` and resolves `current_exe()`
+rather than `resource_dir()`, because the loader reads the variable when the
+builder creates the webview and `resource_dir()` needs a built `App`.
+
+**Theme and locale are deliberately not portable.** They live in `localStorage`,
+so in the webview profile under OS app-data. Redirecting that on macOS and Linux
+would mean replacing `localStorage` with a file, reintroducing the async read at
+boot that `theme.svelte.ts` exists to avoid — and with it the flash of the wrong
+theme. Two enum values are not worth that.
+
+**Licence: the model is Apache 2.0 and ungated**, so redistribution is permitted
+and one-way compatible with AGPL-3.0. `packaging/model.py` writes the licence text
+and a `NOTICE` beside the weights, generated by the script that produces the
+payload so the two cannot drift.

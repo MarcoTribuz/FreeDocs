@@ -24,6 +24,12 @@
 		<!-- The premise of the tool, stated where the capabilities are, because it
 		     is one: nothing here reaches a network. -->
 		<Badge tone="success">{m.nothingLeaves()}</Badge>
+		{#if session.caps.model_source === 'bundled'}
+			<!-- Only the bundled case. The engine decides which it is; reading the
+			     shape of a path here would be the window holding a rule about how
+			     the app was packaged. -->
+			<Badge tone="success">{m.modelBundled()}</Badge>
+		{/if}
 	</section>
 
 	{#if !session.caps.ocr_available && session.caps.ocr_unavailable_reason}

@@ -15,15 +15,28 @@ from __future__ import annotations
 
 import contextlib
 import io
+import os
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 
-from ...core.errors import MissingDependency
+from ...core.errors import MissingDependency, ModelNotFound
 from ..ner import RawEntity
 
-#: Roughly 1.2 GB, fetched to the Hugging Face cache on first use and never
-#: bundled. Pinned by name so an upgrade is a deliberate, re-benchmarked change.
+#: Roughly 1.2 GB, fetched to the Hugging Face cache on first use by an installed
+#: or installer build. Pinned by name so an upgrade is a deliberate,
+#: re-benchmarked change. A portable build carries the weights instead and names
+#: the directory in ``FREEDOCS_NER_MODEL``; see :func:`model_source`.
 DEFAULT_MODEL = "fastino/gliner2-privacy-filter-PII-multi"
+
+#: Set by the app when it finds a model beside the executable. The engine never
+#: works out on its own that it is portable — it is told, and only ever with a
+#: path that exists, which is the same rule ``_tessdata_candidates`` follows.
+MODEL_ENV = "FREEDOCS_NER_MODEL"
+
+#: What ``GLiNER2.from_pretrained`` opens first, so what makes a directory a
+#: model rather than a directory.
+_MODEL_MARKER = "config.json"
 
 #: Requested in the model's own vocabulary; mapped to EntityType afterwards.
 #: Phrases rather than bare tokens ("phone number", not "phone") because the
@@ -54,10 +67,43 @@ DEFAULT_LABELS: tuple[str, ...] = (
 MODEL_THRESHOLD = 0.2
 
 
+def model_source() -> str:
+    """The local directory to load from, or the repository id to download.
+
+    ``GLiNER2.from_pretrained`` takes either — its ``download_or_local`` branches
+    on ``os.path.isdir`` — which is what lets a portable build ship a flat
+    directory of weights and need no Hugging Face cache, no redirected ``HF_HOME``
+    and, because nothing is fetched, no writable state anywhere.
+
+    Resolved per call rather than read at import. ``load_backend`` is ``@cache``d,
+    so a module-level ``os.environ`` read would be taken once, by whichever caller
+    happened to be first, and would be invisible to a test that sets the variable
+    afterwards — the same trap ``DEFAULT_LABELS`` has.
+
+    Raises rather than falling back when the variable names something unusable:
+    see :class:`~freedocs.core.errors.ModelNotFound`.
+    """
+    configured = os.environ.get(MODEL_ENV)
+    if not configured:
+        return DEFAULT_MODEL
+    directory = Path(configured).expanduser()
+    if not (directory / _MODEL_MARKER).is_file():
+        # Not `!r`: `repr` of a Windows path doubles every backslash, so the
+        # message a user is meant to act on arrives full of `\\\\`.
+        raise ModelNotFound(
+            f"{MODEL_ENV} names {directory}, which holds no {_MODEL_MARKER}; "
+            "a bundled model directory is incomplete or the path is wrong"
+        )
+    return str(directory)
+
+
 @dataclass
 class GlinerBackend:
     name: str = "gliner2"
-    model_id: str = DEFAULT_MODEL
+    #: A factory, not a constant: the answer depends on the environment the
+    #: sidecar was started with, and a default evaluated at class-definition time
+    #: would freeze whatever was set when the module was first imported.
+    model_id: str = field(default_factory=model_source)
     requested_labels: tuple[str, ...] = DEFAULT_LABELS
     threshold: float = MODEL_THRESHOLD
     _model: object | None = field(default=None, init=False, repr=False)

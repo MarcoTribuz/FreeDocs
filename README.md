@@ -139,6 +139,10 @@ macOS, Linux and Windows on every push to `main`; macOS is the only one that has
 been launched by a human, so read "builds" and not "works" for the other two.
 → [packaging](docs/packaging.md)
 
+There is also a portable bundle per platform — unzip and run, no installer, no
+network, the 1.2 GB model carried inside it rather than downloaded on first use.
+It is 1405 MB for that reason. → [portable](docs/portable.md)
+
 ## What it finds
 
 | | |
@@ -267,11 +271,12 @@ milestone.
 
 </details>
 
-Known gaps, stated rather than hidden: no AppImage (the `.deb` builds, the
-AppImage step dies in `linuxdeploy`), no Intel macOS build (needs an Intel
-machine), no signed release yet, and torch is 501 MB of a 1.0 GB bundle that an
-ONNX export would mostly remove — after re-running the benchmark to prove the
-numbers hold.
+Known gaps, stated rather than hidden: no Intel macOS build (needs an Intel
+machine), no signed release yet, no Tesseract binary in the portable bundle (it
+cannot be — PyMuPDF shells out to it), and torch is 501 MB of a 1.0 GB bundle that
+an ONNX export would mostly remove — after re-running the benchmark to prove the
+numbers hold. The installer set still ships no AppImage; the portable build makes
+one.
 
 ## Contributing
 
