@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/MarcoTribuz/FreeDocs/security/advisories/new
+    about: A confidential value surviving a scrub, or anything writing values to disk. Private, and never with a real document attached.
+  - name: How it works, and what was measured
+    url: https://github.com/MarcoTribuz/FreeDocs/tree/main/docs
+    about: Architecture, the benchmark and its caveats, hidden content per format, CLI reference.

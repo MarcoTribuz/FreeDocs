@@ -1,0 +1,172 @@
+# Command line reference
+
+```bash
+cd engine
+uv sync --extra dev --extra pdf --extra ooxml --extra ner
+```
+
+Python 3.12 is what this is developed on; 3.10 is the declared floor and CI runs
+both. `--extra ner` fetches ~1.2 GB of model weights to the Hugging Face cache on
+first use. Without it everything still works on checksums alone, and **every
+report states that names, organisations, locations and addresses are not being
+detected** — a build that finds less has to say so.
+
+## `inspect` — report, write nothing
+
+```bash
+uv run freedocs inspect FILE [FILE ...] [--min-confidence F] [--detectors SPEC] [--countries CODES]
+```
+
+```console
+$ freedocs inspect examples/offerta-esempio.txt
+offerta-esempio.txt  [plaintext]  645 chars
+       31-52      ORGANISATION           redact    conf=0.94  via gliner2:organization
+       53-83      ADDRESS                redact    conf=0.61  via gliner2:address
+       89-104     COMPANY_ID             redact    conf=1.00  via ch-uid
+      115-135     ORGANISATION           redact    conf=1.00  via gliner2:organization
+      147-161     PERSON                 redact    conf=1.00  via gliner2:person
+      163-184     JOB_TITLE              report    conf=0.96  via gliner2:job title
+      192-225     EMAIL                  redact    conf=1.00  via email
+      236-252     PHONE                  redact    conf=1.00  via phonenumbers-international
+      299-310     VAT_ID                 redact    conf=1.00  via it-partita-iva-luhn11
+      340-356     TAX_ID                 redact    conf=1.00  via it-codice-fiscale-cin
+      379-405     IBAN                   redact    conf=1.00  via iban-mod97
+      435-446     PERSON                 redact    conf=1.00  via gliner2:person
+      448-469     JOB_TITLE              report    conf=0.97  via gliner2:job title
+      490-502     PERSON                 redact    conf=1.00  via gliner2:person
+```
+
+`redact` and `report` are the two policy actions: a `REPORT_ONLY` type is flagged
+and never deleted. `via` names the rule or the model label that nominated the
+span, which is how a surprising finding gets traced to one place.
+
+## `scrub` — write a scrubbed copy
+
+```bash
+uv run freedocs scrub FILE [FILE ...] -o DIR
+```
+
+| Flag | What it does |
+|---|---|
+| `-o, --output-dir DIR` | required; scrubbed copies keep their filename |
+| `--report PATH` | machine-readable JSON summary — counts and positions, never values |
+| `--min-confidence F` | ignore findings below this confidence (default 0.5) |
+| `--keep ENTITY` | leave an entity type untouched everywhere; repeatable |
+| `--placeholder-language {de,en,fr,it}` | language of the placeholder stems written into the output |
+| `--countries CODES` | e.g. `ch,it,de`; defaults to every supported country |
+| `--detectors SPEC` | `l1`, `ner`, `all`, `all:presidio` |
+| `--allow-leaks` | write the output even when verification finds a survivor |
+| `--review MODEL` | ask a local Ollama model to read the result — see [llm-review.md](llm-review.md) |
+| `--review-host URL` | which Ollama (default `http://127.0.0.1:11434`) |
+| `--review-remote` | permit a host that is not on this machine |
+
+Console output on a `.docx`:
+
+```console
+$ freedocs scrub examples/offerta-esempio.docx -o clean/
+offerta-esempio.docx  [docx]
+  removed:
+    ADDRESS                1
+    COMPANY_ID             1
+    EMAIL                  1
+    IBAN                   1
+    ORGANISATION           2
+    PERSON                 3
+    PHONE                  1
+    TAX_ID                 1
+    VAT_ID                 1
+  flagged for review: 2
+  hidden content removed:
+    docProps/thumbnail.jpeg page-thumbnail             rendered preview of the unredacted file
+    customXml/_rels/item1.xml.rels custom-xml-store           data store behind content controls
+    customXml/item1.xml custom-xml-store           data store behind content controls
+    customXml/itemProps1.xml custom-xml-store           data store behind content controls
+    docProps/core.xml metadata                   author, description, last editor, revision count
+    docProps/app.xml extended-metadata          template path, total editing time
+    word/document.xml revision-save-ids          3 rsid attribute(s) fingerprinting the editing session
+    word/settings.xml revision-save-id-table     10 recorded editing session(s)
+  verify: no leak: 12 distinct values checked against 564 characters of output
+  written: clean/offerta-esempio.docx
+```
+
+### Notes on three flags
+
+**`--countries` raises precision and can hide an identifier from a country you did
+not expect in the file**, so it is never required: leave it off and every
+supported country is looked for. A narrowed run says so in the report and in the
+window, because the output otherwise looks exactly like a full one.
+
+**`--placeholder-language` defaults to English** — `[PERSON_1]`, `[TAX_ID_1]` —
+because the reader of a scrubbed document is usually a language model and the stem
+is the only thing telling it what used to be there. Italian, German and French
+exist for a human audience. The country-issued types are not translated in any
+locale: one stem stands for twelve countries, and every national name for it would
+be wrong on eleven.
+
+**`--allow-leaks` is the one flag that turns off the safety net.** Without it a
+failed verification exits non-zero and writes nothing, which is deliberate: a file
+that is nearly clean is more dangerous than one that obviously is not, because it
+gets sent.
+
+## `entities`, `countries`, `doctor`
+
+```bash
+uv run freedocs entities     # the entity types this build detects
+uv run freedocs countries    # what each country actually gets
+uv run freedocs doctor       # what this machine can actually do
+uv run freedocs doctor --json --strict
+```
+
+```
+at  NATIONAL_ID, TAX_ID, VAT_ID          gb  NATIONAL_ID, TAX_ID, VAT_ID
+be  NATIONAL_ID, VAT_ID                  it  TAX_ID, VAT_ID
+ch  COMPANY_ID, NATIONAL_ID              nl  NATIONAL_ID, VAT_ID
+de  TAX_ID, VAT_ID                       pl  COMPANY_ID, NATIONAL_ID, VAT_ID
+es  COMPANY_ID, NATIONAL_ID              pt  NATIONAL_ID, TAX_ID
+fr  COMPANY_ID, NATIONAL_ID, TAX_ID, VAT_ID
+se  COMPANY_ID, NATIONAL_ID, VAT_ID
+us  phone numbers and the NER layer only
+```
+
+The United States is in the list with no checksum rules because neither of its
+numbers has a check digit — see [architecture.md](architecture.md#l1--validators-regex-nominates-checksum-decides).
+A test pins that so a second such case cannot appear silently.
+
+`doctor --strict` is off by default because a machine without Tesseract is a
+normal machine, and a health check that calls that an error teaches people to
+ignore it.
+
+## `benchmark`
+
+```bash
+uv run freedocs benchmark
+uv run freedocs benchmark --detectors "l1,all:gliner2,all:presidio"
+uv run freedocs benchmark --countries ch,it
+uv run freedocs benchmark --apply-min-confidence 0.5
+uv run freedocs benchmark --language it --language de
+uv run freedocs benchmark --corpus path/to/corpus
+```
+
+See [benchmark.md](benchmark.md) for what each figure means and what the corpus
+can and cannot show.
+
+## `review-models`
+
+```bash
+uv run freedocs review-models [--review-host URL] [--review-remote]
+```
+
+Lists what the local Ollama has pulled. Unreachable returns an empty list rather
+than raising — refused is loud, absent is quiet.
+
+## Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | done |
+| 2 | usage error, including an unknown detector spec or country code |
+| 3 | **verification found a surviving value; nothing was written for that file** |
+| 4 | the input cannot be processed correctly and the honest answer is to refuse: unsupported format, a scanned PDF with no OCR available, a missing optional dependency |
+
+Code 3 is the one to wire into a script. It means the tool did the work, checked
+its own output, and refused to hand back a file it could not vouch for.

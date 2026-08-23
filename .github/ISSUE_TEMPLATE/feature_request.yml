@@ -1,0 +1,52 @@
+name: Feature request
+description: A format, an identifier, a country, a detector, or something in the window
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Several things here were measured and deliberately **not** built — a
+        labelled-field extractor, special-category detection, chunk-artifact
+        rejection, a currency suppression rule. [docs/benchmark.md](../blob/main/docs/benchmark.md)
+        lists them with the numbers, so an idea that looks missing may already have
+        an answer.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What a real document does today that this would fix. A concrete case beats a category.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would add
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - a new format
+        - an identifier or a country
+        - the detection layers
+        - the desktop app
+        - the CLI or the RPC protocol
+        - documentation
+        - other
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: How it could be measured
+      description: |
+        Detection changes are judged on the corpus: coverage and over-redaction, and
+        three entities is the noise floor. If you can describe the synthetic document
+        that would show the gap, say so here — that document is usually the first
+        commit.
