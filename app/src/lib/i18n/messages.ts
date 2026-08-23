@@ -48,6 +48,13 @@ export interface Messages {
 	ocrAvailable(): string;
 	ocrMissing(): string;
 	nothingLeaves(): string;
+	/**
+	 * Shown only when the weights travel with the build. There is no counterpart
+	 * for the ordinary case: a badge on every installer run saying the model will
+	 * be downloaded is noise, and this one is worth its space because it is what
+	 * makes the offline claim beside it true on first use too.
+	 */
+	modelBundled(): string;
 	ocrReasonTitle(): string;
 	limitationsTitle(): string;
 	engineNotStarted(): string;

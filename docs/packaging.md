@@ -6,7 +6,17 @@ uv run --with pyinstaller python packaging/build.py   # -> engine/dist/freedocs-
 cd ../app && CI=true npm run tauri build              # -> .app and .dmg
 ```
 
-Result on the machine this was developed on: a 1.0 GB `.app` and a 325 MB `.dmg`.
+Result on the machine this was developed on: a 1.1 GB `.app` and a 366 MB `.dmg`.
+
+Those were 1.0 GB and 325 MB before anyone downloaded Tesseract language data.
+The spec folds `engine/models/tessdata` into the sidecar whenever it exists, so
+143 MB of `.traineddata` is now inside — on this machine. CI never fetches them,
+so a CI installer is still the smaller pair. Two figures for one artifact is
+awkward and it is the truth: the number depends on what is in `engine/models/`.
+
+There is a fourth artifact per platform that installs nothing and needs no
+network, built by its own script and never by editing anything here.
+→ [portable](portable.md)
 
 **One directory, not one file.** A one-file bundle unpacks half a gigabyte of
 torch to a temporary directory on every launch. `tauri.conf.json` ships it as a
@@ -31,10 +41,24 @@ demands a `PERSON` finding. Anything imported inside a function needs
 cache on first use) and Tesseract. Both absences are reported through
 `capabilities`, so the app says so rather than failing mysteriously.
 
+That stays true of the installers, and it is exactly what the portable bundle
+inverts: it carries the weights, which is why it is 1405 MB and why it is a
+separate build rather than a wider `tauri.conf.json`. Putting the model in the
+shared config would take the `.dmg` from 366 MB to about 1.5 GB to ship weights
+those builds already fetch on demand. Verified rather than assumed: the `.dmg`
+built after this landed is 366 MB and its `Contents/Resources` holds
+`freedocs-engine` and an icon, and no `ner-model`.
+
 The obvious size win is not taken yet: torch is 501 MB of the bundle, and the NER
 model would run under `onnxruntime` at roughly 15 MB. Exporting GLiNER2 to ONNX
 needs re-benchmarking to prove the published numbers still hold, so it is a
 measured optimisation rather than a refactor to do blind.
+
+A second, unverified one: `libtorch_cpu.dylib` is present twice, 320 MB each, at
+`_internal/` and `_internal/torch/lib/`. They are not byte-identical — the hashes
+differ, which is consistent with PyInstaller rewriting load paths in one copy — so
+whether both are actually needed at run time has *not* been established. Worth
+someone's afternoon, and not worth guessing at.
 
 ## Multi-platform status, honestly
 
@@ -48,15 +72,27 @@ and Windows.
 Two platforms are absent and the reasons differ:
 
 - **Linux ships a `.deb` and no AppImage.** The `.deb` bundles fine and the run
-  then dies in `failed to run linuxdeploy` with no diagnostic of its own.
+  then dies in `failed to run linuxdeploy` with no diagnostic of its own. The
+  portable build makes an AppImage by its own invocation, with the FUSE
+  workarounds the failure turned out to need — see [portable](portable.md). This
+  step is deliberately left as it was: the `.deb` is what it produces, and
+  widening it would put an untested AppImage in the installer set.
 - **Intel macOS is not built at all.** `macos-13` was retired and the job simply
   queued forever with no runner assigned — which looks exactly like a slow build —
   while the replacement `macos-15-intel` is a billed larger runner.
   Cross-compiling from arm64 would cover the Rust half and not the sidecar, so an
   Intel bundle needs an Intel machine.
 
-Both are gaps rather than decisions about who to support. Apple signing is opt-in
-through repository secrets; an unsigned build still works for testing.
+Both are gaps rather than decisions about who to support.
+
+**Nothing is signed, and nothing is set up to be.** The repository has no secrets
+at all, and `app.yml` deliberately sets no Apple signing variables: an unset
+secret does not arrive absent, it arrives as a set-and-empty variable, which
+`tauri build` reads as "sign this" and then dies in
+`security: SecKeychainItemImport`. Restoring signing means adding the certificate
+*and* those variables together, in that order. An earlier version of this
+paragraph claimed signing was opt-in through secrets and that an unsigned build
+still worked; neither was true.
 
 `macos-14` was working when it was replaced by `macos-15`. It is *deprecated*,
 which is the state `macos-13` was in shortly before it stopped being assigned

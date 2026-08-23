@@ -149,6 +149,39 @@ def test_capabilities_states_its_limitations(session: Session):
     assert isinstance(capabilities["ocr_available"], bool)
 
 
+def test_capabilities_says_whether_the_model_travels_with_the_build(session: Session):
+    """An enum, so the window translates it rather than quoting it.
+
+    The window cannot work this out: whether the weights are bundled or fetched
+    is a property of how the app was packaged. And it is not the path — a local
+    filesystem path tells the window nothing it can act on, and `doctor` is where
+    a path belongs.
+    """
+    assert result_of(session, "capabilities")["model_source"] == "hub"
+
+
+def test_capabilities_reports_a_bundled_model_as_bundled(session: Session, monkeypatch, tmp_path):
+    from .test_portable import write_payload
+
+    monkeypatch.setenv("FREEDOCS_NER_MODEL", str(write_payload(tmp_path / "ner-model")))
+    assert result_of(session, "capabilities")["model_source"] == "bundled"
+
+
+def test_a_misconfigured_model_still_lets_capabilities_answer(
+    session: Session, monkeypatch, tmp_path
+):
+    """A window that cannot ask what this build can do cannot report it is broken.
+
+    So the refusal is tolerated here and raised where it matters, at load. The
+    answer stays "bundled" rather than falling back to "hub", because a caller
+    that was handed a path is not going to download.
+    """
+    empty = tmp_path / "not-a-model"
+    empty.mkdir()
+    monkeypatch.setenv("FREEDOCS_NER_MODEL", str(empty))
+    assert result_of(session, "capabilities")["model_source"] == "bundled"
+
+
 def test_capabilities_names_the_host_it_would_review_against(session: Session):
     """The app prefills from this rather than keeping its own copy of the address."""
     capabilities = result_of(session, "capabilities")

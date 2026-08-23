@@ -148,6 +148,10 @@ der CI für macOS, Linux und Windows bei jedem Push auf `main` gebaut; macOS ist
 das einzige, das ein Mensch tatsächlich gestartet hat — für die anderen zwei lesen
 Sie also "baut" und nicht "funktioniert". → [Packaging](docs/packaging.md)
 
+Es gibt außerdem ein portables Bundle pro Plattform: entpacken und starten, ohne
+Installation und ohne Netz, mit dem 1,2-GB-Modell darin statt beim ersten Start
+geladen. Deshalb sind es 1405 MB. → [portable](docs/portable.md)
+
 ## Was es findet
 
 | | |
@@ -285,11 +289,13 @@ kein offener Meilenstein.
 
 </details>
 
-Bekannte Lücken, genannt statt versteckt: kein AppImage (das `.deb` baut, der
-AppImage-Schritt stirbt in `linuxdeploy`), kein Build für Intel-macOS (braucht
-einen Intel-Rechner), noch kein signiertes Release, und torch macht 501 MB eines
-1,0-GB-Bundles aus, das ein ONNX-Export größtenteils entfernen würde — nachdem der
-Benchmark erneut gelaufen ist und belegt, dass die Zahlen halten.
+Bekannte Lücken, genannt statt versteckt: kein Build für Intel-macOS (braucht
+einen Intel-Rechner), noch kein signiertes Release, keine Tesseract-Binary im
+portablen Bundle (die kann es nicht geben — PyMuPDF ruft sie als externen Prozess
+auf), und torch macht 501 MB eines 1,0-GB-Bundles aus, das ein ONNX-Export
+größtenteils entfernen würde — nachdem der Benchmark erneut gelaufen ist und
+belegt, dass die Zahlen halten. Die Installer enthalten weiterhin kein AppImage;
+der portable Build erzeugt eines.
 
 ## Mitmachen
 

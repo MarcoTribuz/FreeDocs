@@ -31,8 +31,44 @@ async fn engine_request(
         .map_err(|error| format!("the engine task failed: {error}"))?
 }
 
+/// Point WebView2 at a runtime shipped beside the executable, if there is one.
+///
+/// Windows only, and it has to happen here rather than in `setup`: the WebView2
+/// loader reads this variable when it creates the webview, which the builder below
+/// does, so a later assignment is a variable nobody reads. That also rules out
+/// `resource_dir()` — it needs a built `App` — which is the one reason this
+/// resolves its own path instead of sharing `engine::resource_root`.
+///
+/// The runtime is what makes a portable Windows build work on a machine that
+/// installed nothing. Without it the window silently never opens, which is the
+/// least diagnosable failure this app has.
+#[cfg(windows)]
+fn adopt_bundled_webview() {
+    const VARIABLE: &str = "WEBVIEW2_BROWSER_EXECUTABLE_FOLDER";
+    if std::env::var_os(VARIABLE).is_some() {
+        return;
+    }
+    let Ok(executable) = std::env::current_exe() else {
+        return;
+    };
+    let Some(directory) = executable.parent() else {
+        return;
+    };
+    let runtime = directory.join("webview2");
+    // The loader wants the directory holding msedgewebview2.exe. A directory that
+    // exists but holds no runtime would make it fail rather than fall back to the
+    // installed one, so the check is for the executable and not the folder.
+    if runtime.join("msedgewebview2.exe").is_file() {
+        std::env::set_var(VARIABLE, runtime);
+    }
+}
+
+#[cfg(not(windows))]
+fn adopt_bundled_webview() {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    adopt_bundled_webview();
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())

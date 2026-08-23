@@ -16,9 +16,11 @@ capability already shipped once.
 from __future__ import annotations
 
 import importlib.util
+import os
 import platform
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 #: Declared floor in ``pyproject.toml``. CI runs this version and 3.12, so
 #: 3.11+ syntax is a build break rather than a style choice.
@@ -76,37 +78,97 @@ def _python_check() -> Check:
     )
 
 
+def _frozen() -> bool:
+    """Is this a PyInstaller bundle rather than a checkout?
+
+    Asked because it changes what advice is honest, not what is true. Every fix
+    below that names ``uv sync`` is an instruction to a developer standing in
+    ``engine/``; inside a packaged app there is no virtualenv to sync, no
+    ``pyproject.toml`` to read it from, and the user cannot act on it at all.
+    """
+    return bool(getattr(sys, "frozen", False))
+
+
+def _sync_fix(extra: str) -> str | None:
+    """``uv sync --extra <extra>``, or None where that would be nonsense.
+
+    None rather than a bundle-specific rewrite. What a user of a packaged build
+    should do about a missing extra depends on which build they have — a portable
+    zip is re-downloaded, an installer is reinstalled — and the engine does not
+    know which one it is inside. A missing fix renders as no advice; an invented
+    one renders as advice that fails.
+    """
+    return None if _frozen() else f"uv sync --extra {extra}"
+
+
 def _extra_check(name: str, module: str, extra: str, *, purpose: str) -> Check:
     present = _module_present(module)
     return Check(
         name=name,
         ok=present,
         detail=f"{module} available" if present else f"{module} missing, so {purpose}",
-        fix=None if present else f"uv sync --extra {extra}",
+        fix=None if present else _sync_fix(extra),
         required=False,
     )
 
 
+def _weights() -> tuple[bool, str, str | None]:
+    """Whether the weights are usable, how to say where they are, and any fix.
+
+    Two shapes, and the difference is worth reporting rather than flattening. An
+    installed build downloads on first use, so "not here yet" is normal and
+    nothing to report. A build that was handed a directory has weights that can
+    be *incomplete* — an unzip that ran out of disk, a stick pulled mid-write —
+    and that must surface here rather than as a document failing deep inside
+    ``from_pretrained``.
+
+    Sizes only, never hashes and never a load: a doctor that read 1.2 GB, or that
+    triggered the download it is reporting on, is a diagnostic nobody runs twice.
+    """
+    from .core.model_manifest import verify
+    from .detect.backends.gliner_backend import DEFAULT_MODEL, MODEL_ENV
+
+    configured = os.environ.get(MODEL_ENV)
+    if not configured:
+        return True, "weights are fetched to the Hugging Face cache on first use", None
+
+    directory = Path(configured).expanduser()
+    problems = verify(directory, repo=DEFAULT_MODEL)
+    if not problems:
+        return True, f"weights bundled in {directory}", None
+    # The first problem only. They cascade from one cause — a truncated copy
+    # reports every file after the truncation — and a doctor line that scrolls is
+    # a doctor line nobody reads to the end of.
+    return (
+        False,
+        f"the bundled model in {directory} is unusable: {problems[0]}",
+        "replace the model directory; this copy is incomplete",
+    )
+
+
 def _ner_check() -> Check:
-    """The layer, not the weights.
+    """The layer and the weights' *presence* — never the weights themselves.
 
     Deliberately does not load the model. The 1.2 GB download happens on first
     use and a doctor that triggered it would turn a diagnostic into a long
     surprise; ``freedocs benchmark`` is the command that proves the model works,
     because it proves it by measuring it.
     """
-    present = _module_present("gliner2") and _module_present("torch")
+    if not (_module_present("gliner2") and _module_present("torch")):
+        return Check(
+            name="NER layer",
+            ok=False,
+            detail="gliner2 or torch missing, so names, organisations, locations, "
+            "addresses and job titles are NOT detected",
+            fix=_sync_fix("ner"),
+            required=False,
+        )
+    usable, where, fix = _weights()
     return Check(
         name="NER layer",
-        ok=present,
-        detail=(
-            "gliner2 and torch available; model weights are fetched to the "
-            "Hugging Face cache on first use"
-            if present
-            else "gliner2 or torch missing, so names, organisations, locations, "
-            "addresses and job titles are NOT detected"
-        ),
-        fix=None if present else "uv sync --extra ner",
+        ok=usable,
+        detail=f"gliner2 and torch available; {where}",
+        fix=fix,
         required=False,
     )
 
@@ -126,7 +188,10 @@ def _ocr_check() -> Check:
     # is the whole value of the check: pip cannot install the binary and a
     # package manager will not put the .traineddata where a bundle looks.
     fix = (
-        "install the Tesseract binary with your package manager"
+        # Both routes, because a packaged build has no package manager. The
+        # binary cannot be bundled — PyMuPDF shells out to it — so a portable
+        # copy's only way to OCR is a binary the user supplies.
+        "install the Tesseract binary with your package manager, or point FREEDOCS_TESSERACT at one"
         if tesseract_binary() is None
         else "point FREEDOCS_TESSDATA at a directory of .traineddata files"
     )

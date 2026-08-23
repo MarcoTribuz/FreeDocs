@@ -122,6 +122,14 @@ def _tessdata_candidates() -> list[str]:
             os.environ.get("TESSDATA_PREFIX"),
             # Beside the executable, which is where a packaged build would put it.
             str(Path(sys.executable).resolve().parent / "tessdata"),
+            # And inside it, which is where PyInstaller actually puts it. The spec
+            # adds the `.traineddata` with destination "tessdata"; with no
+            # `contents_directory` set, PyInstaller 6 places datas under
+            # `_internal/`, so the candidate above looks one level too high. Both
+            # are listed rather than one being corrected, because the spec's
+            # layout is PyInstaller's to change and a directory with no
+            # `.traineddata` in it costs a `glob` to reject.
+            str(Path(getattr(sys, "_MEIPASS", sys.prefix)) / "tessdata"),
             str(_PROJECT_TESSDATA),
             *_SYSTEM_TESSDATA,
         )
@@ -138,8 +146,68 @@ def tesseract_binary() -> str | None:
     packaged build ships one of them: bundling the `.traineddata` files without
     checking for the binary made `capabilities.ocr_available` true on every
     machine, so the window promised OCR and the first scan failed.
+
+    ``FREEDOCS_TESSERACT`` wins when it names an executable file. A portable build
+    is the one shape that cannot rely on ``PATH``: it is unzipped onto a machine
+    that installed nothing, so this is how a caller supplies the half that cannot
+    be bundled. It is validated rather than trusted, because a path that does not
+    resolve must leave :func:`ocr_unavailable_reason` saying OCR is unavailable —
+    an override that could bypass that check would let the capability and the
+    refusal disagree, which is the bug this module already shipped once.
     """
-    return shutil.which("tesseract")
+    override = _adopted_override()
+    return override if override is not None else shutil.which("tesseract")
+
+
+def _is_executable(path: Path) -> bool:
+    """Can this file actually be run, asked the way each platform answers it.
+
+    ``os.access(path, os.X_OK)`` is the POSIX answer and is *not* an answer on
+    Windows, where it is true for any file that exists — execution there is
+    decided by the extension, not by a permission bit. Accepting whatever it said
+    would let a path pass validation here and fail inside PyMuPDF, which is the
+    one thing this module must not do; the Windows job caught it.
+    """
+    if not path.is_file():
+        return False
+    if os.name != "nt":
+        return os.access(path, os.X_OK)
+    # PATHEXT is what the shell itself consults. Split on a literal `;` and not
+    # `os.pathsep`: this branch is already the Windows one, where the two happen
+    # to agree, so `os.pathsep` reads as portable while being the separator of
+    # whatever host is running the code. That is exactly wrong for a test that
+    # exercises this branch from macOS — where it is `:`, and PATHEXT then never
+    # splits at all.
+    extensions = os.environ.get("PATHEXT") or ".COM;.EXE;.BAT;.CMD"
+    known = {part.strip().upper() for part in extensions.split(";") if part.strip()}
+    return path.suffix.upper() in known
+
+
+def _adopted_override() -> str | None:
+    """The overridden binary, with its directory put on ``PATH``.
+
+    The side effect is the point, and reporting the path without it would be the
+    lie this function exists to avoid: nothing here runs Tesseract.
+    :meth:`PdfTextHandler` asks PyMuPDF, PyMuPDF shells out, and it resolves
+    ``tesseract`` through ``PATH`` — it has no argument for the executable, only
+    for the language data. So an override that merely satisfied
+    :func:`ocr_unavailable_reason` would report OCR available and then fail on the
+    first scan, which is precisely the shape of the bug that made
+    ``ocr_unavailable_reason`` the single authority in the first place.
+
+    Idempotent: called from a getter that several callers reach on every page.
+    """
+    configured = os.environ.get("FREEDOCS_TESSERACT")
+    if not configured:
+        return None
+    candidate = Path(configured).expanduser()
+    if not _is_executable(candidate):
+        return None
+    directory = str(candidate.parent)
+    path = os.environ.get("PATH") or ""
+    if directory not in path.split(os.pathsep):
+        os.environ["PATH"] = f"{directory}{os.pathsep}{path}" if path else directory
+    return str(candidate)
 
 
 def ocr_unavailable_reason() -> str | None:

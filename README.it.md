@@ -146,6 +146,10 @@ in CI per macOS, Linux e Windows a ogni push su `main`; macOS è il solo che una
 persona abbia effettivamente lanciato, quindi per gli altri due leggi "si
 compila" e non "funziona". → [packaging](docs/packaging.md)
 
+C'è anche un bundle portable per piattaforma: si scompatta e si avvia, senza
+installazione e senza rete, con il modello da 1,2 GB dentro invece di scaricato al
+primo avvio. È per questo che pesa 1405 MB. → [portable](docs/portable.md)
+
 ## Cosa trova
 
 | | |
@@ -280,11 +284,12 @@ oltre è lavoro nuovo, non una milestone rimasta.
 
 </details>
 
-Lacune note, dichiarate invece di nascoste: nessun AppImage (il `.deb` si
-compila, il passo AppImage muore in `linuxdeploy`), nessuna build per macOS Intel
-(serve una macchina Intel), nessuna release firmata, e torch pesa 501 MB su un
-bundle da 1,0 GB che un export ONNX ridurrebbe in gran parte — dopo aver
-rieseguito il benchmark per dimostrare che i numeri tengono.
+Lacune note, dichiarate invece di nascoste: nessuna build per macOS Intel (serve
+una macchina Intel), nessuna release firmata, nessun binario Tesseract nel bundle
+portable (non può esserci: PyMuPDF lo invoca come processo esterno), e torch pesa
+501 MB su un bundle da 1,0 GB che un export ONNX ridurrebbe in gran parte — dopo
+aver rieseguito il benchmark per dimostrare che i numeri tengono. Gli installer
+continuano a non includere un AppImage; la build portable ne produce uno.
 
 ## Contribuire
 

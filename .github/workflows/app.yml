@@ -146,3 +146,79 @@ jobs:
             app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
             app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
           if-no-files-found: warn
+
+      # -- the portable bundle --------------------------------------------------
+      #
+      # Everything above is untouched, and that is the point: the installers are
+      # built exactly as they were, and these steps run afterwards on the sidecar
+      # and the frontend that build already produced. They are also placed after
+      # the upload above so a failure here cannot cost the installers that had
+      # already succeeded.
+      #
+      # A portable copy is unzipped onto a machine that installed nothing and may
+      # have no network, so it carries the 1.2 GB of model weights the installers
+      # fetch on first use.
+
+      # No download here: `Build the engine sidecar` above runs a smoke test that
+      # loads the model, so the weights are already in this runner's Hugging Face
+      # cache and this only dereferences them into a flat directory. That ordering
+      # is the reason the sidecar step did not have to change.
+      - name: Stage the NER model
+        working-directory: engine
+        run: uv run python packaging/model.py
+
+      # linuxdeploy is itself an AppImage and has to mount itself to run, and
+      # ubuntu-22.04 ships FUSE 3 only — which is what `failed to run linuxdeploy`
+      # was. This is the second half of the fix; the first is
+      # APPIMAGE_EXTRACT_AND_RUN, set by the build script, which needs no FUSE at
+      # all and so survives a runner image that stops carrying this package.
+      - name: AppImage prerequisites
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y libfuse2
+
+      # Windows portable needs a WebView2 runtime beside the executable, or the
+      # window silently never opens on a machine that has none — the least
+      # diagnosable failure this app has.
+      #
+      # The URL is a repository variable rather than a constant, and that is not
+      # laziness. Microsoft publishes the fixed-version runtime only as
+      # `.../filestreamingservice/files/<GUID>/Microsoft.WebView2.FixedVersionRuntime.<version>.x64.cab`,
+      # where the GUID is per version and unguessable, and it de-lists a version
+      # once it falls out of the two-newest-releases window. A hardcoded URL here
+      # would be a 404 waiting to happen, and the evergreen installer is no use
+      # because it installs. So: set `WEBVIEW2_FIXED_RUNTIME_URL` from the current
+      # link on https://developer.microsoft.com/microsoft-edge/webview2, and until
+      # then the zip is built without it and the build script says so out loud.
+      - name: Bundle the WebView2 runtime
+        if: runner.os == 'Windows' && vars.WEBVIEW2_FIXED_RUNTIME_URL != ''
+        working-directory: app/src-tauri
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "${{ vars.WEBVIEW2_FIXED_RUNTIME_URL }}" -OutFile runtime.cab
+          New-Item -ItemType Directory -Path extracted | Out-Null
+          expand.exe runtime.cab -F:* extracted
+          # The .cab unpacks to one versioned directory; its name carries the
+          # version, so it is discovered rather than spelled out.
+          $runtime = Get-ChildItem extracted -Directory | Select-Object -First 1
+          Move-Item $runtime.FullName webview2
+          Remove-Item runtime.cab, extracted -Recurse -Force
+          if (-not (Test-Path webview2/msedgewebview2.exe)) {
+            throw "the archive did not contain msedgewebview2.exe"
+          }
+
+      - name: Build the portable bundle
+        run: python app/packaging/portable.py
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: freedocs-portable-${{ matrix.target }}
+          path: |
+            app/dist-portable/*.zip
+            app/dist-portable/*.AppImage
+          # An artifact that should exist and does not is a broken build, not a
+          # warning: the installers above are allowed to be partial per platform,
+          # this is one file per job.
+          if-no-files-found: error
+          # Already compressed. Re-deflating 1.5 GB of incompressible weights
+          # costs minutes and saves nothing.
+          compression-level: 0

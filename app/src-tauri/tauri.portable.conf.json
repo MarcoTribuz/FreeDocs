@@ -1,0 +1,9 @@
+{
+  "$schema": "gen/schemas/desktop-schema.json",
+  "bundle": {
+    "resources": {
+      "../../engine/dist/freedocs-engine": "freedocs-engine",
+      "../../engine/models/ner": "ner-model"
+    }
+  }
+}

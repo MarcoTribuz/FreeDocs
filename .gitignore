@@ -21,6 +21,10 @@ app/dist/
 app/build/
 app/.svelte-kit/
 app/src-tauri/target/
+# The portable bundle and the WebView2 runtime it carries. Both are build output
+# and the runtime is 180 MB of Microsoft's, fetched per release rather than kept.
+app/dist-portable/
+app/src-tauri/webview2/
 app/src-tauri/gen/
 
 # The PyInstaller sidecar: ~650 MB, rebuilt per platform on the platform.

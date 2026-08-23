@@ -212,3 +212,22 @@ cd app && FREEDOCS_ENGINE=../engine/.venv/bin/freedocs-rpc npm run tauri dev
 **The engine is one long-lived process.** After editing `rpc.py` the running
 sidecar still has the old code, so restart the app rather than reloading the
 webview. And `cargo` is often absent from a non-interactive shell's PATH.
+
+## What the app tells the engine
+
+`locate()` is not the only thing `src-tauri/src/engine.rs` resolves from the
+resource directory. `portable_env()` builds the sidecar's environment from what is
+actually beside the app — `FREEDOCS_NER_MODEL`, `FREEDOCS_TESSDATA`,
+`FREEDOCS_TESSERACT`, and the offline pair `HF_HUB_OFFLINE` /
+`TRANSFORMERS_OFFLINE` — so a portable copy reads bundled weights instead of
+downloading them.
+
+This is not the app growing a rule. It holds no opinion about being portable and
+never works it out: it passes paths that exist and withholds paths that do not,
+which is the rule `_tessdata_candidates()` in the engine already followed. Every
+judgement about what those paths mean stays in Python. An already-set variable is
+never overwritten, so the `FREEDOCS_ENGINE` trick above has siblings — pointing
+`FREEDOCS_NER_MODEL` at a checkout's `engine/models/ner` works in `tauri dev`
+without building anything.
+
+Full layout, per platform, in [portable](portable.md).

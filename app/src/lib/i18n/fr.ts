@@ -26,6 +26,7 @@ export const fr = {
 	ocrAvailable: () => 'OCR disponible',
 	ocrMissing: () => 'OCR non installé',
 	nothingLeaves: () => 'rien ne quitte cette machine',
+	modelBundled: () => 'modèle inclus',
 	ocrReasonTitle: () => 'Les pages numérisées ne peuvent pas être lues',
 	limitationsTitle: () => 'Ce que cette version ne détecte pas',
 	engineNotStarted: () => "Le moteur n'a pas démarré",

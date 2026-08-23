@@ -31,6 +31,13 @@ export interface Capabilities {
 	 * the only question that follows.
 	 */
 	ocr_unavailable_reason: string | null;
+	/**
+	 * Whether the NER weights travel with this build or are fetched on first use.
+	 * An enum, so it is translated rather than quoted, and never a path: a local
+	 * filesystem path tells the window nothing it can act on. The window cannot
+	 * work this out — it is a property of how the app was packaged.
+	 */
+	model_source: 'bundled' | 'hub';
 	/** Countries whose identifiers this build knows. The engine's list, not ours. */
 	countries: string[];
 	/** Languages the placeholder stems come in, and the one used by default. */

@@ -1,0 +1,253 @@
+"""The portable build's contract with the engine: paths in, no network out.
+
+A portable copy is unzipped onto a machine that installed nothing, so everything
+here is about being *told* where things are rather than finding them. None of it
+needs the `ner` extra — the point is what happens before the model is loaded, and
+by the time loading matters the questions below have already been answered.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from pathlib import Path
+
+import pytest
+
+from freedocs.core.errors import ModelNotFound
+from freedocs.core.model_manifest import MANIFEST_NAME, REQUIRED_FILES, manifest_for, verify
+from freedocs.detect.backends.gliner_backend import (
+    DEFAULT_MODEL,
+    MODEL_ENV,
+    GlinerBackend,
+    model_source,
+)
+from freedocs.formats.pdf import _tessdata_candidates, ocr_unavailable_reason, tesseract_binary
+
+
+def write_payload(root: Path, *, repo: str = DEFAULT_MODEL) -> Path:
+    """A model directory shaped like the real one, with tiny files.
+
+    Contents rather than sizes are what makes this cheap: the checks under test
+    compare a file against its own recorded size, so a four-byte stand-in
+    exercises exactly the same path as 1.2 GB.
+    """
+    root.mkdir(parents=True, exist_ok=True)
+    for name in REQUIRED_FILES:
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"contents of {name}", encoding="utf-8")
+    manifest = manifest_for(root, list(REQUIRED_FILES), repo=repo)
+    (root / MANIFEST_NAME).write_text(json.dumps(manifest), encoding="utf-8")
+    return root
+
+
+# -- where the model comes from ------------------------------------------------
+
+
+def test_an_unset_variable_means_the_pinned_repository(monkeypatch):
+    monkeypatch.delenv(MODEL_ENV, raising=False)
+    assert model_source() == DEFAULT_MODEL
+
+
+def test_a_real_directory_is_used_verbatim(monkeypatch, tmp_path):
+    payload = write_payload(tmp_path / "ner-model")
+    monkeypatch.setenv(MODEL_ENV, str(payload))
+    assert model_source() == str(payload)
+
+
+def test_a_path_that_is_not_a_model_is_refused_rather_than_downloaded(monkeypatch, tmp_path):
+    """The one that matters.
+
+    Falling back to `DEFAULT_MODEL` here would turn a typo in a portable build
+    into a silent 1.2 GB download on a machine that has a network, and into a 404
+    about a repository nobody named on a machine that does not.
+    """
+    empty = tmp_path / "not-a-model"
+    empty.mkdir()
+    monkeypatch.setenv(MODEL_ENV, str(empty))
+    with pytest.raises(ModelNotFound) as caught:
+        model_source()
+    assert str(empty) in str(caught.value)
+
+
+def test_the_backend_resolves_the_source_per_instance(monkeypatch, tmp_path):
+    """Not at import, which is the trap `DEFAULT_LABELS` already carries.
+
+    `load_backend` is `@cache`d, so a module-level `os.environ` read would be
+    taken once by whichever caller happened to be first — and every test after
+    that one would silently assert about the wrong value.
+    """
+    payload = write_payload(tmp_path / "ner-model")
+    monkeypatch.setenv(MODEL_ENV, str(payload))
+    assert GlinerBackend().model_id == str(payload)
+    monkeypatch.delenv(MODEL_ENV)
+    assert GlinerBackend().model_id == DEFAULT_MODEL
+
+
+# -- is the payload actually all there ----------------------------------------
+
+
+def test_a_complete_payload_has_nothing_to_report(tmp_path):
+    payload = write_payload(tmp_path / "ner-model")
+    assert verify(payload, repo=DEFAULT_MODEL) == []
+
+
+def test_a_truncated_file_is_caught_by_size_alone(tmp_path):
+    """The failure a portable build has and a downloaded one does not.
+
+    An unzip that ran out of disk, or a stick pulled mid-write, leaves a file
+    that opens and is the wrong length. Without this the first symptom is a
+    document failing deep inside `from_pretrained`.
+    """
+    payload = write_payload(tmp_path / "ner-model")
+    weights = payload / "model.safetensors"
+    weights.write_text("t", encoding="utf-8")
+    problems = verify(payload, repo=DEFAULT_MODEL)
+    assert any("model.safetensors" in problem and "bytes" in problem for problem in problems)
+
+
+def test_a_file_edited_without_changing_length_needs_the_hash_check(tmp_path):
+    payload = write_payload(tmp_path / "ner-model")
+    config = payload / "config.json"
+    config.write_text("X" * len(config.read_text(encoding="utf-8")), encoding="utf-8")
+    assert verify(payload, repo=DEFAULT_MODEL) == []
+    assert verify(payload, repo=DEFAULT_MODEL, hashes=True) != []
+
+
+def test_a_missing_file_is_named(tmp_path):
+    payload = write_payload(tmp_path / "ner-model")
+    (payload / "tokenizer.json").unlink()
+    assert any("tokenizer.json" in problem for problem in verify(payload, repo=DEFAULT_MODEL))
+
+
+def test_a_payload_of_the_wrong_model_is_refused(tmp_path):
+    """A build and its weights have to agree on which model they are.
+
+    Two versions of this tool with different pins would otherwise happily load
+    each other's weights and report detection quality nobody has measured.
+    """
+    payload = write_payload(tmp_path / "ner-model", repo="someone/else")
+    assert any(DEFAULT_MODEL in problem for problem in verify(payload, repo=DEFAULT_MODEL))
+
+
+def test_a_missing_manifest_is_reported_and_not_assumed_fine(tmp_path):
+    bare = tmp_path / "ner-model"
+    bare.mkdir()
+    assert verify(bare, repo=DEFAULT_MODEL) != []
+
+
+# -- the halves of OCR a portable build cannot install ------------------------
+
+
+def test_the_tesseract_override_is_validated_not_trusted(monkeypatch, tmp_path):
+    """A path that does not resolve must leave the capability saying no.
+
+    `ocr_unavailable_reason` is the single authority precisely so the capability
+    the window shows and the refusal the engine raises cannot disagree. An
+    override that bypassed it would report OCR available and then fail on the
+    first scan.
+    """
+    monkeypatch.setenv("FREEDOCS_TESSERACT", str(tmp_path / "nowhere" / "tesseract"))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() is None
+    reason = ocr_unavailable_reason()
+    assert reason is not None and "executable" in reason
+
+
+def test_a_file_that_is_not_executable_does_not_count(monkeypatch, tmp_path):
+    """What "not executable" means differs, so the case has to differ with it.
+
+    On POSIX it is a cleared permission bit. On Windows there is no such bit —
+    `os.access(X_OK)` is true for anything that exists — and the shell decides by
+    extension, so the unrunnable file is one whose suffix is not in PATHEXT.
+    Asserting the POSIX case on Windows is what made this pass locally and fail
+    in CI.
+    """
+    if sys.platform == "win32":
+        fake = tmp_path / "tesseract.txt"
+        fake.write_text("not a program", encoding="utf-8")
+    else:
+        fake = tmp_path / "tesseract"
+        fake.write_text("#!/bin/sh\n", encoding="utf-8")
+        fake.chmod(0o644)
+    monkeypatch.setenv("FREEDOCS_TESSERACT", str(fake))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() is None
+
+
+def test_an_executable_override_is_adopted_and_put_on_path(monkeypatch, tmp_path):
+    """The `PATH` half is not decoration.
+
+    Nothing in this engine runs Tesseract: PyMuPDF does, by shelling out, and it
+    resolves the executable through `PATH` — it has an argument for the language
+    data and none for the binary. So an override that only satisfied
+    `tesseract_binary` would report OCR available and still fail.
+    """
+    binary = tmp_path / "bin" / ("tesseract.exe" if sys.platform == "win32" else "tesseract")
+    binary.parent.mkdir()
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    monkeypatch.setenv("FREEDOCS_TESSERACT", str(binary))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() == str(binary)
+    assert str(binary.parent) in os.environ["PATH"].split(os.pathsep)
+
+
+def test_the_pyinstaller_data_directory_is_a_tessdata_candidate(monkeypatch, tmp_path):
+    """The spec and the lookup used to disagree about one directory level.
+
+    `freedocs-engine.spec` adds the `.traineddata` with destination "tessdata",
+    and with no `contents_directory` set PyInstaller 6 puts datas under
+    `_internal/` — while the existing candidate looked beside the executable, one
+    level up. No build had shipped tessdata yet, so nothing had noticed.
+    """
+    meipass = tmp_path / "_internal"
+    monkeypatch.setattr("sys._MEIPASS", str(meipass), raising=False)
+    # Built with `Path`, not spelled with forward slashes: the candidates are
+    # native paths and `\` is the separator on the platform this has to pass on.
+    assert str(meipass / "tessdata") in _tessdata_candidates()
+
+
+def test_an_explicit_tessdata_choice_still_wins(monkeypatch):
+    monkeypatch.setenv("FREEDOCS_TESSDATA", "/chosen")
+    assert _tessdata_candidates()[0] == "/chosen"
+
+
+def test_windows_executability_is_the_extension_not_a_permission_bit(monkeypatch, tmp_path):
+    """The Windows branch, exercised on whatever platform runs this.
+
+    Otherwise the only thing covering it is the CI job that caught the original
+    mistake, and a rule about PATHEXT that is checked on one runner out of three
+    is a rule that breaks quietly.
+    """
+    from freedocs.formats.pdf import _is_executable
+
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setenv("PATHEXT", ".COM;.EXE;.BAT;.CMD")
+
+    runnable = tmp_path / "tesseract.exe"
+    runnable.write_text("MZ", encoding="utf-8")
+    assert _is_executable(runnable)
+
+    # The mistake a user actually makes: naming the POSIX binary on Windows.
+    bare = tmp_path / "tesseract"
+    bare.write_text("MZ", encoding="utf-8")
+    assert not _is_executable(bare)
+
+    assert not _is_executable(tmp_path / "absent.exe")
+
+
+def test_a_stripped_environment_still_has_a_pathext_answer(monkeypatch, tmp_path):
+    """No PATHEXT is a stripped environment, not a licence to accept anything."""
+    from freedocs.formats.pdf import _is_executable
+
+    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.delenv("PATHEXT", raising=False)
+    runnable = tmp_path / "tesseract.exe"
+    runnable.write_text("MZ", encoding="utf-8")
+    assert _is_executable(runnable)
+    odd = tmp_path / "tesseract.txt"
+    odd.write_text("MZ", encoding="utf-8")
+    assert not _is_executable(odd)

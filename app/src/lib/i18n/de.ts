@@ -20,6 +20,7 @@ export const de = {
 	ocrAvailable: () => 'OCR verfügbar',
 	ocrMissing: () => 'OCR nicht installiert',
 	nothingLeaves: () => 'nichts verlässt diesen Rechner',
+	modelBundled: () => 'Modell enthalten',
 	ocrReasonTitle: () => 'Gescannte Seiten können nicht gelesen werden',
 	limitationsTitle: () => 'Was dieser Build nicht erkennt',
 	engineNotStarted: () => 'Die Engine ist nicht gestartet',
