@@ -1,0 +1,81 @@
+name: Bug report
+description: Something behaved wrongly — a missed value, a broken output file, a crash
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Never attach a real document
+
+        Not the original, not the scrubbed output, not a screenshot of either.
+        Build a synthetic file that reproduces the problem — `engine/tests/conftest.py`
+        shows the shape: real-looking identifiers with correct check digits, belonging
+        to nobody.
+
+        If the problem is a confidential value surviving a scrub in a way the tool did
+        not report, use **Security → Report a vulnerability** instead of this form.
+        See [SECURITY.md](../blob/main/SECURITY.md).
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you expected, and what you got instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The exact command, and how to build the input file.
+      placeholder: |
+        1. Build the file: …
+        2. uv run freedocs scrub file.docx -o out/
+        3. …
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: format
+    attributes:
+      label: Input format
+      options:
+        - plain text
+        - PDF (born-digital)
+        - PDF (scanned)
+        - docx
+        - xlsx
+        - pptx
+        - other / not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - CLI
+        - desktop app
+        - the RPC protocol
+        - benchmark
+    validations:
+      required: true
+
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `freedocs doctor`
+      description: This says which layers are actually loaded, which explains a large share of surprises.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Console output
+      description: The full output of the command, including any warnings. Redact nothing except real values — and there should not be any.
+      render: shell

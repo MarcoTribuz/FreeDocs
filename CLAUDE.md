@@ -9,6 +9,19 @@ LLM. Local, offline, AGPL-3.0. See `README.md` for the positioning and the
 competitive gap it targets; the full design and milestone plan live in
 `~/.claude/plans/allora-questo-una-recursive-twilight.md`.
 
+**`README.md` is a landing page; the deep documentation lives in `docs/`.** The
+README is the 30-second decision — hero, one reproducible demo, the honest "what
+it does not do" list — and every long explanation moved to `docs/architecture.md`,
+`benchmark.md`, `cli.md`, `hidden-content.md`, `scanned-pdfs.md`,
+`desktop-app.md`, `packaging.md` and `llm-review.md`. **It exists in four
+languages** (`README.md` canonical English, plus `README.it.md`, `README.de.md`,
+`README.fr.md`) and `docs/` is **not** translated: a measurement duplicated four
+times is a measurement that disagrees with itself after the next benchmark run.
+Inside the translated READMEs the window's own rule applies — enum-shaped things
+get real words, engine output is quoted in English verbatim. Every published
+figure comes from a `freedocs benchmark` run, and the same figures appear in all
+four files; a test of that is a `grep`, not a suite.
+
 **Current state: M8 complete, plus international coverage.** The engine handles
 plain text, PDF (born-digital and scanned), `docx`, `xlsx` and `pptx`, with
 checksum, NER and value-propagation detection. Identifiers are checksum-confirmed
