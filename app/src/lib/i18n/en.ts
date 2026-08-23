@@ -210,6 +210,19 @@ export const en = {
 	openFolder: () => 'Open the folder',
 	scrubAgain: () => 'Start again',
 
+	diagnosticsTitle: () => 'What this machine can do',
+	diagnosticsOk: () => 'Everything this build needs is here.',
+	diagnosticsFix: () => 'Fix',
+	diagnosticsDegraded: () => 'finds less',
+	diagnosticsBroken: () => 'missing',
+	countryModelOnly: () => 'model only',
+	rulesSilenced: ({ count }) =>
+		plural(L, count, {
+			one: '{n} rule finds nothing at this threshold unless a keyword is beside it.',
+			other: '{n} rules find nothing at this threshold unless a keyword is beside them.'
+		}),
+	placeholderExample: ({ example }) => `written as ${example}`,
+
 	/*
 	 * The engine's own type names, as words.
 	 *

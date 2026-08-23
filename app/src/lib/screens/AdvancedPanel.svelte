@@ -1,10 +1,11 @@
 <script lang="ts">
 	import {
+		applyConfidence,
 		forgetModels,
 		offeredModels,
 		refreshModels,
-		reinspectAll,
 		session,
+		setPlaceholderLanguage,
 		toggleCountry,
 		toggleKeep
 	} from '$lib/app.svelte';
@@ -37,6 +38,37 @@
 	function entityLabel(name: string): string {
 		return m.entity[name]?.() ?? name;
 	}
+
+	/**
+	 * One placeholder, as an example of what the chosen locale writes.
+	 *
+	 * PERSON because it is the type every document has and the one whose stem
+	 * actually differs between the four locales — the country-issued types are
+	 * deliberately untranslated, so showing TAX_ID would suggest the choice does
+	 * nothing.
+	 */
+	const example = $derived(
+		session.entityList.find((entity) => entity.name === 'PERSON')?.placeholder ?? ''
+	);
+
+	const detail = $derived(
+		new Map((session.coverage?.countries ?? []).map((country) => [country.code, country]))
+	);
+
+	/**
+	 * How many rules the current threshold has switched off.
+	 *
+	 * The engine computes it; this only counts. A rule below the threshold is
+	 * inert unless a keyword is beside it — that is the design, not a bug — but a
+	 * slider with no way to see what it silenced is a mystery control.
+	 */
+	const silenced = $derived(
+		(session.coverage?.countries ?? []).reduce(
+			(total, country) =>
+				total + country.rules.filter((rule) => rule.inert_without_context).length,
+			0
+		)
+	);
 </script>
 
 <!--
@@ -54,18 +86,27 @@
 			<Slider
 				label={m.minConfidence()}
 				bind:value={session.minConfidence}
-				onchange={reinspectAll}
+				onchange={applyConfidence}
 				describe={(value) => `${value.toFixed(2)}, ${m.confidenceBand({ value })}`}
 			/>
+			{#if silenced > 0}
+				<p class="hint">{m.rulesSilenced({ count: silenced })}</p>
+			{/if}
 		</section>
 
 		<section>
 			<Select
 				label={m.placeholderLanguage()}
 				bind:value={session.placeholderLanguage}
+				onchange={(code) => void setPlaceholderLanguage(code)}
 				options={languageOptions}
 				hint={m.placeholderLanguageHint()}
 			/>
+			{#if example}
+				<!-- What the choice actually writes, composed by the engine's own
+				     allocator. A locale code alone tells the reader nothing. -->
+				<p class="hint mono">{m.placeholderExample({ example })}</p>
+			{/if}
 		</section>
 
 		<section class="wide">
@@ -78,13 +119,30 @@
 				aria-describedby="adv-countries-hint"
 			>
 				{#each session.caps?.countries ?? [] as code (code)}
+					{@const known = detail.get(code)}
+					<!--
+						A country with no checksum-backed rule says so. The United States
+						is in the list for its numbering plan and the model alone, and an
+						undifferentiated row of chips would let a reader believe a social
+						security number had been confirmed by a check digit.
+					-->
 					<Chip
 						pressed={!session.dropped.has(code)}
 						label={countryName(code, i18n.locale)}
+						hint={known?.detail ?? undefined}
 						onchange={() => toggleCountry(code)}
-					/>
+					>
+						{countryName(code, i18n.locale)}{known && !known.checksum_confirmed
+							? ` (${m.countryModelOnly()})`
+							: ''}
+					</Chip>
 				{/each}
 			</div>
+			{#if session.coverage?.note}
+				<!-- Said while the choice is being made, not afterwards in a report the
+				     reader has already decided is clean. -->
+				<p class="warnline" lang="en">{session.coverage.note}</p>
+			{/if}
 		</section>
 
 		<section class="wide">
@@ -179,6 +237,10 @@
 		align-items: flex-end;
 		gap: var(--space-3);
 		flex-wrap: wrap;
+	}
+
+	.mono {
+		font-family: var(--font-mono);
 	}
 
 	.warnline {

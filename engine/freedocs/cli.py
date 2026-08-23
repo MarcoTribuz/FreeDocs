@@ -20,7 +20,7 @@ from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import Check, run_checks
 from .formats.pdf import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat, handler_for
-from .pipeline import Scrubber, build_registry, default_registry
+from .pipeline import Scrubber, build_registry, country_coverage, default_registry
 from .report import build_report, format_console
 from .verify import LeakDetected
 
@@ -342,16 +342,15 @@ def _cmd_countries(_: argparse.Namespace) -> int:
     United States is in the list for its numbering plan and the model alone.
     Leaving the reader to infer that from an undifferentiated list would be
     letting them believe a US social security number is checksum-confirmed.
-    """
-    from .detect.validators import MissingDependency, build_rules
 
-    try:
-        rules = build_rules()
-    except MissingDependency:
-        rules = []
-    for code in SUPPORTED_COUNTRIES:
-        named = sorted({rule.entity.value for rule in rules if rule.country == code})
-        print(f"{code}  {', '.join(named) if named else 'phone numbers and the NER layer only'}")
+    Composed by :func:`pipeline.country_coverage`, which the RPC layer also
+    serves to the window. One answer for the terminal and the window: two would
+    be two things to keep true.
+    """
+    coverage = country_coverage()
+    for country in coverage["countries"]:  # type: ignore[index]
+        named = ", ".join(country["entities"]) or country["detail"]
+        print(f"{country['code']}  {named}")
     return EXIT_OK
 
 

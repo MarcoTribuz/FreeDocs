@@ -2,6 +2,8 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import {
 	type Capabilities,
+	type CountryCoverage,
+	type Doctor,
 	type EntityInfo,
 	type Finding,
 	type Inspection,
@@ -13,6 +15,8 @@ import {
 	NEEDS_OCR,
 	UNSUPPORTED_FORMAT,
 	capabilities,
+	countries as fetchCoverage,
+	doctor as fetchDoctor,
 	engineStatus,
 	entities,
 	inspect,
@@ -58,6 +62,15 @@ export const session = $state({
 	engineProblem: null as string | null,
 	caps: null as Capabilities | null,
 	entityList: [] as EntityInfo[],
+	/**
+	 * What each country gets at the current threshold, and what a narrowed
+	 * selection costs. Asked of the engine rather than assembled here: which
+	 * numbers have a checksum behind them is a judgement, and this window holds
+	 * none.
+	 */
+	coverage: null as CountryCoverage | null,
+	/** What this machine can do, and how to repair what it cannot. */
+	diagnostics: null as Doctor | null,
 
 	files: [] as string[],
 	inspections: {} as Record<string, Inspection>,
@@ -194,7 +207,8 @@ export async function start(): Promise<() => void> {
 
 	try {
 		adoptCaps(await capabilities());
-		session.entityList = (await entities()).entities;
+		session.entityList = (await entities(session.placeholderLanguage)).entities;
+		await Promise.all([refreshCoverage(), refreshDiagnostics()]);
 	} catch (error) {
 		fail(describe(error));
 	}
@@ -233,6 +247,50 @@ function adoptCaps(value: Capabilities): void {
 	 * complaint.
 	 */
 	if (first) session.settingsOpen = value.review_models.length > 0;
+}
+
+/**
+ * Re-ask what the current country selection and threshold add up to.
+ *
+ * Cheap — it reads the rule table, loads no model — and worth re-asking on every
+ * change, because the answer is what makes the threshold slider legible: it
+ * names the rules that just went silent.
+ */
+export async function refreshCoverage(): Promise<void> {
+	try {
+		session.coverage = await fetchCoverage({
+			countries: activeCountries(),
+			minConfidence: session.minConfidence
+		});
+	} catch {
+		// A missing explanation must not break the panel it explains.
+		session.coverage = null;
+	}
+}
+
+export async function refreshDiagnostics(): Promise<void> {
+	try {
+		session.diagnostics = await fetchDoctor(session.reviewHost || undefined);
+	} catch {
+		session.diagnostics = null;
+	}
+}
+
+/**
+ * Change the placeholder language, and re-ask what it writes.
+ *
+ * The example placeholders come from the engine, composed by the allocator that
+ * writes the document. Deriving them here from the locale code would be the
+ * window inventing the wording, which is the one thing the placeholder table is
+ * for.
+ */
+export async function setPlaceholderLanguage(locale: string): Promise<void> {
+	session.placeholderLanguage = locale;
+	try {
+		session.entityList = (await entities(locale)).entities;
+	} catch (error) {
+		fail(describe(error));
+	}
 }
 
 /** Ask a specific Ollama what it has, and say so where the host was typed. */
@@ -394,6 +452,12 @@ export function toggleKeep(name: string): void {
 	void reinspectAll();
 }
 
+/** The threshold changed: re-inspect, and re-ask what it silenced. */
+export function applyConfidence(): void {
+	void refreshCoverage();
+	void reinspectAll();
+}
+
 /**
  * Undefined when nothing is switched off, so the engine hears no opinion and
  * uses every country. Sending the full list would mean the same thing, but it
@@ -412,6 +476,7 @@ export function toggleCountry(code: string): void {
 	// would mean scrubbing with the whole checksum layer switched off.
 	if (session.caps && next.size === session.caps.countries.length) return;
 	session.dropped = next;
+	void refreshCoverage();
 	void reinspectAll();
 }
 

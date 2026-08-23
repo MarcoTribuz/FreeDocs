@@ -90,7 +90,9 @@ describe('the catalogues', () => {
 		previewTruncated: { shown: 500000, total: 812345 },
 		foundBy: { detector: 'it_codice_fiscale' },
 		keepEveryOne: { entity: 'Place' },
-		verificationPassedHint: { checked: 9 }
+		verificationPassedHint: { checked: 9 },
+		rulesSilenced: { count: 7 },
+		placeholderExample: { example: '[PERSON_1]' }
 	};
 
 	for (const [name, catalogue] of catalogues) {

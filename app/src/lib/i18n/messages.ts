@@ -115,6 +115,18 @@ export interface Messages {
 	progressLabel(): string;
 	progressFile(a: { file: string; index: number; total: number }): string;
 
+	// ---- what this machine can do ------------------------------------------
+	diagnosticsTitle(): string;
+	diagnosticsOk(): string;
+	diagnosticsFix(): string;
+	/** A layer that is absent: this build does less, not nothing. */
+	diagnosticsDegraded(): string;
+	/** Something this build needs and does not have. */
+	diagnosticsBroken(): string;
+	countryModelOnly(): string;
+	rulesSilenced(a: { count: number }): string;
+	placeholderExample(a: { example: string }): string;
+
 	// ---- the result ---------------------------------------------------------
 	resultTitle(): string;
 	removedAndFlagged(a: { removed: number; flagged: number }): string;
@@ -186,6 +198,18 @@ export interface Messages {
 	advancedHint(): string;
 	detectorSpec(): string;
 	detectorSpecHint(): string;
+
+	// ---- what this machine can do ------------------------------------------
+	diagnosticsTitle(): string;
+	diagnosticsOk(): string;
+	diagnosticsFix(): string;
+	/** A layer that is absent: this build does less, not nothing. */
+	diagnosticsDegraded(): string;
+	/** Something this build needs and does not have. */
+	diagnosticsBroken(): string;
+	countryModelOnly(): string;
+	rulesSilenced(a: { count: number }): string;
+	placeholderExample(a: { example: string }): string;
 
 	// ---- the result --------------------------------------------------------
 	verificationPassed(): string;

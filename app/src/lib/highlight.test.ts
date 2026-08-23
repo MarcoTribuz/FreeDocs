@@ -17,6 +17,8 @@ function finding(start: number, end: number, text: string): Finding {
 		action: 'redact',
 		confidence: 1,
 		detector: 'test',
+		layer: 'L1',
+		country: null,
 		part: ''
 	};
 }

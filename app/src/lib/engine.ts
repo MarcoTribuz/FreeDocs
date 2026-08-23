@@ -40,6 +40,16 @@ export interface Capabilities {
 	review_models: string[];
 	/** Where the engine looks for Ollama. Prefilled from here, never hardcoded here. */
 	review_host: string;
+	/**
+	 * How much of a document the reviewer reads. The only thing that makes
+	 * `Review.partial` explicable: without it the window can say "first part
+	 * only" and not say what part.
+	 */
+	review_max_characters: number;
+	/** How much extracted text `inspect` will send when asked for a preview. */
+	preview_max_characters: number;
+	/** What each detector spec covers, so a menu of them is not three opaque strings. */
+	detector_spec_notes: Record<string, string>;
 	caveats: string[];
 }
 
@@ -68,6 +78,16 @@ export interface Finding {
 	action: 'redact' | 'surrogate' | 'report' | 'keep';
 	confidence: number;
 	detector: string;
+	/**
+	 * Which layer claimed it: `L1` a checksum, `L2` the model, `H` you.
+	 *
+	 * The engine's own answer. The window used to derive this by string-matching
+	 * the detector name, which was the app holding a rule about the engine's
+	 * naming.
+	 */
+	layer: string;
+	/** Lowercase ISO code for a country-issued identifier, null otherwise. */
+	country: string | null;
 	part: string;
 	/** The matched value, so the preview can show what is about to go. */
 	text: string;
@@ -162,6 +182,68 @@ export interface EntityInfo {
 	name: string;
 	default_action: string;
 	report_only: boolean;
+	/**
+	 * What would be written in place of a value of this type.
+	 *
+	 * Composed by the same allocator that writes the document, so a preview
+	 * cannot promise `[PERSONA_1]` and produce `[PERSON_1]`.
+	 */
+	placeholder: string;
+}
+
+/** One question about this machine, its answer, and what to do about it. */
+export interface Check {
+	name: string;
+	ok: boolean;
+	detail: string;
+	/** Something to run, when there is something to run. */
+	fix: string | null;
+	required: boolean;
+	/** Not ok, but not fatal: this build can do less, not nothing. */
+	degraded: boolean;
+}
+
+export interface Doctor {
+	version: string;
+	ok: boolean;
+	checks: Check[];
+}
+
+export interface CountryRule {
+	name: string;
+	entity: string;
+	confidence_without_context: number;
+	needs_context: boolean;
+	/** Below the current threshold, so it finds nothing without a keyword nearby. */
+	inert_without_context: boolean;
+}
+
+export interface CountryDetail {
+	code: string;
+	selected: boolean;
+	/**
+	 * Whether any identifier of this country is confirmed by a checksum.
+	 *
+	 * False for the United States, and its own field for that reason: neither of
+	 * its numbers has a check digit, so an undifferentiated list of chips would
+	 * let a reader believe a social security number was confirmed.
+	 */
+	checksum_confirmed: boolean;
+	phone_plan: boolean;
+	entities: string[];
+	rules: CountryRule[];
+	detail: string | null;
+}
+
+export interface CountryCoverage {
+	default_min_confidence: number;
+	min_confidence: number;
+	selected: string[] | null;
+	excluded: string[];
+	/** What a narrowed selection costs, in the engine's words. */
+	note: string | null;
+	confidence_levels: { name: string; value: number; accepts: string; meaning: string }[];
+	countries: CountryDetail[];
 }
 
 /** One occurrence the user decided is not confidential after all. */
@@ -283,8 +365,26 @@ export function capabilities(): Promise<Capabilities> {
 	return request<Capabilities>('capabilities');
 }
 
-export function entities(): Promise<{ entities: EntityInfo[] }> {
-	return request<{ entities: EntityInfo[] }>('entities');
+export function entities(
+	placeholderLanguage?: string
+): Promise<{ placeholder_language: string; entities: EntityInfo[] }> {
+	return request('entities', placeholderLanguage ? { placeholder_language: placeholderLanguage } : {});
+}
+
+/** What this machine can do, and how to repair what it cannot. */
+export function doctor(reviewHost?: string): Promise<Doctor> {
+	return request<Doctor>('doctor', reviewHost ? { review_host: reviewHost } : {});
+}
+
+/** What each country gets, and what narrowing to some of them costs. */
+export function countries(options: {
+	countries?: string[];
+	minConfidence?: number;
+} = {}): Promise<CountryCoverage> {
+	const params: Record<string, unknown> = {};
+	if (options.countries?.length) params.countries = options.countries;
+	if (options.minConfidence !== undefined) params.min_confidence = options.minConfidence;
+	return request<CountryCoverage>('countries', params);
 }
 
 /**
