@@ -58,7 +58,7 @@ from .detect.llm_review import (
 from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import run_checks
 from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
-from .formats.router import UnsupportedFormat, handler_for
+from .formats.router import UnsupportedFormat
 from .pipeline import (
     LAYER_SPEC_NOTES,
     LAYER_SPECS,
@@ -127,6 +127,10 @@ class Session:
     #: modification time and size. Serving a cached extraction for a file that
     #: has changed would show a preview of a document that no longer exists.
     _extractions: dict[tuple[str, int, int], Extraction] = field(default_factory=dict)
+    #: The id of the request being served, so a stage notification can say which
+    #: one it belongs to. A caller with two requests in flight would otherwise
+    #: have to guess, and the answer would be wrong exactly when it mattered.
+    current: Any = None
 
     # -- transport -------------------------------------------------------------
 
@@ -139,6 +143,33 @@ class Session:
 
     def notify(self, method: str, **params: Any) -> None:
         self.emit({"jsonrpc": "2.0", "method": method, "params": params})
+
+    def stage_reporter(self, file: str) -> Callable[[Any], None]:
+        """Turn the pipeline's stage events into notifications.
+
+        The pipeline knows the stages and their order; this knows the wire. Note
+        what is *not* forwarded: there is no percentage, because the engine cannot
+        know one, and `done`/`of` are omitted rather than zeroed when a stage has
+        no unit to count. A test forbids a `percent` key in any notification.
+        """
+
+        def report(event: Any) -> None:
+            params: dict[str, Any] = {
+                "id": self.current,
+                "file": file,
+                "stage": event.stage,
+                "index": event.index,
+                "count": event.count,
+            }
+            if event.done is not None:
+                params["done"] = event.done
+            if event.of is not None:
+                params["of"] = event.of
+            if event.detail:
+                params["detail"] = event.detail
+            self.notify("stage", **params)
+
+        return report
 
     # -- state -----------------------------------------------------------------
 
@@ -185,7 +216,7 @@ class Session:
             if cached is not None:
                 return cached
 
-        extraction = _read(scrubber, _open(path))
+        extraction = _read(scrubber, path)
 
         if key is not None:
             if len(self._extractions) >= MAX_CACHED_EXTRACTIONS:
@@ -346,6 +377,7 @@ class Session:
                 params.get("detectors"), _countries_from(params)
             ),
             overrides=scoped,
+            progress=self.stage_reporter(str(path)),
         )
 
         extraction = self.extraction(scrubber, path)
@@ -427,7 +459,13 @@ class Session:
             # question nobody asked. See Override.for_path.
             results.append(
                 self._scrub_one(
-                    replace(scrubber, overrides=override.for_path(str(path))), path, output_dir
+                    replace(
+                        scrubber,
+                        overrides=override.for_path(str(path)),
+                        progress=self.stage_reporter(str(path)),
+                    ),
+                    path,
+                    output_dir,
                 )
             )
         return {"results": results}
@@ -625,18 +663,17 @@ def _review_payload(result: Any) -> dict[str, Any] | None:
     }
 
 
-def _open(path: Path) -> Any:
+def _read(scrubber: Scrubber, path: Path) -> Extraction:
+    """Route and extract, with the engine's refusals mapped to codes.
+
+    The path goes in rather than a handler: routing is the first stage, and a
+    caller that opened the file itself would be doing the router's work while the
+    run reported a stage it never ran.
+    """
     try:
-        return handler_for(path)
+        return scrubber.read(path)
     except UnsupportedFormat as exc:
         raise RpcError(UNSUPPORTED_FORMAT, str(exc)) from exc
-    except MissingDependency as exc:
-        raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
-
-
-def _read(scrubber: Scrubber, handler: Any) -> Extraction:
-    try:
-        return scrubber.read(handler)
     except ScannedPdfNotSupported as exc:
         raise RpcError(NEEDS_OCR, str(exc)) from exc
     except MissingDependency as exc:
@@ -724,6 +761,7 @@ def handle(session: Session, line: str) -> dict[str, Any] | None:
     if method not in handlers:
         return _error_response(request_id, METHOD_NOT_FOUND, f"unknown method {method!r}")
 
+    session.current = request_id
     try:
         result = handlers[method](params)
     except RpcError as exc:
@@ -734,6 +772,8 @@ def handle(session: Session, line: str) -> dict[str, Any] | None:
         # report; the caller gets an error it can render.
         traceback.print_exc(file=sys.stderr)
         return _error_response(request_id, INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
+    finally:
+        session.current = None
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 

@@ -92,6 +92,8 @@ describe('the catalogues', () => {
 		keepEveryOne: { entity: 'Place' },
 		verificationPassedHint: { checked: 9 },
 		rulesSilenced: { count: 7 },
+		stageOf: { name: 'reading the document', index: 2, count: 6 },
+		stagePages: { done: 3, of: 12 },
 		placeholderExample: { example: '[PERSON_1]' }
 	};
 
@@ -112,6 +114,16 @@ describe('the catalogues', () => {
 			}
 			for (const [key, produce] of Object.entries(catalogue.action)) {
 				expect(produce(), `${name}.action.${key}`).toBeTruthy();
+			}
+		});
+
+		it(`${name} names every stage the engine can report`, () => {
+			// Stage names are enumerable on the wire, so they are translated rather
+			// than quoted — and a stage with no name would render as its wire string
+			// in the middle of a sentence.
+			expect(Object.keys(catalogue.stage).sort()).toEqual(Object.keys(en.stage).sort());
+			for (const [key, produce] of Object.entries(catalogue.stage)) {
+				expect(produce(), `${name}.stage.${key}`).toBeTruthy();
 			}
 		});
 

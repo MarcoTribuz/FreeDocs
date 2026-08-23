@@ -120,23 +120,44 @@
 				</Callout>
 			{/if}
 
-			{#if session.progress}
+			{#if session.progress || session.stage}
 				<!--
-					The bar counts files, because that is the only unit the engine
-					reports. No percentage: how long detect takes next to extract on an
-					unseen document is not a fact anyone here has.
+					Two bars, because the engine counts two different things and
+					conflating them would mean inventing a number. The outer one counts
+					files, which is what `progress` reports. The inner one counts stages
+					inside one file, or pages inside the stage that has them — and it is
+					`indeterminate` where the stage has no unit, rather than showing a
+					fraction nobody measured.
+
+					No percentage in either: how long detection takes next to extraction
+					on an unseen document is not a fact anyone here has.
 				-->
 				<div class="progress">
-					<ProgressBar
-						label={m.progressLabel()}
-						value={session.progress.index}
-						max={session.progress.total}
-						valueText={m.progressFile({
-							file: basename(session.progress.file),
-							index: session.progress.index + 1,
-							total: session.progress.total
-						})}
-					/>
+					{#if session.progress}
+						<ProgressBar
+							label={m.progressLabel()}
+							value={session.progress.index}
+							max={session.progress.total}
+							valueText={m.progressFile({
+								file: basename(session.progress.file),
+								index: session.progress.index + 1,
+								total: session.progress.total
+							})}
+						/>
+					{/if}
+					{#if session.stage}
+						{@const stage = session.stage}
+						{@const named = m.stage[stage.stage]?.() ?? stage.stage}
+						<ProgressBar
+							label={named}
+							value={stage.done ?? stage.index}
+							max={stage.of ?? stage.count}
+							indeterminate={stage.done === undefined && stage.of === undefined}
+							valueText={stage.of !== undefined && stage.done !== undefined
+								? `${named} — ${m.stagePages({ done: stage.done, of: stage.of })}`
+								: m.stageOf({ name: named, index: stage.index, count: stage.count })}
+						/>
+					{/if}
 				</div>
 			{/if}
 

@@ -441,16 +441,42 @@ export interface Progress {
 }
 
 /**
+ * Where inside one file the engine has got to.
+ *
+ * Separate from `Progress`, which counts files: the two have different
+ * cardinality and different lifetimes, and one notification for both would make
+ * a consumer that wants the batch counter filter for it.
+ *
+ * There is no `percent` and there will not be one — the engine cannot know how
+ * long detection takes next to extraction on a document nobody has seen.
+ * `index`/`count` counts *stages*, and `done`/`of` appear only where a stage has
+ * a real unit: pages, so far.
+ */
+export interface Stage {
+	/** The request this belongs to. */
+	id: number | string | null;
+	file: string;
+	stage: string;
+	index: number;
+	count: number;
+	done?: number;
+	of?: number;
+	detail?: string;
+}
+
+/**
  * Subscribe to what the engine says unprompted: progress, and the capabilities it
  * announces before anyone asks.
  */
 export function onNotify(handlers: {
 	progress?: (progress: Progress) => void;
+	stage?: (stage: Stage) => void;
 	ready?: (capabilities: Capabilities) => void;
 }) {
 	return listen<{ method?: string; params?: unknown }>('engine://notify', (event) => {
 		const { method, params } = event.payload ?? {};
 		if (method === 'progress' && handlers.progress) handlers.progress(params as Progress);
+		if (method === 'stage' && handlers.stage) handlers.stage(params as Stage);
 		if (method === 'ready' && handlers.ready) handlers.ready(params as Capabilities);
 	});
 }

@@ -228,6 +228,18 @@ export const de = {
 		}),
 	placeholderExample: ({ example }) => `geschrieben als ${example}`,
 
+	stage: {
+		router: () => 'wähle den Leser',
+		extract: () => 'lese das Dokument',
+		detect: () => 'suche Werte',
+		policy: () => 'entscheide',
+		'write-back': () => 'schreibe die Kopie',
+		verify: () => 'durchsuche die Kopie',
+		review: () => 'Zweitmeinung'
+	},
+	stageOf: ({ name, index, count }) => `${name} — Schritt ${index} von ${count}`,
+	stagePages: ({ done, of }) => `Seite ${done} von ${of}`,
+
 	/*
 	 * Die Typen bleiben allgemein: die Engine setzt das Land auf den Fund und nie
 	 * in den Typ, weil ein Stamm für zwölf Länder steht und ein nationaler Name

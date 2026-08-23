@@ -231,6 +231,18 @@ export const fr = {
 		}),
 	placeholderExample: ({ example }) => `écrit comme ${example}`,
 
+	stage: {
+		router: () => 'choix du lecteur',
+		extract: () => 'lecture du document',
+		detect: () => 'recherche des valeurs',
+		policy: () => 'décision',
+		'write-back': () => 'écriture de la copie',
+		verify: () => 'fouille de la copie',
+		review: () => 'deuxième avis'
+	},
+	stageOf: ({ name, index, count }) => `${name} — étape ${index} sur ${count}`,
+	stagePages: ({ done, of }) => `page ${done} sur ${of}`,
+
 	/*
 	 * Les types restent génériques : le moteur met le pays sur le résultat et
 	 * jamais dans le type, parce qu'un même intitulé couvre douze pays et qu'un
