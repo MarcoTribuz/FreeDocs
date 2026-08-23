@@ -134,10 +134,40 @@ and verification was inspecting the placeholders instead of the pixels.
 
 ## Pull requests
 
-Small, one subject, and green: `ruff check`, `ruff format --check`,
-`pytest -q -m "not slow"`, and `npm run check` if you touched the app. The PR
-template asks for the benchmark delta when a detector changed — that field is not
-decoration.
+Small, one subject, and green:
+
+```bash
+python3 scripts/ci.py check
+```
+
+The PR template asks for the benchmark delta when a detector changed — that
+field is not decoration.
+
+**GitHub Actions is switched off, so nothing checks a pull request but you.**
+This is a private repository and its included minutes were exhausted twice; the
+second time, every job on every workflow started failing in two seconds with no
+runner assigned and no steps executed, which looks exactly like a broken commit
+and is not one. Rather than keep firing at an empty allowance, Actions is
+disabled at the repository setting and `scripts/ci.py` runs the same gate here.
+The workflow files are untouched, so turning it back on is one command:
+
+```bash
+gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true
+```
+
+`scripts/ci.py check` runs the two workflows a pull request used to run: lint,
+format, the suite, the leak checks and the corpus check on Python 3.12 *and* on
+3.10, plus the frontend type-check and tests and the Rust bridge's tests. About
+seventy seconds. `scripts/ci.py build` does what the bundle workflow did — the
+PyInstaller sidecar and the desktop bundle.
+
+What it cannot do is the matrix. CI ran Linux and Windows too, and that is
+where this project's cross-platform failures have actually been: `write_text`
+translating `\n` to CRLF broke three leak tests, and `npm` being `npm.cmd`
+broke the portable build. A green run on your machine is weaker evidence than a
+green run there was, and a change that touches paths, file writing or
+subprocesses deserves to be said out loud in the pull request rather than
+assumed.
 
 Discussion about direction is welcome in an issue before the code exists. Several
 things in this repository were measured and deliberately *not* built, and

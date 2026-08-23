@@ -77,12 +77,45 @@ uv run freedocs benchmark --apply-min-confidence 0.5     # what a scrub would do
 use. CI deliberately omits it: the `slow`-marked tests skip themselves, and
 detection quality is measured by `benchmark`, not asserted in CI.
 
-CI (`.github/workflows/engine.yml`) runs lint, format, the suite, the leak checks
-and the corpus check on every pull request and every push to `main`: Python 3.10
-and 3.12 on Linux, and 3.12 on Windows. It takes about thirty seconds. Keep all
-three green — 3.10 is the declared floor in `pyproject.toml`, so avoid 3.11+
-syntax, and Windows is there because that is where the cross-platform failures
-have actually been.
+**GitHub Actions is disabled at the repository setting, and `scripts/ci.py` is
+the gate.** The included minutes on this private repository were exhausted
+twice; the second time every job on every workflow began failing in two seconds
+with no runner assigned and no steps executed — which reads exactly like a
+broken commit and is not one, and cost an afternoon to diagnose the first time.
+The workflow files are deliberately untouched, so re-enabling is one command and
+nothing has to be reconstructed:
+
+```bash
+python3 scripts/ci.py check       # the pull-request gate, ~70s
+python3 scripts/ci.py build       # sidecar + desktop bundle
+gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true
+```
+
+Do not diagnose a two-second all-red run as a code problem. Check
+`gh api /repos/MarcoTribuz/FreeDocs/actions/permissions` first: `enabled: false`
+is this decision, and an empty `steps: []` on a job that did run is the billing
+signature.
+
+Three things in `scripts/ci.py` are not transcriptions of the YAML, because a
+laptop is not a runner. The Python floor gets **its own virtualenv**
+(`UV_PROJECT_ENVIRONMENT=.venv-310`): CI gives each matrix entry a fresh machine,
+but here `uv sync --python 3.10` would *delete* the 3.12 environment it does not
+recognise — the local shape of the bug `engine.yml` already documents. **`cargo`
+is resolved *and put on PATH***, which are two fixes and not one: it is routinely
+absent from a non-interactive shell's PATH, and handing a step the absolute
+binary satisfies `cargo test` while doing nothing for `tauri build`, which shells
+out to `cargo metadata` by bare name. The first run of the script proved it —
+the sidecar built for 143 seconds and the bundle then died instantly on
+`os error 2`. Same shape as `FREEDOCS_TESSERACT`, which extends PATH because
+PyMuPDF, not FreeDocs, is what runs Tesseract. And `tauri build` is given
+`CI=true`, without which the `.dmg` step hangs on Finder automation.
+
+What CI ran and this cannot is **the matrix**: Linux and Windows. That is where
+this project's cross-platform failures have actually been — `write_text`
+translating `\n` to CRLF, `npm` being `npm.cmd` — so a green local run is a
+weaker claim than a green CI run was. Say so rather than forget it. 3.10 is the
+declared floor in `pyproject.toml`, so avoid 3.11+ syntax; the floor pass covers
+the language question, nothing covers the platform one right now.
 
 **It had never passed once before 22 August 2026, and two of the reasons are
 worth not reinventing.** The 3.10 job was never running 3.10: `--python` was
