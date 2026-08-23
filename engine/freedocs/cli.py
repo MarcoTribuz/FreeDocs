@@ -12,14 +12,14 @@ import json
 import sys
 from pathlib import Path
 
-from .core.errors import MissingDependency
+from .core.errors import MissingDependency, ModelNotFound
 from .core.findings import EntityType
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
-from .diagnostics import Check, run_checks
+from .diagnostics import Check, engine_version, run_checks
 from .formats.pdf import ScannedPdfNotSupported
-from .formats.router import UnsupportedFormat, handler_for
+from .formats.router import UnsupportedFormat
 from .pipeline import Scrubber, build_registry, country_coverage, default_registry
 from .report import build_report, format_console
 from .verify import LeakDetected
@@ -269,7 +269,11 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
     try:
         scrubber = _scrubber(args, strict=not args.allow_leaks)
     except (ValueError, MissingDependency) as exc:
-        print(f"detectors: {exc}", file=sys.stderr)
+        # Unprefixed: this guard covers the detector spec, the country list and
+        # the policy, and every one of those messages already names what it is
+        # about. Saying "detectors:" in front of a min_confidence complaint sent
+        # the reader to the wrong option.
+        print(exc, file=sys.stderr)
         return EXIT_USAGE
     reports = []
     status = EXIT_OK
@@ -277,6 +281,12 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
     for path in args.files:
         try:
             result = scrubber.scrub_file(path)
+        except ModelNotFound as exc:
+            # Configuration, not input: every remaining file would fail the same
+            # way, and naming the file in front of it blames the document for a
+            # broken FREEDOCS_NER_MODEL.
+            print(exc, file=sys.stderr)
+            return EXIT_USAGE
         except REFUSALS as exc:
             print(f"{path.name}: {exc}", file=sys.stderr)
             status = EXIT_UNSUPPORTED
@@ -302,30 +312,63 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
 
 
 def _cmd_inspect(args: argparse.Namespace) -> int:
+    """Report what a scrub would do, writing nothing.
+
+    Goes through `Scrubber.inspect_file` rather than composing route, extract and
+    detect by hand. The hand-rolled copy that used to live here answered a
+    different question from the scrub that follows it, in three ways that all
+    read as "this file is cleaner than it is": it never called `scrub_hidden`,
+    so it reported no comment, tracked deletion, hidden sheet, annotation or
+    metadata - the leaks a reader does not expect; it extracted from an
+    unscrubbed handler, so its offsets and its finding set were not the ones the
+    scrub would produce; and it printed no registry note, so a build without the
+    `ner` extra silently reported reduced coverage. One read-and-detect path,
+    used by the preview and the scrub.
+    """
     try:
         scrubber = _scrubber(args, strict=False)
     except (ValueError, MissingDependency) as exc:
-        print(f"detectors: {exc}", file=sys.stderr)
+        print(exc, file=sys.stderr)
         return EXIT_USAGE
+
+    status = EXIT_OK
     for path in args.files:
         try:
-            handler = handler_for(path)
-            stream = handler.extract()
+            inspection = scrubber.inspect_file(path)
+        except ModelNotFound as exc:
+            # Configuration, not input: it will fail identically on every file,
+            # so there is nothing to continue to.
+            print(exc, file=sys.stderr)
+            return EXIT_USAGE
         except REFUSALS as exc:
+            # Continue rather than return, as scrub does: one unreadable file in
+            # a list is not a reason to say nothing about the rest.
             print(f"{path.name}: {exc}", file=sys.stderr)
-            return EXIT_UNSUPPORTED
-        findings = scrubber.registry.detect(stream.text)
-        print(f"{path.name}  [{handler.name}]  {len(stream.text)} chars")
-        for finding in findings:
+            status = EXIT_UNSUPPORTED
+            continue
+
+        extraction = inspection.extraction
+        text = inspection.stream.text
+        print(f"{path.name}  [{extraction.format_name}]  {len(text)} chars")
+        for finding in inspection.findings:
             action = scrubber.policy.action_for(finding)
             print(
                 f"  {finding.span.start:>7}-{finding.span.end:<7} "
                 f"{finding.entity.value:<22} {action.value:<9} "
                 f"conf={finding.confidence:.2f}  via {finding.detector}"
             )
-        if not findings:
+        if not inspection.findings:
             print("  nothing matched")
-    return EXIT_OK
+
+        # Same shape as `report.format_console`, so the terminal and the report
+        # describe one document the same way.
+        if extraction.hidden:
+            print("  hidden content found:")
+            for item in extraction.hidden:
+                print(f"    {item.part:<12} {item.kind:<26} {item.detail}")
+        for message in inspection.warnings:
+            print(f"  warning: {message}")
+    return status
 
 
 def _cmd_entities(_: argparse.Namespace) -> int:
@@ -364,7 +407,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         print(
             json.dumps(
                 {
-                    "version": _engine_version(),
+                    "version": engine_version(),
                     "ok": all(check.ok or not check.required for check in checks),
                     "checks": [
                         {
@@ -382,7 +425,7 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
         )
         return _doctor_exit(checks, strict=args.strict)
 
-    print(f"freedocs {_engine_version()}")
+    print(f"freedocs {engine_version()}")
     for check in checks:
         mark = "ok  " if check.ok else ("warn" if not check.required else "FAIL")
         print(f"  [{mark}] {check.name:<18} {check.detail}")
@@ -398,15 +441,6 @@ def _doctor_exit(checks: list[Check], *, strict: bool) -> int:
     if strict and any(check.degraded for check in checks):
         return EXIT_USAGE
     return EXIT_OK
-
-
-def _engine_version() -> str:
-    from importlib.metadata import PackageNotFoundError, version
-
-    try:
-        return version("freedocs")
-    except PackageNotFoundError:  # running from a source tree without an install
-        return "unknown"
 
 
 def _cmd_review_models(args: argparse.Namespace) -> int:

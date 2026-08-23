@@ -77,6 +77,13 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      # Shared by the test compile below and the release build after it, so the
+      # cargo test step costs a dev-profile link rather than a cold dependency
+      # tree on every run.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
@@ -96,6 +103,16 @@ jobs:
       - name: Test the engine
         working-directory: engine
         run: uv run pytest -q -m "not slow"
+
+      # The bridge's own tests ran nowhere until now: this workflow only ever
+      # built the crate, and the two that a pull request runs have no Rust in
+      # them. They cover portable_env, which decides whether a bundled model,
+      # tessdata and tesseract are handed to the sidecar - so a regression here
+      # is an offline build that silently reaches for the network. Before the
+      # sidecar step, because failing in seconds beats failing after PyInstaller.
+      - name: Test the Rust bridge
+        working-directory: app/src-tauri
+        run: cargo test
 
       - name: Build the engine sidecar
         working-directory: engine

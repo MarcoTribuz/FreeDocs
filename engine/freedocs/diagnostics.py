@@ -27,6 +27,29 @@ from pathlib import Path
 MINIMUM_PYTHON = (3, 10)
 
 
+def engine_version() -> str:
+    """What this build calls itself. One answer for the terminal and the window.
+
+    There were two mechanisms. The CLI asked ``importlib.metadata`` and fell back
+    to ``"unknown"``; the RPC layer read ``__version__``. Those disagree exactly
+    where it matters: a PyInstaller one-dir bundle does not reliably carry the
+    dist-info, so ``freedocs doctor`` could report ``"unknown"`` while the window
+    was told ``"0.1.0"`` by the same executable.
+
+    Installed metadata is still preferred - it is what an editable or a wheel
+    install actually resolved to - but the fallback is the packaged constant
+    rather than a shrug, so the answer is always a version.
+    """
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("freedocs")
+    except PackageNotFoundError:  # a source tree, or a bundle without dist-info
+        from . import __version__
+
+        return __version__
+
+
 @dataclass(frozen=True)
 class Check:
     """One question, its answer, and what to do when the answer is bad.

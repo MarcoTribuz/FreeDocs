@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
-from .core.errors import MissingDependency
+from .core.errors import MissingDependency, ModelNotFound
 from .core.findings import EntityType
 from .core.overrides import Override, StaleOverride, parse_override
 from .core.policy import (
@@ -56,7 +56,7 @@ from .detect.llm_review import (
     available_models,
 )
 from .detect.validators import SUPPORTED_COUNTRIES
-from .diagnostics import run_checks
+from .diagnostics import engine_version, run_checks
 from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
 from .formats.router import UnsupportedFormat
 from .pipeline import (
@@ -236,7 +236,7 @@ class Session:
         """
         registry = self.registry(None)
         return {
-            "version": _version(),
+            "version": engine_version(),
             "formats": sorted(_supported_extensions()),
             "detector_specs": list(LAYER_SPECS),
             # Sent rather than duplicated in the window, for the same reason as
@@ -295,7 +295,7 @@ class Session:
         """
         checks = run_checks(str(params.get("review_host") or REVIEW_HOST))
         return {
-            "version": _version(),
+            "version": engine_version(),
             "ok": all(check.ok for check in checks if check.required),
             "checks": [
                 {
@@ -392,10 +392,16 @@ class Session:
             # A decision pointing at text that has since changed is refused, never
             # applied to whatever moved into that range. See overrides.py.
             raise RpcError(INVALID_REQUEST, str(exc)) from exc
-        except MissingDependency as exc:
+        except (MissingDependency, ModelNotFound) as exc:
             # A detector backend loads its model on first use, so a missing one
             # surfaces here rather than at construction. Without this the app was
             # told "internal error" for what is really "a component is missing".
+            #
+            # ModelNotFound rides along because it is the same answer to the
+            # user: FREEDOCS_NER_MODEL naming an incomplete directory is a
+            # portable build missing its weights, not an engine fault, and it
+            # reached no mapping at all before - so the window reported a
+            # misconfigured bundle as an internal error.
             raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
 
         stream = inspection.stream
@@ -491,7 +497,9 @@ class Session:
             return _failure(path, UNSUPPORTED_FORMAT, str(exc))
         except ScannedPdfNotSupported as exc:
             return _failure(path, NEEDS_OCR, str(exc))
-        except MissingDependency as exc:
+        except (MissingDependency, ModelNotFound) as exc:
+            # ModelNotFound is a broken bundle rather than an absent extra, but
+            # it is the same code and the same sentence to whoever reads it.
             return _failure(path, MISSING_DEPENDENCY, str(exc))
         except LeakDetected as exc:
             # Nothing is written. The message is composed here rather than taken
@@ -531,12 +539,6 @@ class Session:
 # -- helpers ------------------------------------------------------------------
 
 
-def _version() -> str:
-    from . import __version__
-
-    return __version__
-
-
 def _supported_extensions() -> set[str]:
     from .formats.router import HANDLERS
 
@@ -557,7 +559,6 @@ def _model_source_kind() -> str:
     still let ``capabilities`` answer. A window that cannot ask what this build
     can do has no way to report that it is broken.
     """
-    from .core.errors import ModelNotFound
     from .detect.backends.gliner_backend import DEFAULT_MODEL, model_source
 
     try:

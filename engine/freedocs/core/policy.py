@@ -154,6 +154,25 @@ class Policy:
     #: that does not name one audience out of thirteen countries.
     placeholder_locale: str = DEFAULT_LOCALE
 
+    def __post_init__(self) -> None:
+        """Refuse a threshold no finding can clear, or that clears every finding.
+
+        Confidence is a probability, so a floor outside [0, 1] is not a strict
+        setting - it is a silent no-op in one direction and a silent
+        keep-everything in the other. ``--min-confidence 1.5`` used to be
+        accepted: every finding fell below it and became ``KEEP``, the scrub
+        wrote an untouched copy, verification passed vacuously because there was
+        nothing in ``removed`` to search for, and the command exited 0. This is
+        the same class as the empty ``--countries`` value the CLI already
+        refuses - the one kind of wrong that looks exactly like working.
+
+        Here rather than in either caller because it is a property of the
+        policy, and it was the RPC layer alone that checked it while the CLI
+        constructed the same object unguarded.
+        """
+        if not 0.0 <= self.min_confidence <= 1.0:
+            raise ValueError(f"min_confidence must be between 0 and 1, got {self.min_confidence}")
+
     def action_for(self, finding: Finding) -> Action:
         if finding.confidence < self.min_confidence:
             return Action.KEEP
