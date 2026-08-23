@@ -73,10 +73,13 @@ Two platforms are absent and the reasons differ:
 
 - **Linux ships a `.deb` and no AppImage.** The `.deb` bundles fine and the run
   then dies in `failed to run linuxdeploy` with no diagnostic of its own. The
-  portable build makes an AppImage by its own invocation, with the FUSE
-  workarounds the failure turned out to need — see [portable](portable.md). This
-  step is deliberately left as it was: the `.deb` is what it produces, and
-  widening it would put an untested AppImage in the installer set.
+  portable build attempts an AppImage by its own invocation, carrying the FUSE
+  workarounds that failure most likely needs — *most likely*, because the one CI
+  run to try it never reached `linuxdeploy`: it ran out of disk copying resources
+  first. **No AppImage has been produced yet, here or there.** See
+  [portable](portable.md). This step is deliberately left as it was: the `.deb`
+  is what it produces, and widening it would put an untested AppImage in the
+  installer set.
 - **Intel macOS is not built at all.** `macos-13` was retired and the job simply
   queued forever with no runner assigned — which looks exactly like a slow build —
   while the replacement `macos-15-intel` is a billed larger runner.
