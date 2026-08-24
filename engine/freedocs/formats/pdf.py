@@ -112,6 +112,30 @@ _SYSTEM_TESSDATA = (
     r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
 )
 
+#: Where each platform's package manager puts the executable, checked when
+#: ``PATH`` does not answer. Deliberately parallel to ``_SYSTEM_TESSDATA``, and
+#: the reason the two halves need the same treatment is that the *launch context*
+#: varies rather than the installation: a macOS ``.app`` started from Finder or
+#: ``open`` inherits launchd's environment, so its ``PATH`` is
+#: ``/usr/bin:/bin:/usr/sbin:/sbin`` and a Homebrew install can never be on it,
+#: whatever the user installs next. That produced a bundle reporting "the
+#: Tesseract executable is not on PATH" on a machine where `brew install
+#: tesseract` had already succeeded — accurate, and advice that fixes nothing.
+#: The tessdata half was immune because it was already a list.
+_SYSTEM_BINARIES = (
+    # macOS: Homebrew on Apple silicon, then Intel, then MacPorts.
+    "/opt/homebrew/bin/tesseract",
+    "/usr/local/bin/tesseract",
+    "/opt/local/bin/tesseract",
+    # Already on the minimal PATH above, and free to list.
+    "/usr/bin/tesseract",
+    # Windows for the same class of bug, not for symmetry: the UB Mannheim
+    # installer's "add to PATH" checkbox is optional, so an ordinary install is
+    # invisible to `shutil.which` there too.
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+)
+
 
 def _tessdata_candidates() -> list[str]:
     return [
@@ -154,9 +178,25 @@ def tesseract_binary() -> str | None:
     resolve must leave :func:`ocr_unavailable_reason` saying OCR is unavailable —
     an override that could bypass that check would let the capability and the
     refusal disagree, which is the bug this module already shipped once.
+
+    ``PATH`` comes next, so a caller who put a chosen build on it still gets that
+    one. ``_SYSTEM_BINARIES`` is the last resort and exists because ``PATH`` is a
+    property of how the process was started: see that constant for the Finder
+    launch that reported no Tesseract on a machine that had one.
     """
     override = _adopted_override()
-    return override if override is not None else shutil.which("tesseract")
+    if override is not None:
+        return override
+    # No adoption needed on this branch: a binary found through PATH is on PATH,
+    # which is the only thing PyMuPDF will consult.
+    found = shutil.which("tesseract")
+    if found is not None:
+        return found
+    for candidate in _SYSTEM_BINARIES:
+        path = Path(candidate)
+        if _is_executable(path):
+            return _adopt(path)
+    return None
 
 
 def _is_executable(path: Path) -> bool:
@@ -183,31 +223,40 @@ def _is_executable(path: Path) -> bool:
     return path.suffix.upper() in known
 
 
-def _adopted_override() -> str | None:
-    """The overridden binary, with its directory put on ``PATH``.
+def _adopt(candidate: Path) -> str:
+    """Report a binary found off ``PATH``, having first put it on ``PATH``.
 
     The side effect is the point, and reporting the path without it would be the
     lie this function exists to avoid: nothing here runs Tesseract.
     :meth:`PdfTextHandler` asks PyMuPDF, PyMuPDF shells out, and it resolves
     ``tesseract`` through ``PATH`` — it has no argument for the executable, only
-    for the language data. So an override that merely satisfied
+    for the language data. So a binary that merely satisfied
     :func:`ocr_unavailable_reason` would report OCR available and then fail on the
     first scan, which is precisely the shape of the bug that made
     ``ocr_unavailable_reason`` the single authority in the first place.
 
+    Shared by the two routes that can name a binary ``PATH`` does not — the
+    override and ``_SYSTEM_BINARIES`` — because two copies of a load-bearing side
+    effect is one copy that gets forgotten.
+
     Idempotent: called from a getter that several callers reach on every page.
     """
+    directory = str(candidate.parent)
+    path = os.environ.get("PATH") or ""
+    if directory not in path.split(os.pathsep):
+        os.environ["PATH"] = f"{directory}{os.pathsep}{path}" if path else directory
+    return str(candidate)
+
+
+def _adopted_override() -> str | None:
+    """``FREEDOCS_TESSERACT``, validated and adopted, or None."""
     configured = os.environ.get("FREEDOCS_TESSERACT")
     if not configured:
         return None
     candidate = Path(configured).expanduser()
     if not _is_executable(candidate):
         return None
-    directory = str(candidate.parent)
-    path = os.environ.get("PATH") or ""
-    if directory not in path.split(os.pathsep):
-        os.environ["PATH"] = f"{directory}{os.pathsep}{path}" if path else directory
-    return str(candidate)
+    return _adopt(candidate)
 
 
 def ocr_unavailable_reason() -> str | None:
@@ -218,7 +267,9 @@ def ocr_unavailable_reason() -> str | None:
     """
     missing = []
     if tesseract_binary() is None:
-        missing.append("the Tesseract executable is not on PATH")
+        missing.append(
+            "no Tesseract executable was found on PATH or in the usual install locations"
+        )
     if tessdata_path() is None:
         missing.append("no directory with .traineddata files was found")
     if not missing:

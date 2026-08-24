@@ -101,13 +101,18 @@ and `doctor` names which half is missing. Two ways out, both the user's:
 - install Tesseract with a package manager, which brings its own `.traineddata`;
 - drop a binary at `<root>/bin/tesseract` and the app will find it.
 
-The second is validated rather than trusted, and the validation has a subtlety
-worth not undoing: `tesseract_binary()` also puts the binary's directory on
-`PATH`. Nothing in the engine runs Tesseract — PyMuPDF does, and it resolves the
-executable through `PATH` with no argument for it, only for the language data. An
-override that merely satisfied `ocr_unavailable_reason()` would report OCR
-available and then fail on the first scan, which is the exact shape of the bug
-that made that function the single authority in the first place.
+The first route no longer depends on the launch context: `_SYSTEM_BINARIES` in
+`formats/pdf.py` lists where each package manager puts the executable, so a
+Finder-launched app with `PATH=/usr/bin:/bin:/usr/sbin:/sbin` still finds a
+Homebrew install. See `docs/scanned-pdfs.md`.
+
+Both routes are validated rather than trusted, and both share a subtlety worth not
+undoing: `_adopt()` puts the binary's directory on `PATH`. Nothing in the engine
+runs Tesseract — PyMuPDF does, and it resolves the executable through `PATH` with
+no argument for it, only for the language data. A binary that merely satisfied
+`ocr_unavailable_reason()` would report OCR available and then fail on the first
+scan, which is the exact shape of the bug that made that function the single
+authority in the first place.
 
 ## Windows needs a WebView2 runtime, and there is no stable URL for one
 

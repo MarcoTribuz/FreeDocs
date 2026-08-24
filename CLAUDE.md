@@ -1365,7 +1365,24 @@ through `PATH` with no argument for it — only for the language data. An overri
 that merely satisfied `tesseract_binary()` would make `capabilities` promise OCR
 and then fail on the first scan, which is the bug that made
 `ocr_unavailable_reason()` the single authority. The binary is never bundled and
-cannot be; the `.traineddata` are.
+cannot be; the `.traineddata` are. The same rule governs `_SYSTEM_BINARIES`, which
+is why both routes go through one `_adopt()`.
+
+**`PATH` says how the process was started, not what is installed.** A macOS
+`.app` opened from Finder inherits launchd's environment — `PATH` is
+`/usr/bin:/bin:/usr/sbin:/sbin`, and `/opt/homebrew/bin` cannot get onto it
+whatever the user installs next. So the bundle reported "the Tesseract executable
+is not on PATH" on a machine where `brew install tesseract` had already succeeded,
+and the same bundle worked from a terminal, which reads as a broken build. The
+tessdata half was immune because `_SYSTEM_TESSDATA` was already a list of
+locations; `_SYSTEM_BINARIES` is the binary half's, tried after
+`FREEDOCS_TESSERACT` and after `PATH` so a build somebody chose still wins.
+Reproduce a Finder launch without rebuilding:
+`env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin engine/.venv/bin/freedocs doctor`.
+Fixed in Python rather than in `portable_env()` because the engine is the process
+that needs the binary, one change covers CLI, sidecar, installer and portable
+zip, and `set()` in `engine.rs` skips any variable already in the parent
+environment — which `PATH` always is.
 
 **A bundled payload can be incomplete in a way a downloaded one cannot** — a full
 disk, a stick pulled mid-write. `core/model_manifest.py` owns the format because
