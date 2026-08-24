@@ -266,6 +266,39 @@ class Session:
             self._extractions[key] = extraction
         return extraction
 
+    def forget(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Release cached readings, named or all of them.
+
+        The cache holds the one thing this process keeps that is worse than a
+        finding: ``Extraction.stream.text`` is a *superset* of what was detected,
+        because it contains the confidential text no layer found. That is the
+        whole reason ``include_text`` is opt-in and the whole reason the text
+        must never reach a report.
+
+        Keeping it is worth paying for while a document is being reviewed - every
+        excused occurrence re-inspects, and without the cache that re-OCRs a scan
+        - and worth nothing once it is not. Until this existed the only way to
+        release it was to end the session, and ending the session costs a GLiNER2
+        reload.
+
+        A control, not a rule. Nothing here decides when a caller is finished
+        with a document; it decides what happens when they say so. And forgetting
+        something never read is not an error, because the caller that will use
+        this calls it on every exit path, including the ones where nothing was
+        ever inspected.
+        """
+        wanted = params.get("paths")
+        if wanted is None:
+            released = len(self._extractions)
+            self._extractions.clear()
+            return {"released": released}
+
+        names = {str(_as_path(value)) for value in wanted}
+        keys = [key for key in self._extractions if key[0] in names]
+        for key in keys:
+            del self._extractions[key]
+        return {"released": len(keys)}
+
     # -- methods ---------------------------------------------------------------
 
     def capabilities(self) -> dict[str, Any]:
@@ -1017,6 +1050,7 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "inspect": session.inspect,
         "scrub": session.scrub,
         "restore": session.restore,
+        "forget": session.forget,
     }
 
 
