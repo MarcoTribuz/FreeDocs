@@ -52,15 +52,39 @@ OUT = ROOT / "dist"
 INSTALLERS = (".dmg", ".deb", ".AppImage", ".msi", ".exe")
 
 
-def artifacts() -> list[Path]:
+def artifacts(bundle_dir: Path | None = None) -> list[Path]:
     """Every file this repository produces for somebody else to run.
 
-    Both bundle layouts, because `npm run tauri build` writes to
+    Both bundle layouts by default, because `npm run tauri build` writes to
     `target/release/bundle` and the workflow's `--target` writes to
     `target/<triple>/release/bundle`. Missing one of those is how a local run
     would checksum nothing and say so, which is worse than useless on the day it
     matters. Looking in both is also what surfaces the duplicate below.
+
+    ``bundle_dir`` narrows it to one, and it exists because the refusal below
+    fired on the first real build after it was written — correctly, and
+    uselessly. A development machine routinely holds both trees, so "delete the
+    stale one" is friction rather than an answer. Whoever ran the build knows
+    which tree it wrote to; this is where they say so, and it is a fact rather
+    than the modification-time guess the refusal exists to avoid.
     """
+    if bundle_dir is not None:
+        # Resolved, because a relative one taken from the command line produces
+        # relative results and every report below is written against ROOT.
+        bundle_dir = (ROOT / bundle_dir).resolve() if not bundle_dir.is_absolute() else bundle_dir
+        if not bundle_dir.is_dir():
+            raise SystemExit(f"{bundle_dir} is not a directory")
+        return sorted(
+            {
+                *(
+                    path
+                    for path in bundle_dir.rglob("*")
+                    if path.is_file() and path.suffix in INSTALLERS and not _scratch(path)
+                ),
+                *_portable(),
+            }
+        )
+
     found: list[Path] = []
     for bundle in (TAURI / "target").glob("**/release/bundle"):
         found += [
@@ -68,14 +92,20 @@ def artifacts() -> list[Path]:
             for path in bundle.rglob("*")
             if path.is_file() and path.suffix in INSTALLERS and not _scratch(path)
         ]
-    portable = APP / "dist-portable"
-    if portable.is_dir():
-        found += [
-            path
-            for path in portable.iterdir()
-            if path.is_file() and path.suffix in (".zip", ".AppImage")
-        ]
+    found += _portable()
     return sorted(set(found))
+
+
+def _portable() -> list[Path]:
+    """The unzip-and-run bundles, which have one directory whichever way we built."""
+    portable = APP / "dist-portable"
+    if not portable.is_dir():
+        return []
+    return [
+        path
+        for path in portable.iterdir()
+        if path.is_file() and path.suffix in (".zip", ".AppImage")
+    ]
 
 
 def _scratch(path: Path) -> bool:
@@ -107,8 +137,8 @@ def refuse_duplicates(paths: list[Path]) -> None:
             raise SystemExit(
                 f"two files would be published as {path.name}:\n"
                 f"  {first.relative_to(ROOT)}\n  {path.relative_to(ROOT)}\n"
-                "one of them is from an older build; delete the stale target tree "
-                "and run the build again"
+                "one of them is from an older build. Say which tree you mean with "
+                "--bundle-dir, or delete the stale one."
             )
         seen[path.name] = path
 
@@ -210,6 +240,15 @@ def rust_sbom() -> str:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="provenance.py", description=__doc__)
     parser.add_argument(
+        "--bundle-dir",
+        type=Path,
+        default=None,
+        help="the bundle directory this build wrote, when there is more than one "
+        "in the tree. `tauri build` writes target/release/bundle and a --target "
+        "build writes target/<triple>/release/bundle, and a machine that has run "
+        "both holds two files with the same name.",
+    )
+    parser.add_argument(
         "--rust",
         action="store_true",
         help="write the shell's SBOM instead. Separate because it needs a tool "
@@ -224,7 +263,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"written: {(OUT / 'sbom-shell.cdx.json').relative_to(ROOT)}")
         return 0
 
-    built = artifacts()
+    built = artifacts(args.bundle_dir)
     if not built:
         # Loudly, rather than writing an empty SHA256SUMS. A manifest of nothing
         # is indistinguishable from a manifest of a build that produced nothing,
@@ -238,8 +277,21 @@ def main(argv: list[str] | None = None) -> int:
     (OUT / "sbom-engine.cdx.json").write_text(engine_sbom(), encoding="utf-8")
     (OUT / "sbom-frontend.cdx.json").write_text(frontend_sbom(), encoding="utf-8")
 
+    # Each with when it was written, because a set can be mixed without
+    # colliding: `scripts/ci.py build` does not produce a portable bundle, so a
+    # zip in `dist-portable/` came from an earlier run of
+    # `app/packaging/portable.py` and is listed beside a dmg made minutes ago.
+    # Nothing here is false - these are the artefacts and these are their hashes
+    # - but "made by the same command" is the claim this file rests on, and a
+    # reader can only check it if the dates are on screen. Shown rather than
+    # guessed at: which of two builds is the real one is not this script's call,
+    # which is the same reason the duplicate above is refused rather than
+    # resolved by modification time.
+    import datetime
+
     for path in built:
-        print(f"  {path.relative_to(ROOT)}")
+        when = datetime.datetime.fromtimestamp(path.stat().st_mtime)
+        print(f"  {when:%Y-%m-%d %H:%M}  {path.relative_to(ROOT)}")
     print(f"written: {OUT.relative_to(ROOT)}/SHA256SUMS and two SBOMs")
     return 0
 
