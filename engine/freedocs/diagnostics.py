@@ -302,6 +302,24 @@ def _layers_check() -> Check:
     )
 
 
+def _sandbox_check() -> Check:
+    """What this process gives up, and what it does not.
+
+    ``required=False`` and ``ok=True`` whichever way it comes out, because none
+    of it is a fault: a build with no filesystem confinement is every build
+    there has ever been, and reporting that as an error would train people to
+    ignore the doctor - the reasoning `Check` itself carries about Tesseract.
+
+    It is here at all so the absence cannot be read as presence. "Nothing leaves
+    the machine" is the first line of the threat model, and a reader deserves to
+    see which half of that is a property of the code and which half the process
+    now refuses to do.
+    """
+    from .core.sandbox import describe
+
+    return Check(name="Process hardening", ok=True, detail=describe(), required=False)
+
+
 def run_checks(review_host: str) -> list[Check]:
     """Every check, in the order a reader wants them: floor first, extras after."""
     return [
@@ -323,4 +341,5 @@ def run_checks(review_host: str) -> list[Check]:
         _mapping_check(),
         _layers_check(),
         _review_check(review_host),
+        _sandbox_check(),
     ]

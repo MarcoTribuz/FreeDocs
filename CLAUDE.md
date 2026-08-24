@@ -768,6 +768,44 @@ and over the pipe `rpc.handle` rendered it into a response as a sentence about
 somebody else's internals. They are all `MalformedDocument` now. The library
 being right about the file is not the same as the caller being told about it.
 
+**"No network call is part of a scrub" is enforced, not just true.**
+`core/egress.py` refuses an outbound connection that is not to this machine, and
+`cli.main` and `rpc.serve` install it because a process-level policy belongs to
+whoever started the process — importing `freedocs` as a library must not change a
+caller's sockets. Both restore it in a `finally`, which is also what stops a test
+that runs one command leaving the interpreter blocked for whatever runs next.
+
+Three things about it are deliberate. The refusal is a **`ConnectionRefusedError`**
+subclass, so a blocked machine behaves exactly like the air-gapped machine this
+tool says it runs on and a library takes the graceful path it already has. There
+is **one named exception**: `gliner_backend._load` lifts the block around
+`from_pretrained`, because what makes that call acceptable is *which call it is*,
+not where it goes — a list of trusted hosts would be a second copy of a rule and
+the wrong one. And it is **not a defence against hostile code**: a C extension can
+open a socket without going near Python's, and MuPDF and libxml2 are C. It closes
+the accidental call — a dependency phoning home while it holds a page of somebody's
+contract, which `huggingface_hub` does on every model load unless told otherwise.
+
+`is_loopback` lives there and `detect/llm_review._is_local` now calls it, which
+killed a duplicate that had already gone wrong: the copy treated an **empty**
+hostname as local, and an empty hostname is what `urlparse` gives for
+`http://:11434` *and* for `file:///etc/passwd` — and the scheme was never checked,
+so anything `urlopen` supports was reachable against a host that looked local.
+
+**`core/sandbox.py` says what is given up and, at equal length, what is not.**
+Core dumps off — cheap, portable, and load-bearing since the reverse path landed,
+because a dump can hold the passphrase and every value the scrub removed. Nothing
+else. **`RLIMIT_AS` was measured and rejected**: this process reserves 425 GB of
+address space on macOS before importing anything, so any ceiling is either useless
+or fatal at startup, and `core/limits.py` already bounds what an input can drive.
+**Filesystem confinement is absent and that is a gap, not a decision** — Landlock,
+a Windows job object, a signed macOS hardened runtime. None can be run from here;
+this project builds on Linux and Windows and has never been launched there, and a
+Landlock ruleset that is subtly wrong does not fail loudly, it stops the engine
+reading the document the user chose. `doctor` prints both halves in one line, and
+`capabilities` publishes `network_blocked` and `hardening`, so the absence cannot
+be read as presence.
+
 **Verification fails loudly.** Stage 6 re-opens the output, re-extracts it
 (hidden parts included) and searches for every value that was supposed to be
 gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing.

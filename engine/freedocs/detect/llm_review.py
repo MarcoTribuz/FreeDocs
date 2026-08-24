@@ -29,12 +29,13 @@ text that goes, not the original.
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
+
+from ..core.egress import is_loopback
 
 #: Ollama's default. Loopback, so nothing leaves the machine.
 DEFAULT_HOST = "http://127.0.0.1:11434"
@@ -116,22 +117,32 @@ class RemoteHostRefused(RuntimeError):
     """The configured Ollama is not on this machine and nobody said that was fine."""
 
 
+#: What this layer will talk over. Checked because the host arrives off the wire
+#: and goes to ``urllib.request.urlopen``, which speaks rather more than HTTP:
+#: without this, ``file:///etc/passwd`` was a local host and a file read.
+_SCHEMES = frozenset({"http", "https"})
+
+
 def _is_local(host: str) -> bool:
-    """Whether a host URL points at this machine.
+    """Whether a host URL points at this machine, over a protocol we meant.
 
     Name-based checks are deliberately narrow: ``localhost`` and the loopback
-    ranges only. A hostname that happens to resolve to a loopback address is not
-    treated as local, because whether it still will tomorrow is not this code's
-    call to make.
+    ranges only, through ``core/egress.is_loopback``. A hostname that happens to
+    resolve to a loopback address is not treated as local, because whether it
+    still will tomorrow is not this code's call to make.
+
+    Two things were wrong with the copy this replaced, and they compounded. An
+    **empty** hostname counted as local - and an empty hostname is what
+    ``urlparse`` gives for ``file:///etc/passwd`` and for ``http://:11434``. And
+    the **scheme** was never looked at, so anything ``urlopen`` supports was fair
+    game against a host that looked local. The loopback half now lives in one
+    place for exactly that reason: two copies of a rule is how the guard on the
+    one component that talks to the network gets walked past.
     """
     parsed = urlparse(host)
-    name = (parsed.hostname or "").lower()
-    if name in {"localhost", ""}:
-        return True
-    try:
-        return ipaddress.ip_address(name).is_loopback
-    except ValueError:
+    if parsed.scheme.lower() not in _SCHEMES:
         return False
+    return is_loopback(parsed.hostname or "")
 
 
 #: The half of the refusal that is the same whoever is asking. Two places refuse a
