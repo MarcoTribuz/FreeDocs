@@ -14,7 +14,7 @@ import os
 import sys
 from pathlib import Path
 
-from .core.errors import MissingDependency, ModelNotFound
+from .core.errors import MissingDependency, ModelNotFound, OutputRefused
 from .core.findings import EntityType
 from .core.mapping import (
     BadPassphrase,
@@ -26,6 +26,7 @@ from .core.mapping import (
     refuse_inside,
     write_key_map,
 )
+from .core.outputs import private_directory, write_output, write_private, write_private_json
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
@@ -494,7 +495,18 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
             continue
 
         destination = args.output_dir / path.name
-        destination.write_bytes(result.output)
+        try:
+            # Left to the umask, unlike the key file and the restored document.
+            # This is the one artifact whose purpose is to be sent, and stage 6
+            # has already searched it for every value that was meant to be gone.
+            write_output(destination, result.output)
+        except OutputRefused as exc:
+            # Per file, and a usage status: the document was fine and the path was
+            # not, so blaming the run rather than the file would send the reader to
+            # the wrong place.
+            print(f"{path.name}: {exc}", file=sys.stderr)
+            status = EXIT_USAGE
+            continue
         print(format_console(result))
         print(f"  written: {destination}")
 
@@ -522,7 +534,9 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
             status = EXIT_LEAK
 
     if args.report and reports:
-        args.report.write_text(json.dumps(reports, indent=2), encoding="utf-8")
+        # Owner only. It carries no values since `build_report` was audited, but it
+        # does carry where each one was and what the source document was called.
+        write_private_json(args.report, reports)
         print(f"report: {args.report}")
     return status
 
@@ -538,7 +552,9 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     produced the caller's best artifact with a visible defect in it, so the bytes
     go to disk, every problem is printed, and the exit code says so.
     """
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    # Owner only when this call creates it, since what lands in it is the
+    # originals. An existing directory is left as the user made it.
+    private_directory(args.output_dir)
     passphrase = _passphrase(args, confirm=False)
     try:
         key_map = read_key_map(args.map, passphrase)
@@ -567,7 +583,14 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             continue
 
         destination = args.output_dir / path.name
-        destination.write_bytes(result.output)
+        try:
+            # Owner only. The key file was meticulously 0600 while this - which is
+            # the originals, reassembled - went out at whatever the umask said.
+            write_private(destination, result.output)
+        except OutputRefused as exc:
+            print(f"{path.name}: {exc}", file=sys.stderr)
+            status = EXIT_USAGE
+            continue
         print(format_restore_console(result))
         print(f"  written: {destination}")
         reports.append(build_restore_report(result))
@@ -575,7 +598,7 @@ def _cmd_restore(args: argparse.Namespace) -> int:
             status = EXIT_INCOMPLETE
 
     if args.report and reports:
-        args.report.write_text(json.dumps(reports, indent=2), encoding="utf-8")
+        write_private_json(args.report, reports)
         print(f"report: {args.report}")
     return status
 

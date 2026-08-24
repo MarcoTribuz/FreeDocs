@@ -34,7 +34,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
-from .core.errors import MissingDependency, ModelNotFound
+from .core.errors import MissingDependency, ModelNotFound, OutputRefused
 from .core.findings import EntityType
 from .core.mapping import (
     MIN_PASSPHRASE,
@@ -47,6 +47,7 @@ from .core.mapping import (
     refuse_inside,
     write_key_map,
 )
+from .core.outputs import private_directory, write_output, write_private
 from .core.overrides import Override, StaleOverride, parse_override
 from .core.policy import (
     DEFAULT_LOCALE,
@@ -98,6 +99,11 @@ MISSING_DEPENDENCY = 4
 #: failure has one number whichever front end reported it. Unlike LEAK_DETECTED
 #: the output *was* written - see ``Restorer.restore``.
 INCOMPLETE_RESTORE = 5
+#: An output path this engine will not write to - a symbolic link where a file
+#: belongs. Its own code rather than INVALID_REQUEST because the request was
+#: well-formed and the filesystem was not, and rather than a silent follow
+#: because following it writes the caller's document somewhere nobody chose.
+OUTPUT_REFUSED = 6
 
 #: How much flat text ``inspect`` will put on the wire when asked for a preview.
 #:
@@ -571,7 +577,12 @@ class Session:
             )
 
         destination = output_dir / path.name
-        destination.write_bytes(result.output)
+        try:
+            # Left to the umask: this is the copy the caller sends on, and stage 6
+            # has already searched it for every value that was meant to be gone.
+            write_output(destination, result.output)
+        except OutputRefused as exc:
+            return _failure(path, OUTPUT_REFUSED, str(exc))
 
         key_file: str | None = None
         key_warnings: list[str] = []
@@ -650,14 +661,20 @@ class Session:
         except MissingDependency as exc:
             raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
 
-        output_dir.mkdir(parents=True, exist_ok=True)
+        # Owner only, directory included when this call creates it. What lands
+        # here is the originals, reassembled - the key file's permissions were
+        # careful and this was not.
+        private_directory(output_dir)
         destination = output_dir / path.name
         # Written even when incomplete. The opposite of a leak: a scrub that
         # failed verification must write nothing because a nearly-clean document
         # gets sent, while a half-restored one is still the caller's best artifact
         # and its defect is visible in it. The response says so and the caller
         # decides.
-        destination.write_bytes(result.output)
+        try:
+            write_private(destination, result.output)
+        except OutputRefused as exc:
+            raise RpcError(OUTPUT_REFUSED, str(exc)) from exc
         return {
             "path": str(path),
             "ok": result.ok,

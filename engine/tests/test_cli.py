@@ -423,6 +423,81 @@ def test_a_passphrase_file_others_can_read_is_reported(document, tmp_path, capsy
     assert "readable" in capsys.readouterr().err
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not meaningful here")
+def test_the_restored_document_and_its_report_are_owner_only(document, tmp_path, passphrase_file):
+    """The key file was meticulously 0600 and the document holding the same values
+    in the clear was not. `core/outputs.py` is the one answer; this is the CLI
+    half of asking it, and `test_rpc.py` is the other - the defect `15ee0e1` was
+    about was the same thing missing on the untested side."""
+    out_dir, keys, back = tmp_path / "out", tmp_path / "keys", tmp_path / "back"
+    assert (
+        cli.main(
+            [
+                "scrub",
+                *L1,
+                str(document),
+                "-o",
+                str(out_dir),
+                "--map",
+                str(keys),
+                "--map-passphrase-file",
+                str(passphrase_file),
+            ]
+        )
+        == cli.EXIT_OK
+    )
+    report = tmp_path / "r.json"
+    assert (
+        cli.main(
+            [
+                "restore",
+                str(out_dir / "offerta.txt"),
+                "--map",
+                str(keys / "offerta.fdmap"),
+                "-o",
+                str(back),
+                "--map-passphrase-file",
+                str(passphrase_file),
+                "--report",
+                str(report),
+            ]
+        )
+        == cli.EXIT_OK
+    )
+    assert (back / "offerta.txt").stat().st_mode & 0o777 == 0o600
+    assert report.stat().st_mode & 0o777 == 0o600
+    assert back.stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not meaningful here")
+def test_the_scrubbed_document_is_left_to_the_umask(document, tmp_path):
+    """The one artifact whose purpose is to be sent. Narrowing it to the owner
+    would tighten the handoff the feature exists for, and stage 6 has already
+    searched it for every value that was meant to be gone."""
+    previous = os.umask(0o022)
+    try:
+        out_dir = tmp_path / "out"
+        assert cli.main(["scrub", *L1, str(document), "-o", str(out_dir)]) == cli.EXIT_OK
+        assert (out_dir / "offerta.txt").stat().st_mode & 0o777 == 0o644
+    finally:
+        os.umask(previous)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="O_NOFOLLOW does not exist here")
+def test_a_symlink_where_the_output_belongs_is_refused(document, tmp_path, capsys):
+    """`write_bytes` after `mkdir(exist_ok=True)` follows a link, so in a shared or
+    predictable output directory a pre-planted one redirects the write."""
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    elsewhere = tmp_path / "config"
+    elsewhere.write_text("do not touch", encoding="utf-8")
+    (out_dir / "offerta.txt").symlink_to(elsewhere)
+
+    assert cli.main(["scrub", *L1, str(document), "-o", str(out_dir)]) == cli.EXIT_USAGE
+    assert elsewhere.read_text(encoding="utf-8") == "do not touch"
+    assert "symbolic link" in capsys.readouterr().err
+
+
 def test_scrub_then_restore_returns_the_document(document, tmp_path, passphrase_file):
     original = document.read_text(encoding="utf-8")
     out_dir, keys, back = tmp_path / "out", tmp_path / "keys", tmp_path / "back"
