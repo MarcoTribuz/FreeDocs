@@ -83,6 +83,33 @@ def test_a_hostname_resolving_to_loopback_is_still_treated_as_remote():
     assert _is_local("http://my-laptop.local:11434") is False
 
 
+@pytest.mark.parametrize(
+    "host",
+    [
+        # `urlparse` gives an empty hostname for both, and an empty hostname was
+        # being read as "this machine" - so the one guard on the one component
+        # that talks to the network could be walked straight past. The second is
+        # the interesting one: it reaches `urlopen` as a file read.
+        "http://:11434",
+        "file:///etc/passwd",
+        # No scheme check at all meant anything `urlopen` supports was fair game
+        # against a host that looked local.
+        "file://localhost/etc/passwd",
+        "ftp://127.0.0.1/",
+        "gopher://localhost:11434/",
+    ],
+)
+def test_a_host_that_is_not_a_local_http_url_is_refused(host: str):
+    assert _is_local(host) is False
+
+
+def test_the_ordinary_local_forms_still_pass():
+    """The other half. A guard that refuses the configuration everybody actually
+    uses is not a guard, it is an outage."""
+    for host in ("http://localhost:11434", "http://127.0.0.1:11434", "https://[::1]:11434"):
+        assert _is_local(host) is True
+
+
 # -- parsing ------------------------------------------------------------------
 
 

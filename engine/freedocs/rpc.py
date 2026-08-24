@@ -34,6 +34,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
+from .core.egress import block_external, blocked, unblock
 from .core.errors import (
     InputTooLarge,
     MalformedDocument,
@@ -64,6 +65,8 @@ from .core.policy import (
     SurrogateAllocator,
     placeholder_labels,
 )
+from .core.sandbox import describe as describe_sandbox
+from .core.sandbox import harden
 from .detect.llm_review import (
     DEFAULT_HOST as REVIEW_HOST,
 )
@@ -308,6 +311,13 @@ class Session:
             # the `scrub` request, and the failure landing after the scrubbed
             # copies were written.
             "passphrase_min_characters": MIN_PASSPHRASE,
+            # Whether this process will refuse an outbound connection that is not
+            # to this machine, and one sentence saying what else it gives up.
+            # Published because "nothing leaves the machine" is the claim the
+            # whole tool rests on, and a window that repeats it should be
+            # repeating something it asked rather than something it assumes.
+            "network_blocked": blocked(),
+            "hardening": describe_sandbox(),
             # Whether the model travels with this build or is fetched on first
             # use. Sent because the window cannot work it out: it is a property
             # of how the app was packaged, and a portable copy that says
@@ -1040,7 +1050,21 @@ def _error_response(request_id: Any, code: int, message: str, data: Any = None) 
 
 
 def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
-    """Read requests until stdin closes. One line in, one line out."""
+    """Read requests until stdin closes. One line in, one line out.
+
+    The other of the two places that own the process, so the other place the
+    hardening is applied - and undone on the way out for the same reason
+    ``cli.main`` does it: `tests/test_rpc.py` calls this directly.
+    """
+    harden()
+    block_external()
+    try:
+        return _serve(stdin, stdout)
+    finally:
+        unblock()
+
+
+def _serve(stdin: TextIO | None, stdout: TextIO | None) -> int:
     source: Iterator[str] = iter(stdin or sys.stdin)
     session = Session(out=stdout or sys.stdout)
     session.notify("ready", **session.capabilities())

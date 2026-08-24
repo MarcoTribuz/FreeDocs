@@ -20,9 +20,21 @@ maintainer, so a fix may take longer than that; you will be told which it is.
 FreeDocs exists because a document has to be handed to a language model and its
 confidential data must not go with it. Everything below follows from that.
 
-- **Nothing leaves the machine.** No network call is part of a scrub. The optional
-  review layer talks to a local Ollama, and a non-loopback host is refused unless
-  the caller explicitly passes `--review-remote`.
+- **Nothing leaves the machine, and the process now refuses to.** No network call
+  is part of a scrub. That used to be a property of the code as written; the
+  engine now blocks outbound connections that are not to this machine, with one
+  named exception — fetching the model weights, which an installer build does on
+  first use. The optional review layer talks to a local Ollama, and a non-loopback
+  host is refused unless the caller explicitly passes `--review-remote`.
+
+  Be precise about what that is worth: it stops the *accidental* call, which is
+  the realistic one — a dependency checking for its own updates while it holds a
+  page of your contract. It is not a defence against hostile code, because a C
+  extension can open a socket without going through Python's, and the PDF and XML
+  parsers are C. `freedocs doctor` prints what is enforced and what is not.
+- **A crash cannot write this process's memory to disk.** Core dumps are turned
+  off, which matters more since the key file exists: a dump can contain the
+  passphrase and every value the scrub removed.
 - **The re-identification mapping never reaches disk unless you ask for it, by
   name.** By default, placeholder-to-original lives in memory for one run and is
   destroyed in a `finally` block, including when a stage raises: there is no key to

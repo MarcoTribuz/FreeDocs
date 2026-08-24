@@ -14,6 +14,7 @@ import os
 import sys
 from pathlib import Path
 
+from .core.egress import block_external, unblock
 from .core.errors import (
     InputTooLarge,
     MalformedDocument,
@@ -34,6 +35,7 @@ from .core.mapping import (
 )
 from .core.outputs import private_directory, write_output, write_private, write_private_json
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
+from .core.sandbox import harden
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import Check, engine_version, run_checks
@@ -836,6 +838,24 @@ def _cmd_benchmark(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """The CLI entry point, and one of the two places that own the process.
+
+    The hardening is applied here rather than at import, and undone on the way
+    out. Both halves matter. Importing ``freedocs`` as a library must not
+    silently change what a caller's own sockets and limits do - so it belongs to
+    an entry point. And restoring means a test that calls this does not leave the
+    interpreter with sockets blocked for whatever runs next, which is a fixture
+    nobody would think to write.
+    """
+    harden()
+    block_external()
+    try:
+        return _dispatch(argv)
+    finally:
+        unblock()
+
+
+def _dispatch(argv: list[str] | None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     handlers = {

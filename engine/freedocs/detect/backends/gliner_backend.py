@@ -20,6 +20,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from ...core.egress import permitted
 from ...core.errors import MissingDependency, ModelNotFound
 from ..ner import RawEntity
 
@@ -126,7 +127,14 @@ class GlinerBackend:
             ) from exc
         # The library prints a configuration banner to stdout on load, which would
         # land in the middle of CLI output and, worse, in piped JSON.
-        with contextlib.redirect_stdout(io.StringIO()):
+        #
+        # And this is the single call in the whole process that legitimately
+        # reaches the network: an installer build fetches the weights on first
+        # use, and `huggingface_hub` confirms a cached copy is current unless
+        # `HF_HUB_OFFLINE` says otherwise. It lifts the egress block by name
+        # rather than the block keeping a list of hosts it trusts - what makes
+        # this acceptable is which call it is, not where it goes.
+        with contextlib.redirect_stdout(io.StringIO()), permitted("loading the NER model"):
             return GLiNER2.from_pretrained(self.model_id, map_location="cpu")
 
     def predict(self, text: str) -> Sequence[RawEntity]:

@@ -1168,6 +1168,26 @@ def test_capabilities_publishes_the_passphrase_floor(session: Session):
     assert caps["passphrase_min_characters"] == MIN_PASSPHRASE
 
 
+def test_capabilities_says_whether_the_network_is_blocked(session: Session):
+    """ "Nothing leaves the machine" is the claim the whole tool rests on, so the
+    window should be repeating something it asked rather than something it
+    assumes. Both fields, because one of them is the honest half: `hardening`
+    names what is *not* enforced as well as what is."""
+    caps = result_of(session, "capabilities")
+    assert isinstance(caps["network_blocked"], bool)
+    assert "Not enforced" in caps["hardening"]
+
+
+def test_doctor_reports_the_hardening_without_calling_it_a_fault(session: Session):
+    """A build with no filesystem confinement is every build there has ever been.
+    Reporting that as an error is how people learn to ignore the doctor."""
+    checks = result_of(session, "doctor")["checks"]
+    hardening = [check for check in checks if check["name"] == "Process hardening"]
+    assert hardening, [check["name"] for check in checks]
+    assert hardening[0]["ok"] is True
+    assert hardening[0]["required"] is False
+
+
 def test_scrub_without_map_reports_no_key_file(session: Session, document: Path, tmp_path: Path):
     result = result_of(session, "scrub", paths=[str(document)], output_dir=str(tmp_path / "out"))[
         "results"
