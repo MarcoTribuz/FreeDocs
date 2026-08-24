@@ -601,6 +601,37 @@ for one run and `pipeline.py` closes it in a `finally`, so a crash cannot leave 
 re-identification key in a live process. Reports carry counts and positions,
 never values — `test_report_contains_no_confidential_values` enforces this.
 
+**A value does not have to be in the text to be a value, and that is where the
+report leaked.** `test_report_contains_no_confidential_values` searches for the
+canaries, and every canary is an identifier in the document *body* — so it passed
+over two strings that reached disk anyway. `HiddenItem.detail` carried a hidden
+sheet's **name** (`Clienti-Rossi`, the identifying string the scrub was about to
+remove) and a PDF's **embedded filenames**; `FormatHandler.warn()` carried the old
+names of every sheet `XlsxHandler` renamed, which is the same value again, quoted
+by the handler whose job was to take it out.
+
+So the rule, now written into `formats/base.py` where the next handler author will
+read it: **`detail` and `warn()` are descriptions, never values.** Say how many,
+say where, say what kind. Where a name really is the useful part, report what the
+thing is called *now* — a placeholder is a label the scrubbed output already
+publishes, and it is also what a formula that broke refers to. `part` and `kind`
+are structural and safe: one is the package's own vocabulary, the other a closed
+set.
+
+`build_restore_report` reached this conclusion first, from the other direction: on
+a restore a placeholder's replacement *is* the original value, so PyMuPDF's
+"does not fit" warning names the IBAN it dropped, and that report carries
+`handler_warnings` as a count. The scrub side kept the sentences, because there
+they are value-free once the producers are — and one of them, the OCR warning
+naming every machine-read page, must not become a count: it is the thing a reader
+has to act on.
+
+`test_the_report_names_no_sheet_it_renamed` and
+`test_the_report_does_not_name_an_attachment` are the guards, and they use
+**structural** canaries — a sheet name, an attachment name — because a body canary
+cannot reach either channel. Both assert the second half too: the warning must
+still say what the sheet is called now, since deleting it would also have passed.
+
 **Verification fails loudly.** Stage 6 re-opens the output, re-extracts it
 (hidden parts included) and searches for every value that was supposed to be
 gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing.

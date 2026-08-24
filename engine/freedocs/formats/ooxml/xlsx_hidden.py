@@ -100,21 +100,25 @@ def scrub_xlsx_hidden(package: OoxmlPackage) -> list[HiddenItem]:
 
 
 def _report_hidden_sheets(package: OoxmlPackage) -> list[HiddenItem]:
-    """Name every sheet the reader cannot see. Reported, not removed."""
+    """Locate every sheet the reader cannot see. Reported, not removed."""
     if not package.has(WORKBOOK):
         return []
     tree = package.tree(WORKBOOK)
     out: list[HiddenItem] = []
-    for sheet in tree.iter(qn("s:sheet")):  # type: ignore[attr-defined]
+    for position, sheet in enumerate(tree.iter(qn("s:sheet")), start=1):  # type: ignore[attr-defined]
         state = sheet.get("state")
         if state in HIDDEN_STATES:
             out.append(
                 HiddenItem(
                     part=WORKBOOK,
                     kind="hidden-sheet",
-                    # The name is reported before redaction, so it is the name the
-                    # user recognises. It is redacted like any other text.
-                    detail=f"{sheet.get('name')!r} is {HIDDEN_STATES[state]}",
+                    # Its position, never its name. This reaches `build_report`,
+                    # which is written to disk beside the scrubbed workbook, and a
+                    # sheet called `Clienti-Rossi` is exactly the identifying value
+                    # the scrub is about to remove from it. The position locates
+                    # the sheet in the output, where its redacted name is visible
+                    # anyway.
+                    detail=f"sheet {position} is {HIDDEN_STATES[state]}",
                 )
             )
     return out

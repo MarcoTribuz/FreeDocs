@@ -211,3 +211,71 @@ def test_a_restore_puts_every_canary_back(source: Path, tmp_path: Path):
     text = restored.output.decode("utf-8")
     removed = {finding.text for finding in result.removed}
     assert not [value for value in removed if value not in text]
+
+
+# --- the report, and the values that are not in the document's text -----------
+
+
+def test_the_report_names_no_sheet_it_renamed(tmp_path: Path):
+    """A sheet's own name is a value, and the report is written to disk.
+
+    The canaries above cannot catch this and never could: they live in cell
+    content, and the two strings that escaped were a *sheet's name* - quoted by
+    the rename warning and by the hidden-sheet inventory. Neither is text in the
+    document, so a search for a body canary passes straight over both.
+
+    Both halves are asserted, because deleting the warning would also pass: the
+    report must not name what the sheet was called, and must still say what it is
+    called now, which is the half a broken formula needs.
+    """
+    pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+    from .xlsx_builder import Sheet, XlsxSpec, write_xlsx
+
+    visible = CANARIES["IT_CODICE_FISCALE"]
+    hidden = CANARIES["CH_UID"]
+    path = write_xlsx(
+        tmp_path / "cartella.xlsx",
+        XlsxSpec(
+            sheets=[
+                Sheet(name=visible, rows=[["Totale", 1200]]),
+                Sheet(name=hidden, rows=[["nota", "interna"]], state="veryHidden"),
+            ],
+            app_titles=True,
+        ),
+    )
+
+    result = l1_scrubber().scrub_file(path)
+    serialised = repr(build_report(result))
+    leaked = [name for name in (visible, hidden) if name in serialised]
+    assert not leaked, f"report exposes the sheet name(s) {leaked}"
+
+    renamed = [message for message in result.warnings if message.startswith("renamed ")]
+    assert renamed, "a renamed sheet must still be reported"
+    assert "[" in renamed[0] or "_" in renamed[0], (
+        "the warning must name what the sheet is called now: " + renamed[0]
+    )
+
+
+def test_the_report_does_not_name_an_attachment(tmp_path: Path):
+    """An attachment is routinely named after the person or the case it concerns.
+
+    Same class as the sheet name above: the filename never appears in the
+    document's text, so it is invisible to every other assertion in this file.
+    """
+    pymupdf = pytest.importorskip("pymupdf", reason="PyMuPDF is required for PDF support")
+
+    name = f"dossier-{CANARIES['IT_CODICE_FISCALE']}.txt"
+    path = tmp_path / "allegati.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((60, 80), "Pratica interna", fontname="helv", fontsize=11)
+    doc.embfile_add(name, b"contenuto")
+    doc.save(str(path), garbage=4, clean=True, deflate=True)
+    doc.close()
+
+    result = l1_scrubber().scrub_file(path)
+    serialised = repr(build_report(result))
+    assert name not in serialised, "report exposes the attachment's filename"
+    assert CANARIES["IT_CODICE_FISCALE"] not in serialised
+    kinds = {item.kind for item in result.hidden_removed}
+    assert "embedded-files" in kinds, "the attachment must still be reported"
