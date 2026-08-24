@@ -16,6 +16,13 @@ on:
     branches: [main]
   pull_request:
 
+# The default token is read-write on every scope unless a workflow says
+# otherwise, and nothing in this one needs to write anything. Declared at the
+# workflow level so a job added later inherits the narrow set rather than the
+# broad one.
+permissions:
+  contents: read
+
 jobs:
   check:
     runs-on: ubuntu-latest
@@ -23,9 +30,9 @@ jobs:
       run:
         working-directory: app
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -46,3 +53,12 @@ jobs:
       # built for and never launched on.
       - name: Test
         run: npm test
+
+      # Every dependency in this app is a devDependency: `adapter-static` builds
+      # an SPA and the webview serves it, so nothing in `node_modules` ships as a
+      # file. `--omit=dev` therefore reports zero today, which is also why the
+      # standing `cookie` advisory is not actionable — `.github/dependabot.yml`
+      # carries that reasoning. This is the guard for the day a runtime
+      # dependency is added and nobody notices.
+      - name: Dependency audit
+        run: npm audit --omit=dev

@@ -47,6 +47,25 @@ confidential data must not go with it. Everything below follows from that.
 - **The report carries counts and positions, never values.** So does
   `Leak.describe()`: an error about confidential values surviving must not carry
   them, because that message travels to stderr and through the RPC layer.
+
+  A value does not have to be in the document's *text* to be a value, and that is
+  where this leaked once: a hidden sheet's name, the names of the sheets a scrub
+  renamed, and a PDF's embedded filenames all reached the JSON report, and every
+  one of them is exactly the identifying string the scrub had removed. The rule
+  now, enforced at the producers: a hidden-content detail and a handler warning
+  are **descriptions**, never values. Where a name really is the useful half, the
+  report says what the thing is called *now* — a placeholder is a label the
+  scrubbed output already publishes.
+- **A restored document is written mode `0600`, and so is the report.** The rule
+  is what the file holds: anything the document could be reconstructed from is
+  owner-only, and only the scrubbed copy — the artefact the tool exists to hand
+  over — is left to your umask. Every output is opened `O_NOFOLLOW`, so a symlink
+  planted where an output file belongs is refused rather than followed.
+- **A key file's own parameters are bounded before they are used.** Opening one
+  means deriving a key from the numbers it declares, and this engine is
+  single-threaded with no cancel — so a `.fdmap` declaring an absurd scrypt work
+  factor would have been a denial of service against the whole session. Outside
+  the accepted band it is refused as malformed, before any derivation runs.
 - **The engine is a pipe, never a socket.** It reads and writes files named by
   whoever is on the other end, so its only safe caller is a parent process that
   already has the user's permission. Do not expose it on a port.
@@ -110,10 +129,35 @@ discussing in a public issue — just not as security reports.
   else's data in the document, which is the failure worth avoiding; a visible
   placeholder is not.
 
-## Supported versions
+## Supported versions, and verifying a build
 
-Pre-1.0, so: the current `main`. There are no maintained release branches yet, and
-no signed installers — the CI builds are unsigned artefacts.
+Pre-1.0, so: the current `main`. There are no maintained release branches yet.
+
+**The installers are unsigned**, and that is a decision rather than an oversight:
+an Apple Developer ID and a Windows code-signing certificate are both annual
+bills on a project this size. So macOS Gatekeeper and Windows SmartScreen will
+both warn, and neither warning is wrong — you are being told nobody has vouched
+for the file. What is offered instead:
+
+```bash
+shasum -a 256 -c SHA256SUMS       # or: sha256sum -c SHA256SUMS
+```
+
+`SHA256SUMS` and a CycloneDX SBOM per stack are published with each build, made
+by `python3 scripts/provenance.py` on the same machine and in the same command
+that produced the artefact. Be clear about what that proves: it detects a
+truncated download or a bad mirror. It does **not** protect against anyone who
+could replace the download and the checksum together, which is what a signature
+would be for.
+
+**The CI badges in the README no longer stand for a run on every commit.** GitHub
+Actions is switched off on this repository — the private allowance was exhausted
+twice — and `python3 scripts/ci.py check` is the gate instead: lint, format, the
+suite on the declared Python floor and on 3.12, the leak checks, the corpus
+check, the frontend, `cargo test`, and a dependency audit across all three
+stacks. It runs on one machine, so it is a weaker claim than the matrix was:
+Linux and Windows are where this project's cross-platform failures have actually
+been. If you build from source, run it.
 
 ## A note on the dependencies
 
