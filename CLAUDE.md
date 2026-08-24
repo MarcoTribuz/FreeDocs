@@ -390,7 +390,43 @@ thread, a cancel that names the request id (without it, a cancel racing the end
 of request 7 kills request 8), writes staying on the main thread, and
 `test_stdin_closing_still_ends_the_session` written *first*. Until then the way
 out is killing the sidecar, which costs a GLiNER2 reload — and the extraction
-cache above removes most of the wait that made the button feel necessary.
+cache above removes most of the wait that made the button feel necessary. Killing
+it is now a survivable thing to do, which is the next paragraph.
+
+**A dead sidecar is noticed, reaped and replaced.** `Engine` holds
+`Mutex<Option<Live>>` rather than a `Child` it never waits on. When the reader
+thread reaches end of pipe it reaps the child — an unwaited one is a zombie for
+the life of the app, and its exit status is the only account of *how* the engine
+died — empties the slot, and **fails every request still waiting**. That last
+part is the fix: those senders used to sit in the map untouched, so a request in
+flight when the sidecar died waited out the full ten-minute `REQUEST_TIMEOUT`
+with the window waiting with it. The next request starts a new process, lazily,
+because a session that is finished with the engine should not pay for a model
+reload it will never use. `MAX_RESTARTS` is 3: the realistic cause is a document
+the parser cannot survive, and retrying that is a crash loop paying for a GLiNER2
+load every time round.
+
+No new notification. The failed request is how the window hears, because an event
+nobody consumes is dead protocol and a fault that heals before the next request
+is a fault worth not mentioning.
+
+**Two orderings in there are load-bearing, and one of them was got wrong first.**
+The process must be installed in the slot *before* its reader starts: the other
+way round leaves a window where the sidecar dies, the reader reports it against
+an empty slot, and the dead process is then written into that slot by the code
+that started it — after which a request writes into a pipe nobody reads, no
+reader remains to notice the end of it, and the call waits out the whole timeout.
+That is the exact bug this work removes, reintroduced by the fix for it, and a
+fake sidecar exiting on its first line is what found it. The other is the lock
+order: `pending` is never held while taking `live`, and vice versa.
+
+`Engine` knows nothing about Tauri any more — it is handed an executable, an
+environment and a closure to notify through — which is what makes the above
+testable at all: a `/bin/sh` script speaking two lines of JSON-RPC stands in for
+the engine. **Unix only**, and stated as a gap: the behaviour under test has no
+platform-specific code in it, but the fixture does. The executable and the
+environment are resolved **once**, at startup, so a restart cannot silently
+continue against a different engine than the session began with.
 
 ### Packaging
 

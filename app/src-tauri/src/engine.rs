@@ -42,20 +42,115 @@ pub const NOTIFY_EVENT: &str = "engine://notify";
 /// A request that never gets an answer would hang the UI for ever. The engine is
 /// local and the slowest realistic call is OCR over a long scan, so this is
 /// generous rather than tight.
+///
+/// It is also no longer what a *dead* engine costs. Until the reader thread
+/// started reporting the end of the pipe, a request in flight when the sidecar
+/// died sat here for the full ten minutes, and so did the window.
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
+/// How many times one session will start the engine again after it has died.
+///
+/// Bounded rather than unlimited, because the realistic cause is a document the
+/// parser cannot survive, and retrying it is a crash loop that pays for a
+/// GLiNER2 load every time round. Three is enough for "that one file killed it,
+/// carry on with the rest" and short of "every request restarts the process".
+const MAX_RESTARTS: u64 = 3;
+
+/// The half of the engine that can be replaced. Absent between the sidecar dying
+/// and the next request starting a new one.
+struct Live {
+    stdin: ChildStdin,
+    child: Child,
+}
+
+/// Where the engine is and what it is told, resolved once.
+///
+/// Once rather than per restart, deliberately: a session that started against
+/// one engine must not silently continue against a different one because a
+/// bundle changed under it. It also leaves nothing Tauri-shaped in the restart
+/// path, which is what makes the part below testable against a fake sidecar.
+struct Launch {
+    executable: PathBuf,
+    env: Vec<(&'static str, OsString)>,
+}
+
 pub struct Engine {
-    stdin: Mutex<ChildStdin>,
+    launch: Launch,
+    /// Where a notification goes. A closure rather than an `AppHandle` so this
+    /// type knows nothing about Tauri - the same reason `lib.rs` is thin.
+    notify: Box<dyn Fn(Value) + Send + Sync>,
+    live: Mutex<Option<Live>>,
     pending: Mutex<HashMap<u64, Sender<Value>>>,
     next_id: AtomicU64,
-    _child: Mutex<Child>,
+    /// Which start the live process is. A reader thread outlives its own
+    /// process by a moment, so it carries the number it was started with and
+    /// compares: "my process ended" and "a process ended, and a newer one is
+    /// already running" need opposite handling.
+    generation: AtomicU64,
+    restarts: AtomicU64,
 }
 
 impl Engine {
-    pub fn spawn(app: &AppHandle) -> Result<Self, String> {
-        let executable = locate(app)?;
-        let mut command = Command::new(&executable);
-        for (name, value) in portable_env(resource_root(app).as_deref()) {
+    pub fn spawn(app: &AppHandle) -> Result<Arc<Self>, String> {
+        let launch = Launch {
+            executable: locate(app)?,
+            env: portable_env(resource_root(app).as_deref()),
+        };
+        let handle = app.clone();
+        Engine::start(
+            launch,
+            Box::new(move |message| {
+                let _ = handle.emit(NOTIFY_EVENT, message);
+            }),
+        )
+    }
+
+    fn start(
+        launch: Launch,
+        notify: Box<dyn Fn(Value) + Send + Sync>,
+    ) -> Result<Arc<Self>, String> {
+        let engine = Arc::new(Engine {
+            launch,
+            notify,
+            live: Mutex::new(None),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            generation: AtomicU64::new(0),
+            restarts: AtomicU64::new(0),
+        });
+        // The first start is the one allowed to fail the whole thing: no engine
+        // at startup means no engine found, which the window explains. A later
+        // failure is a restart, and is reported against the request that asked.
+        {
+            let mut live = engine
+                .live
+                .lock()
+                .map_err(|_| "the engine lock is poisoned".to_string())?;
+            engine.start_process(&mut live)?;
+        }
+        Ok(engine)
+    }
+
+    /// Start the sidecar and the thread that reads it, **into the caller's
+    /// slot**, which the caller is holding the lock on.
+    ///
+    /// The slot rather than a return value, because the order is load-bearing
+    /// and returning one gets it wrong. Spawning the reader before the process
+    /// is installed leaves a window in which the sidecar can die, the reader can
+    /// report it against an empty slot, and the dead process is then written
+    /// into that slot by the code that started it. The next request writes into
+    /// its pipe, the write succeeds into a buffer nobody will read, no reader
+    /// remains to notice the end of it, and the call waits out the whole
+    /// ten-minute timeout - the exact failure this commit is about, reintroduced
+    /// by the fix for it. A fake sidecar that exits on its first line is what
+    /// found it.
+    ///
+    /// Holding the lock across the spawn is safe: the reader's `on_disconnect`
+    /// wants the same lock and simply waits for the caller to finish.
+    fn start_process(self: &Arc<Self>, slot: &mut Option<Live>) -> Result<(), String> {
+        let executable = &self.launch.executable;
+        let mut command = Command::new(executable);
+        for (name, value) in &self.launch.env {
             command.env(name, value);
         }
         let mut child = command
@@ -76,23 +171,62 @@ impl Engine {
             .take()
             .ok_or_else(|| "the engine was started without a stdin pipe".to_string())?;
 
-        let engine = Engine {
-            stdin: Mutex::new(stdin),
-            pending: Mutex::new(HashMap::new()),
-            next_id: AtomicU64::new(1),
-            _child: Mutex::new(child),
-        };
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        *slot = Some(Live { stdin, child });
 
-        let handle = app.clone();
-        std::thread::spawn(move || read_loop(handle, BufReader::new(stdout)));
-        Ok(engine)
+        let engine = Arc::clone(self);
+        std::thread::spawn(move || {
+            read_loop(&engine, BufReader::new(stdout));
+            // The loop ends only at end of pipe, which is the sidecar being gone.
+            engine.on_disconnect(generation);
+        });
+        Ok(())
+    }
+
+    /// Everything that happens when the engine stops answering.
+    ///
+    /// Three things, and the middle one is why this exists at all.
+    ///
+    /// The child is **reaped**: an unwaited child is a zombie for the life of
+    /// the app, and its exit status is the only account of *how* the engine
+    /// died - a signal reads very differently from a clean exit.
+    ///
+    /// Every request still waiting is **failed now**. Their senders used to sit
+    /// in the map untouched, so a request in flight when the sidecar died waited
+    /// out the full ten-minute timeout with the window waiting with it. The
+    /// window is told this way rather than by a new notification: an event
+    /// nobody consumes is dead protocol, and a fault that heals before the next
+    /// request is a fault worth not mentioning.
+    ///
+    /// And the slot is **emptied**, which is what lets the next request start a
+    /// new one.
+    fn on_disconnect(&self, generation: u64) {
+        if self.generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        let status = {
+            let taken = self.live.lock().ok().and_then(|mut live| live.take());
+            match taken {
+                Some(mut process) => process.child.wait().ok(),
+                None => None,
+            }
+        };
+        let detail = describe_exit(status);
+
+        let waiting: Vec<Sender<Value>> = match self.pending.lock() {
+            Ok(mut pending) => pending.drain().map(|(_, sender)| sender).collect(),
+            Err(_) => Vec::new(),
+        };
+        for sender in waiting {
+            let _ = sender.send(disconnected(&detail));
+        }
     }
 
     /// Send one request and wait for the response with the matching id.
     ///
     /// Blocking, and therefore only ever called from a blocking task: a scrub
     /// with OCR takes seconds and the window must stay alive throughout.
-    pub fn request(&self, method: &str, params: Value) -> Result<Value, String> {
+    pub fn request(self: &Arc<Self>, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver): (Sender<Value>, Receiver<Value>) = channel();
         self.pending
@@ -101,15 +235,13 @@ impl Engine {
             .insert(id, sender);
 
         let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        {
-            let mut stdin = self
-                .stdin
-                .lock()
-                .map_err(|_| "the engine lock is poisoned".to_string())?;
-            writeln!(stdin, "{request}").map_err(|error| format!("engine write failed: {error}"))?;
-            stdin
-                .flush()
-                .map_err(|error| format!("engine flush failed: {error}"))?;
+        if let Err(error) = self.send(&request) {
+            // Removed rather than left to time out, for the same reason
+            // `on_disconnect` drains the map: nothing else will ever answer it.
+            if let Ok(mut pending) = self.pending.lock() {
+                pending.remove(&id);
+            }
+            return Err(error);
         }
 
         let response = receiver.recv_timeout(REQUEST_TIMEOUT).map_err(|_| {
@@ -124,9 +256,82 @@ impl Engine {
         }
         Ok(response.get("result").cloned().unwrap_or(Value::Null))
     }
+
+    /// Write one line, starting the engine again first if it is not there.
+    ///
+    /// Restarted lazily, on the request that needs it, rather than the moment
+    /// the old one died: a session that is finished with the engine should not
+    /// pay for a model reload it will never use. The whole check-and-start
+    /// happens under one lock, so two requests racing after a crash produce one
+    /// process rather than two.
+    fn send(self: &Arc<Self>, request: &Value) -> Result<(), String> {
+        let mut live = self
+            .live
+            .lock()
+            .map_err(|_| "the engine lock is poisoned".to_string())?;
+        if live.is_none() {
+            if self.restarts.fetch_add(1, Ordering::SeqCst) >= MAX_RESTARTS {
+                return Err(format!(
+                    "the engine has stopped {MAX_RESTARTS} times in this session and \
+                     will not be started again; restart the application"
+                ));
+            }
+            self.start_process(&mut live)?;
+        }
+        let process = live
+            .as_mut()
+            .ok_or_else(|| "the engine is not running".to_string())?;
+        writeln!(process.stdin, "{request}")
+            .map_err(|error| format!("engine write failed: {error}"))?;
+        process
+            .stdin
+            .flush()
+            .map_err(|error| format!("engine flush failed: {error}"))
+    }
 }
 
-fn read_loop(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
+/// The response a request gets when the sidecar died under it.
+///
+/// Shaped like the engine's own error so `request` needs no second path, and
+/// carrying a code outside the engine's range: this did not come from the engine
+/// and must not be mistaken for something it said.
+fn disconnected(detail: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "error": {
+            "code": -32000,
+            "message": format!(
+                "the engine stopped before answering ({detail}); \
+                 the next request will start it again"
+            ),
+        }
+    })
+}
+
+/// How the engine died, in a sentence, for the message a caller sees.
+///
+/// A signal and a clean exit read very differently - one is a crash inside a
+/// parser, the other is the engine deciding to stop - and "it stopped" alone
+/// tells nobody which.
+fn describe_exit(status: Option<std::process::ExitStatus>) -> String {
+    let Some(status) = status else {
+        return "no exit status".to_string();
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        if let Some(signal) = status.signal() {
+            return format!("killed by signal {signal}");
+        }
+    }
+    match status.code() {
+        Some(0) => "exited normally".to_string(),
+        Some(code) => format!("exit status {code}"),
+        None => "no exit status".to_string(),
+    }
+}
+
+fn read_loop(engine: &Arc<Engine>, reader: BufReader<std::process::ChildStdout>) {
     for line in reader.lines() {
         let Ok(line) = line else { break };
         if line.trim().is_empty() {
@@ -139,8 +344,7 @@ fn read_loop(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
 
         match message.get("id").and_then(Value::as_u64) {
             Some(id) => {
-                let sender = app
-                    .state::<Arc<Engine>>()
+                let sender = engine
                     .pending
                     .lock()
                     .ok()
@@ -153,7 +357,7 @@ fn read_loop(app: AppHandle, reader: BufReader<std::process::ChildStdout>) {
             // arrive this way, and both are for the window rather than for a
             // waiting caller.
             None => {
-                let _ = app.emit(NOTIFY_EVENT, message);
+                (engine.notify)(message);
             }
         }
     }
@@ -290,6 +494,172 @@ fn dev_candidates() -> Vec<PathBuf> {
         .into_iter()
         .map(|root| relative.iter().fold(root, |path, part| path.join(part)))
         .collect()
+}
+
+#[cfg(all(test, unix))]
+mod lifecycle {
+    //! What happens when the sidecar dies, against a fake one that dies on cue.
+    //!
+    //! Testable at all because `Engine` no longer knows about Tauri: it is given
+    //! a path, an environment and somewhere to send notifications, so a shell
+    //! script speaking two lines of JSON-RPC stands in for the engine.
+    //!
+    //! **Unix only, and that is a gap rather than a decision.** The fake is a
+    //! `/bin/sh` script; a Windows equivalent would be a second fixture in a
+    //! second language, testing the same Rust. The behaviour under test has no
+    //! platform-specific code in it - the one `cfg` is `describe_exit`'s signal
+    //! branch, which is covered below - so this is the usual shape for this
+    //! project: verified on one platform, said out loud rather than implied.
+
+    use super::{describe_exit, Engine, Launch};
+    use serde_json::json;
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+
+    /// A sidecar in three lines of shell: read a request, answer it, or stop.
+    ///
+    /// `body` runs in a loop over stdin with `$line` holding one request, so a
+    /// test writes only the interesting part.
+    fn fake(directory: &std::path::Path, name: &str, body: &str) -> PathBuf {
+        let path = directory.join(name);
+        let mut file = std::fs::File::create(&path).unwrap();
+        write!(file, "#!/bin/sh
+while IFS= read -r line; do
+{body}
+done
+").unwrap();
+        drop(file);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        path
+    }
+
+    fn engine(executable: PathBuf) -> Arc<Engine> {
+        Engine::start(
+            Launch {
+                executable,
+                env: Vec::new(),
+            },
+            Box::new(|_| {}),
+        )
+        .unwrap()
+    }
+
+    /// Echoes back an empty result for whatever id it was sent.
+    ///
+    /// `[0-9][0-9]*` rather than `[0-9]*`: the leading `.*` is greedy and eats
+    /// the digits, so a capture that accepts zero of them matches happily and
+    /// yields `"id":`, which is not JSON. The engine logged that and carried on,
+    /// so the request was simply never answered - a broken fixture wearing the
+    /// costume of the bug under test. Hence the `case`: a fake that cannot find
+    /// an id stops, rather than emitting something almost right.
+    const ANSWERS: &str = r#"  id=$(printf '%s' "$line" | sed 's/.*"id":\([0-9][0-9]*\).*/\1/')
+  case "$id" in ''|*[!0-9]*) exit 1 ;; esac
+  printf '{"jsonrpc":"2.0","id":%s,"result":{"ok":true}}\n' "$id""#;
+
+    /// Block until the reader has noticed the sidecar is gone.
+    ///
+    /// The transition is asynchronous by design - a request must not wait on
+    /// another process's death - so a test that wants to observe the state
+    /// *after* it has to say so rather than assume.
+    fn wait_until_stopped(engine: &Arc<Engine>) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::time::Instant::now() < deadline {
+            if engine.live.lock().map(|live| live.is_none()).unwrap_or(false) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        panic!("the engine never reported that it had stopped");
+    }
+
+    #[test]
+    fn a_request_is_answered_by_the_engine_that_is_running() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(fake(dir.path(), "answers", ANSWERS));
+        assert_eq!(
+            engine.request("capabilities", json!({})).unwrap(),
+            json!({"ok": true})
+        );
+    }
+
+    #[test]
+    fn a_request_in_flight_when_the_engine_dies_fails_at_once() {
+        // The whole point of the reader reporting end-of-pipe. Before it did,
+        // the sender sat in `pending` untouched and this call waited out the
+        // ten-minute timeout with the window waiting with it - so the assertion
+        // that matters here is the clock as much as the message.
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(fake(dir.path(), "dies", "  exit 3"));
+
+        let started = std::time::Instant::now();
+        let error = engine.request("inspect", json!({})).unwrap_err();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "it waited {:?}, which is the timeout doing the work",
+            started.elapsed()
+        );
+        assert!(error.contains("stopped before answering"), "{error}");
+        assert!(error.contains("exit status 3"), "{error}");
+    }
+
+    #[test]
+    fn the_next_request_starts_the_engine_again() {
+        // A fake that answers once and then leaves. The second call has no
+        // process to write to, so it is the restart or it is nothing.
+        let dir = tempfile::tempdir().unwrap();
+        let body = format!("{ANSWERS}
+  exit 0");
+        let engine = engine(fake(dir.path(), "once", &body));
+
+        assert!(engine.request("capabilities", json!({})).is_ok());
+        wait_until_stopped(&engine);
+        // Nothing is listening now, so this answer can only have come from a
+        // process that did not exist a moment ago.
+        assert_eq!(
+            engine.request("capabilities", json!({})).unwrap(),
+            json!({"ok": true})
+        );
+    }
+
+    #[test]
+    fn an_engine_that_keeps_dying_is_eventually_left_alone() {
+        // A crash loop pays for a GLiNER2 load every time round, and the
+        // realistic cause is a document the parser cannot survive - which
+        // retrying does not fix.
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(fake(dir.path(), "always-dies", "  exit 1"));
+
+        // Each round waits for the slot to empty before asking again. Without
+        // that the loop is a race rather than a count: losing the process is
+        // asynchronous, so a request sent before the reader has noticed writes
+        // into a dead pipe, fails, and spends none of the budget - which is
+        // correct behaviour and a useless way to test the budget.
+        let mut refusal = None;
+        for _ in 0..(super::MAX_RESTARTS + 2) {
+            let error = engine.request("inspect", json!({})).unwrap_err();
+            if error.contains("will not be started again") {
+                refusal = Some(error);
+                break;
+            }
+            wait_until_stopped(&engine);
+        }
+        let refusal = refusal.expect("the restart budget must run out");
+        assert!(refusal.contains("restart the application"), "{refusal}");
+    }
+
+    #[test]
+    fn a_signal_and_a_clean_exit_do_not_read_the_same() {
+        // "It stopped" tells nobody whether a parser took the process down or
+        // the engine decided to stop, and those are different problems.
+        use std::os::unix::process::ExitStatusExt;
+        assert_eq!(
+            describe_exit(Some(std::process::ExitStatus::from_raw(9))),
+            "killed by signal 9"
+        );
+        assert_eq!(describe_exit(None), "no exit status");
+    }
 }
 
 #[cfg(test)]
