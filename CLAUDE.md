@@ -88,12 +88,19 @@ the gate.** The included minutes on this private repository were exhausted
 twice; the second time every job on every workflow began failing in two seconds
 with no runner assigned and no steps executed — which reads exactly like a
 broken commit and is not one, and cost an afternoon to diagnose the first time.
-The workflow files are deliberately untouched, so re-enabling is one command and
-nothing has to be reconstructed:
+The workflow files are otherwise untouched, so re-enabling is one command and
+nothing has to be reconstructed. They were hardened while dormant, which is when
+it is free: every action pinned to a commit SHA with the tag as a comment,
+`permissions: contents: read` at workflow level raised to `write` only on the job
+that opens a draft release, `--locked` on both `uv sync` calls, and the audit and
+checksum steps added so re-enabling does not lose them. `cargo audit` and the
+Rust SBOM are deliberately *not* in the workflows: both need a multi-minute
+`cargo install` on three runners to describe a tree `Cargo.lock` already pins,
+which is the shape of cost that emptied the allowance twice.
 
 ```bash
-python3 scripts/ci.py check       # the pull-request gate, ~70s
-python3 scripts/ci.py build       # sidecar + desktop bundle
+python3 scripts/ci.py check       # the pull-request gate, ~90s
+python3 scripts/ci.py build       # sidecar, desktop bundle, and its manifest
 gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true
 ```
 
@@ -115,6 +122,30 @@ the sidecar built for 143 seconds and the bundle then died instantly on
 `os error 2`. Same shape as `FREEDOCS_TESSERACT`, which extends PATH because
 PyMuPDF, not FreeDocs, is what runs Tesseract. And `tauri build` is given
 `CI=true`, without which the `.dmg` step hangs on Finder automation.
+
+**`check` ends with a dependency audit and `build` ends with a manifest.** The
+audit is `pip-audit` over the *lockfile* (`uv export --all-extras`, so torch is
+covered even though `check` does not install `ner`), `npm audit --omit=dev`, and
+`cargo audit`. No ignore list, and that was measured: `cargo audit` fails only on
+vulnerabilities and this tree has zero, plus seventeen *warnings* that are the
+unmaintained GTK3 bindings and the `glib` unsoundness `dependabot.yml` explains
+cannot be fixed from here — so `-D warnings` would turn a standing fact into a
+red gate. `cargo-audit` and `cargo-cyclonedx` are separate binaries and go
+through the `skip=` mechanism; `pip-audit` does not need to, because
+`uv run --with` fetches it the way the sidecar step already fetches PyInstaller.
+
+`scripts/provenance.py` writes `dist/SHA256SUMS` and a CycloneDX SBOM per stack.
+The engine SBOM describes the **environment** (PyInstaller freezes what is
+installed) while the audit reads the **lockfile** — opposite choices, opposite
+reasons, both deliberate. The frontend SBOM keeps dev dependencies: nothing in
+`node_modules` ships as a file, but Svelte's runtime is inlined into the SPA, so
+a production-only SBOM would read as "no JavaScript dependencies". Two things it
+refuses rather than publishes, both found by running it once: `hdiutil`'s
+`rw.<pid>.<name>.dmg` shadow files, which are a half-written copy of the artifact,
+and two `target/` trees holding the same version, which would put two hashes
+under one name. And `cargo cyclonedx` invokes `rustc` by bare name — the third
+appearance of the `cargo metadata` / `FREEDOCS_TESSERACT` shape, fixed the same
+way.
 
 What CI ran and this cannot is **the matrix**: Linux and Windows. That is where
 this project's cross-platform failures have actually been — `write_text`
