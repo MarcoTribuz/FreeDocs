@@ -46,7 +46,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..core.errors import MissingDependency
+from ..core.errors import MalformedDocument, MissingDependency
+from ..core.limits import refuse_too_many_pages
 from ..core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from .base import FormatHandler, HiddenItem
 
@@ -348,7 +349,23 @@ class PdfTextHandler(FormatHandler):
     def __init__(self, path: Path, data: bytes) -> None:
         super().__init__(path, data)
         self._fitz = _pymupdf()
-        self._doc = self._fitz.open(stream=data, filetype="pdf")
+        # MuPDF's own errors are translated here rather than left to escape.
+        # A page tree whose kids are all one object comes back as
+        # `RuntimeError: code=7: Invalid number of pages`, which is a true
+        # sentence about MuPDF and a useless one to a caller: from the CLI it is
+        # a traceback, and `rpc.handle` renders an unexpected exception straight
+        # into a response. The library being right about the file is not the same
+        # as the caller being told about it.
+        try:
+            self._doc = self._fitz.open(stream=data, filetype="pdf")
+            pages = self._doc.page_count
+        except Exception as exc:
+            raise MalformedDocument(f"{path.name} is not a readable PDF: {exc}") from exc
+        # Before a page is touched. The cost of reading a PDF is not bounded by
+        # its size - 200 000 distinct pages fit in 21 MB - and with OCR on, at a
+        # measured 24 ms a page, `harden_for_verification` then reads them all
+        # again.
+        refuse_too_many_pages(path.name, pages)
         self.ocr_pages: list[int] = []
 
     @classmethod

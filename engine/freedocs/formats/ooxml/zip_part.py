@@ -21,7 +21,8 @@ import zipfile
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ...core.errors import MissingDependency
+from ...core.errors import MalformedDocument, MissingDependency
+from ...core.limits import refuse_oversized_archive
 
 if TYPE_CHECKING:  # pragma: no cover
     from lxml import etree
@@ -79,16 +80,38 @@ class OoxmlPackage:
     _dropped: set[str] = field(default_factory=set, repr=False)
 
     @classmethod
-    def open(cls, data: bytes) -> OoxmlPackage:
+    def open(
+        cls, data: bytes, *, name: str = "the OOXML container", spent: int = 0
+    ) -> OoxmlPackage:
+        """Read every part, refusing a container that does not fit first.
+
+        Decided from ``infolist()`` before ``testzip()`` and before any read, so
+        a bomb costs a stat of the directory rather than the decompression.
+        ``spent`` is what a parent package has already used, so an embedded
+        workbook is charged against the same budget as the presentation holding
+        it - nesting is otherwise the way past the limit.
+
+        ``zipfile``'s own exceptions are translated. A file built to break the
+        reader is a property of the document, and the caller needs to hear that
+        rather than ``BadZipFile: Bad CRC-32 for 'word/blob.bin'``.
+        """
         package = cls()
-        with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            if archive.testzip() is not None:  # pragma: no cover - corrupt input
-                raise ValueError("the OOXML container has a corrupt entry")
-            package._infos = list(archive.infolist())
-            for info in package._infos:
-                if not info.is_dir():
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                infos = [info for info in archive.infolist() if not info.is_dir()]
+                refuse_oversized_archive(name, [info.file_size for info in infos], already=spent)
+                if archive.testzip() is not None:  # pragma: no cover - corrupt input
+                    raise MalformedDocument(f"{name} has a corrupt entry")
+                package._infos = list(archive.infolist())
+                for info in infos:
                     package._raw[info.filename] = archive.read(info.filename)
+        except zipfile.BadZipFile as exc:
+            raise MalformedDocument(f"{name} is not a readable zip container: {exc}") from exc
         return package
+
+    def inflated_bytes(self) -> int:
+        """What this package has spent, for a nested one to add itself to."""
+        return sum(len(payload) for payload in self._raw.values())
 
     # -- inspection ------------------------------------------------------------
 

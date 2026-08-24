@@ -33,6 +33,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.errors import MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from ..base import FormatHandler, HiddenItem
 from .common import (
@@ -92,11 +93,15 @@ class XlsxHandler(FormatHandler):
     name = "xlsx"
     extensions = (".xlsx", ".xlsm", ".xltx", ".xltm")
 
-    def __init__(self, path: Path, data: bytes) -> None:
+    def __init__(self, path: Path, data: bytes, *, spent: int = 0) -> None:
         super().__init__(path, data)
-        self.package = OoxmlPackage.open(data)
+        # `spent` is what a package holding this one has already used. A chart's
+        # workbook is a zip inside a zip, and the outer package counts it as one
+        # still-compressed part - so without carrying the budget inward, nesting
+        # is simply the way past the limit.
+        self.package = OoxmlPackage.open(data, name=path.name, spent=spent)
         if not self.package.has(WORKBOOK):
-            raise ValueError(f"{path.name} is an OOXML container but has no {WORKBOOK}")
+            raise MalformedDocument(f"{path.name} is an OOXML container but has no {WORKBOOK}")
         #: ``(kind, original name)`` for every sheet, table, column and defined
         #: name anchored. Used to warn about the references a rename breaks.
         self._named_entities: list[tuple[str, str]] = []

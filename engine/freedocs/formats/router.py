@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core.limits import refuse_oversized_input
 from .base import FormatHandler
 from .ooxml.docx import DocxHandler
 from .ooxml.pptx import PptxHandler
@@ -54,7 +55,15 @@ def handler_for(path: Path, data: bytes | None = None) -> FormatHandler:
 
     Reads the file once and passes the bytes to the handler, so a scrub never
     re-reads from disk and cannot see the file change underneath it.
+
+    Which is also why the size is checked here: reading once means reading all of
+    it, so this is the first thing that happens to any input and was, until the
+    limit existed, an unbounded allocation driven by a stranger's file. Checked
+    from ``stat`` rather than after the fact, since a refusal that arrives once
+    the bytes are in memory has already done the damage.
     """
+    if data is None:
+        refuse_oversized_input(path.name, path.stat().st_size)
     payload = path.read_bytes() if data is None else data
     head = payload[:HEAD_BYTES]
     for candidate in HANDLERS:

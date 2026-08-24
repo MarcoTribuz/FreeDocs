@@ -14,7 +14,13 @@ import os
 import sys
 from pathlib import Path
 
-from .core.errors import MissingDependency, ModelNotFound, OutputRefused
+from .core.errors import (
+    InputTooLarge,
+    MalformedDocument,
+    MissingDependency,
+    ModelNotFound,
+    OutputRefused,
+)
 from .core.findings import EntityType
 from .core.mapping import (
     BadPassphrase,
@@ -56,7 +62,15 @@ EXIT_INCOMPLETE = 5
 
 #: Conditions where the input cannot be processed correctly and the honest answer
 #: is to refuse. Grouped so scrub and inspect report them identically.
-REFUSALS = (UnsupportedFormat, ScannedPdfNotSupported, MissingDependency)
+REFUSALS = (
+    UnsupportedFormat,
+    ScannedPdfNotSupported,
+    MissingDependency,
+    # Both are properties of the file rather than of this build, so they
+    # belong beside the other two: named, per file, and the batch continues.
+    InputTooLarge,
+    MalformedDocument,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:

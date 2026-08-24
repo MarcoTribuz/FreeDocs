@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.errors import InputTooLarge, MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from ..base import FormatHandler, HiddenItem
 from .common import add_attribute, add_relationship_targets, apply_ooxml_edits
@@ -71,9 +72,9 @@ class PptxHandler(FormatHandler):
 
     def __init__(self, path: Path, data: bytes) -> None:
         super().__init__(path, data)
-        self.package = OoxmlPackage.open(data)
+        self.package = OoxmlPackage.open(data, name=path.name)
         if not self.package.has(PRESENTATION):
-            raise ValueError(f"{path.name} is an OOXML container but has no {PRESENTATION}")
+            raise MalformedDocument(f"{path.name} is an OOXML container but has no {PRESENTATION}")
         self._nested: dict[str, FormatHandler] | None = None
         #: ``id(locator)`` of every anchor belonging to an embedded package, so
         #: write-back can route its edits to the right handler. Keyed by identity
@@ -97,7 +98,18 @@ class PptxHandler(FormatHandler):
                 if not name.lower().endswith(NESTABLE_SUFFIXES):
                     continue
                 try:
-                    self._nested[name] = XlsxHandler(Path(name), self.package.raw(name))
+                    self._nested[name] = XlsxHandler(
+                        Path(name),
+                        self.package.raw(name),
+                        spent=self.package.inflated_bytes(),
+                    )
+                except InputTooLarge:
+                    # Not warned about and not skipped. A malformed embedding is
+                    # one part of a document the rest of which can still be
+                    # scrubbed; an embedding built to exhaust the process is the
+                    # document, and letting it through as a warning would make
+                    # the nesting the way around the limit.
+                    raise
                 except Exception as exc:
                     # A malformed embedding must not take down the whole scrub,
                     # but it must not pass silently either: its contents stay in
