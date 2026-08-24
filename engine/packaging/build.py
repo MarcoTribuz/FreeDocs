@@ -38,10 +38,16 @@ OUTPUT = ENGINE / "dist" / "freedocs-engine"
 #: numbers and silently finds nothing from anywhere else. The French TVA is the
 #: one to test with: it accepts 0.12% of random values of its shape, so this
 #: cannot pass by luck.
+SMOKE_NAME = "Mario Rossi"
 SMOKE_TEXT = (
-    "Il cliente Mario Rossi ha firmato il contratto.\n"
+    f"Il cliente {SMOKE_NAME} ha firmato il contratto.\n"
     "Numero de TVA du fournisseur: FR40303265045.\n"
 )
+
+#: Used once, inside a temporary directory, to prove the cipher is in the bundle.
+#: A constant rather than a random string so a failing build is reproducible by
+#: hand, and it protects nothing: the file it opens is deleted seconds later.
+SMOKE_PASSPHRASE = "smoke test passphrase"
 
 
 def run(command: list[str], **kwargs) -> subprocess.CompletedProcess:
@@ -87,6 +93,12 @@ def smoke_test(bundle: Path) -> None:
     so a missing hidden import produces a binary that works right up until the
     user opens that format. Asking `capabilities` exercises the registry and the
     handler list, which is where such an omission shows up.
+
+    The key file is exercised the same way and for the same reason. `capabilities`
+    reports `mapping_available` from `find_spec`, which is true of a bundle whose
+    cipher never made it in - so a scrub writes a key file, a restore reads it
+    back, and the value has to arrive. Asking the capability alone is precisely
+    the mistake this whole function was rewritten to stop making.
     """
     executable = bundle / ("freedocs-engine.exe" if sys.platform == "win32" else "freedocs-engine")
     if not executable.is_file():  # pragma: no cover - packaging only
@@ -98,6 +110,9 @@ def smoke_test(bundle: Path) -> None:
     with tempfile.TemporaryDirectory() as scratch:
         sample = Path(scratch) / "campione.txt"
         sample.write_text(SMOKE_TEXT, encoding="utf-8")
+        clean = Path(scratch) / "clean"
+        keys = Path(scratch) / "keys"
+        back = Path(scratch) / "back"
         requests = "\n".join(
             [
                 json.dumps({"jsonrpc": "2.0", "id": 1, "method": "capabilities"}),
@@ -107,6 +122,32 @@ def smoke_test(bundle: Path) -> None:
                         "id": 2,
                         "method": "inspect",
                         "params": {"path": str(sample)},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 3,
+                        "method": "scrub",
+                        "params": {
+                            "paths": [str(sample)],
+                            "output_dir": str(clean),
+                            "map": str(keys),
+                            "map_passphrase": SMOKE_PASSPHRASE,
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 4,
+                        "method": "restore",
+                        "params": {
+                            "path": str(clean / sample.name),
+                            "map": str(keys / (sample.stem + ".fdmap")),
+                            "passphrase": SMOKE_PASSPHRASE,
+                            "output_dir": str(back),
+                        },
                     }
                 ),
             ]
@@ -120,6 +161,12 @@ def smoke_test(bundle: Path) -> None:
             # timeout here reads as a broken build rather than a slow one.
             timeout=900,
         )
+        # Read while the scratch directory still exists. The assertion is below
+        # with the others, but the evidence only lives inside this block.
+        restored_text = ""
+        restored_file = back / sample.name
+        if restored_file.is_file():
+            restored_text = restored_file.read_text(encoding="utf-8")
     if completed.returncode != 0:  # pragma: no cover - packaging only
         raise SystemExit(
             f"the built engine exited {completed.returncode}\n{completed.stderr[-2000:]}"
@@ -158,9 +205,16 @@ def smoke_test(bundle: Path) -> None:
             "stdnum imports them by name at call time; check the collect_submodules "
             "block in freedocs-engine.spec."
         )
+    if SMOKE_NAME not in restored_text:  # pragma: no cover - packaging only
+        raise SystemExit(
+            "the built engine wrote a key file it could not use: the restored "
+            "document does not contain the name that was removed. The cipher is "
+            "imported at call time and PyInstaller cannot see it; check the "
+            'collect_submodules("cryptography") block in freedocs-engine.spec.'
+        )
     print(
-        f"smoke test passed: {len(formats)} formats, the model found the name and the "
-        "checksum layer found the foreign VAT number"
+        f"smoke test passed: {len(formats)} formats, the model found the name, the "
+        "checksum layer found the foreign VAT number, and a key file round-tripped"
     )
 
 

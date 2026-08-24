@@ -15,6 +15,10 @@ build/
 .coverage
 htmlcov/
 
+# Key files. Cheap insurance: one of these is every value a scrub removed, and a
+# committed one is a re-identification key in the history for good.
+*.fdmap
+
 # Models downloaded at first run, never bundled
 engine/models/
 

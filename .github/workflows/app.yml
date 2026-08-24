@@ -96,7 +96,7 @@ jobs:
 
       - name: Install the engine
         working-directory: engine
-        run: uv sync --extra dev --extra pdf --extra ooxml --extra ner
+        run: uv sync --extra dev --extra pdf --extra ooxml --extra ner --extra restore
 
       # The engine's own tests gate the bundle: shipping an app around a broken
       # engine wastes everyone's time downloading it.

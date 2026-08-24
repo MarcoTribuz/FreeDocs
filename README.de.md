@@ -116,6 +116,12 @@ Absatzformatierung, Tabelle und Formatvorlagen.
 - **Zahlen, die Sie selbst nachrechnen können.** `freedocs benchmark` bewertet die
   Ebenen gegen ein annotiertes Korpus, und das Werkzeug druckt jedes Mal seinen
   eigenen Vorbehalt mit. → [Benchmark](docs/benchmark.md)
+- **Auf Wunsch der Weg zurück.** `--map` schreibt eine verschlüsselte
+  Schlüsseldatei, und `freedocs restore` setzt die echten Werte in das ein, was das
+  Modell zurückgibt. Standardmäßig aus, denn es ist das Einzige, was eine
+  Bereinigung umkehrbar macht: ohne sie wird die Zuordnung am Ende des Laufs
+  zerstört und niemand kann sie rückgängig machen, Sie eingeschlossen.
+  → [der umgekehrte Weg](docs/restore.md)
 
 ## Schnellstart
 
@@ -249,6 +255,13 @@ lautlos.
   die Leck-Prüfung nicht bestehen — und als Warnung berichtet, die benennt, was
   sich geändert hat.
 - **Ein Makroprojekt lässt sich nicht bereinigen, nur entfernen.**
+- **Eine Schlüsseldatei ist so vertraulich wie das Originaldokument.** Wenn Sie mit
+  `--map` eine anfordern, kann diese Datei jeden entfernten Wert zurücksetzen. Sie
+  ist verschlüsselt und wird im Zielordner abgelehnt; danach liegt sie in Ihrer
+  Verantwortung: verschicken Sie sie nie mit der bereinigten Kopie. Sie kann auch
+  nichts zurückbringen, was *entfernt* statt ersetzt wurde — Vorschaubilder,
+  Metadaten, versteckte Folien — denn dafür gab es nie einen Platzhalter.
+  → [der umgekehrte Weg](docs/restore.md)
 - **Es ist keine Compliance-Garantie und behauptet nie, die Ausgabe sei saubere
   Ware.** `report.CAVEATS` schreibt die Grenzen in den Bericht selbst.
 

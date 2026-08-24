@@ -213,8 +213,12 @@ def _ocr_check() -> Check:
     fix = (
         # Both routes, because a packaged build has no package manager. The
         # binary cannot be bundled — PyMuPDF shells out to it — so a portable
-        # copy's only way to OCR is a binary the user supplies.
-        "install the Tesseract binary with your package manager, or point FREEDOCS_TESSERACT at one"
+        # copy's only way to OCR is a binary the user supplies. The override is
+        # named first now that the usual install locations are searched: reaching
+        # this branch means the binary is either absent or somewhere unusual, and
+        # "install it" is the wrong advice for the second case.
+        "install Tesseract with your package manager, or point FREEDOCS_TESSERACT"
+        " at an existing one"
         if tesseract_binary() is None
         else "point FREEDOCS_TESSDATA at a directory of .traineddata files"
     )
@@ -253,6 +257,37 @@ def _review_check(host: str) -> Check:
     )
 
 
+def _mapping_check() -> Check:
+    """Whether this build can write and read a key file.
+
+    Asked of ``mapping_unavailable_reason()`` rather than answered here, which is
+    this module's whole rule: it consolidates and never re-decides. A second
+    opinion about the cipher's presence is a second answer that can disagree with
+    the one ``capabilities`` published and the one ``--map`` will raise.
+
+    Degraded rather than required, and the detail says why that is the safe
+    direction: a build without it scrubs exactly as well and stays irreversible,
+    which is the engine's default anyway.
+    """
+    from .core.mapping import mapping_unavailable_reason
+
+    reason = mapping_unavailable_reason()
+    if reason is None:
+        return Check(
+            name="Key file",
+            ok=True,
+            detail="cryptography available, so --map and restore can run",
+            required=False,
+        )
+    return Check(
+        name="Key file",
+        ok=False,
+        detail=reason,
+        fix=_sync_fix("restore"),
+        required=False,
+    )
+
+
 def _layers_check() -> Check:
     """What a scrub would actually run, asked of the registry itself."""
     from .pipeline import default_registry
@@ -285,6 +320,7 @@ def run_checks(review_host: str) -> list[Check]:
         ),
         _ner_check(),
         _ocr_check(),
+        _mapping_check(),
         _layers_check(),
         _review_check(review_host),
     ]

@@ -45,7 +45,12 @@ jobs:
           enable-cache: true
 
       - name: Install
-        run: uv sync --extra dev --extra pdf --extra ooxml
+        # 'restore' is here and 'ner' is not (see the comment below): it is one
+        # small wheel, and the checks it enables are not quality measurements
+        # that skip harmlessly. The key file is the only artifact this tool
+        # writes that could hand back every value it removed, so "no value is
+        # readable in the key file" has to actually run.
+        run: uv sync --extra dev --extra pdf --extra ooxml --extra restore
 
       - name: Lint
         run: uv run ruff check .

@@ -11,6 +11,18 @@ implementing `extract`, `write_back` and `scrub_hidden` in
 `formats/base.FormatHandler` and nothing else — format knowledge never leaks
 into `detect/`, `core/policy.py` or `verify.py`.
 
+There is a second, optional direction with five stages of its own, and only
+`restore.py` knows *those*:
+
+```
+router -> extract -> match -> write-back -> verify
+```
+
+It shares four of the names and every mechanism: `plan_edits` does not care which
+way text is going, so writing a value over a placeholder is the same machinery
+that wrote a placeholder over a value. `FormatHandler` gains no method for it. See
+[the reverse path](restore.md).
+
 ## The offset map, and why it is the load-bearing piece
 
 The interesting problem is that the text a model reads and the bytes a writer
@@ -214,19 +226,48 @@ The legal-form tables are deliberately **not** folded — they gained `sàrl`,
 `organisations.py` matches short forms case-sensitively on purpose and folding a
 candidate to compare it would throw that distinction away.
 
-## Anonymisation, not pseudonymisation
+## Anonymisation by default, pseudonymisation on request
 
 Values are replaced with typed placeholders — `[PERSON_1]`, `[IBAN_2]` — stable
 within a document, so the text still reads coherently. The mapping lives in
 memory for one run and is destroyed in a `finally` block, including when a stage
-raises. Nothing is written to disk, so there is no key to leak.
+raises. By default nothing is written, so there is no key to leak and the scrub
+cannot be undone by anyone, including the person who ran it.
 
-**Placeholder families were considered and declined.** `[ORGANISATION_1]` /
-`[_1a]` / `[_1b]` for `Acme`, `Acme Corp.` and `Acme Corporation` would tell the
-model reading the output that those are one company — and would equally tell any
-reader that those three strings are related, which is a re-identification thread
-this tool cannot take back. Tools that restore the values afterwards can afford
-it; FreeDocs never restores.
+`scrub --map` writes an encrypted **key file** for that one document, and
+`freedocs restore` uses it to put the values back into whatever came back from the
+model. That is pseudonymisation, and it is off by default because it creates the
+one artifact this tool otherwise never produces. See
+[the reverse path](restore.md).
+
+Three things about it are structural rather than incidental:
+
+- **`SurrogateAllocator` is not involved and gains no accessor.** The key file is
+  built from a finished `ScrubResult`, whose `Decision` rows carry the original in
+  `finding.text` and the placeholder in `replacement`. So the line that destroys
+  the allocator's mapping is exactly where it was, and `pipeline.py` does not
+  import `core/mapping.py` at all: the reverse direction is a front-end decision
+  about a finished result, not a branch inside the pipeline.
+- **The round trip is lossy on spelling.** `policy._normalise` casefolds and
+  collapses whitespace, so `Mario Rossi`, `MARIO ROSSI` and `Mario  Rossi` share
+  one placeholder and only one of them can come back — the first in document
+  order. `MapEntry.variants` counts the collapse and the key file warns when it
+  happened.
+- **Restore verifies both directions.** Placeholder gone *and* value present.
+  `PdfTextHandler` replaces text by stamping a redaction annotation, and PyMuPDF
+  silently drops a replacement that does not fit its rectangle — so on a PDF the
+  common failure is the token removed and the value never written, which a
+  one-directional check reads as success.
+
+**Placeholder families were considered and declined, and a key file does not
+reopen the question.** `[ORGANISATION_1]` / `[_1a]` / `[_1b]` for `Acme`,
+`Acme Corp.` and `Acme Corporation` would tell the model reading the output that
+those are one company — and would equally tell any reader that those three strings
+are related, which is a re-identification thread this tool cannot take back. The
+threat model of the *shared* artifact is what settles this, and a key file does
+not change it: the scrubbed document still goes to a third party who does not have
+the key, while anyone who does have it already holds every value. Flat numbering
+stays.
 
 **The type says what a number is for; the country lives on the finding.**
 `NATIONAL_ID`, `TAX_ID`, `VAT_ID`, `COMPANY_ID` rather than one enum member per
@@ -268,3 +309,14 @@ dangerous than an obviously dirty one, because it gets sent.
 
 `Leak.describe()` is value-free: that message travels to stderr and through the
 RPC layer, and an error about confidential values surviving must not carry them.
+
+The reverse direction has its own check in `restore.py`, and it is not this one
+run backwards. It asks two questions — is the placeholder gone, *and* did the
+value arrive — because a handler that silently drops a replacement satisfies the
+first and fails the second, and only the pair catches it.
+
+It also handles the failure the other way round, on purpose. A scrub that leaks
+writes nothing, because a nearly-clean document gets sent. A restore that left one
+`[IBAN_1]` behind has produced the caller's best artifact and its defect is
+visible in it, so the file **is** written, every problem is reported, and the exit
+code is `5` — distinct from `3` because the handling is distinct.

@@ -94,7 +94,13 @@ describe('the catalogues', () => {
 		rulesSilenced: { count: 7 },
 		stageOf: { name: 'reading the document', index: 2, count: 6 },
 		stagePages: { done: 3, of: 12 },
-		placeholderExample: { example: '[PERSON_1]' }
+		placeholderExample: { example: '[PERSON_1]' },
+		modeAnnounce: { name: 'Put back' },
+		keyFileNeedsPassphrase: { min: 8 },
+		restoredSummary: { values: 3, occurrences: 7 },
+		restoreIncomplete: { count: 2 },
+		announceRestored: { count: 5 },
+		announceRestoredWithProblems: { count: 1 }
 	};
 
 	for (const [name, catalogue] of catalogues) {
@@ -104,6 +110,23 @@ describe('the catalogues', () => {
 				const produced = (value as (a?: unknown) => string)(args[key]);
 				expect(produced, `${name}.${key}`).toBeTruthy();
 				expect(produced, `${name}.${key}`).not.toContain('{n}');
+				expect(produced, `${name}.${key}`).not.toContain('undefined');
+			}
+		});
+
+		it(`${name} words a count of one as a singular`, () => {
+			// The plural-rule tests above cover `Intl.PluralRules`; these are the
+			// messages that branch on the count themselves. French puts zero in the
+			// singular and the other three do not, which is why one is asserted here
+			// and zero is not.
+			const ones = {
+				restoredSummary: catalogue.restoredSummary({ values: 1, occurrences: 1 }),
+				restoreIncomplete: catalogue.restoreIncomplete({ count: 1 }),
+				announceRestored: catalogue.announceRestored({ count: 1 }),
+				announceRestoredWithProblems: catalogue.announceRestoredWithProblems({ count: 1 })
+			};
+			for (const [key, produced] of Object.entries(ones)) {
+				expect(produced, `${name}.${key}`).toBeTruthy();
 				expect(produced, `${name}.${key}`).not.toContain('undefined');
 			}
 		});

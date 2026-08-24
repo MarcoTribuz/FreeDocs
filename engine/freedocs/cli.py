@@ -8,12 +8,24 @@ code through ``rpc.py``.
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
+import os
 import sys
 from pathlib import Path
 
 from .core.errors import MissingDependency, ModelNotFound
 from .core.findings import EntityType
+from .core.mapping import (
+    BadPassphrase,
+    MalformedMap,
+    check_passphrase,
+    key_map_from,
+    map_path_for,
+    read_key_map,
+    refuse_inside,
+    write_key_map,
+)
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
@@ -21,13 +33,25 @@ from .diagnostics import Check, engine_version, run_checks
 from .formats.pdf import ScannedPdfNotSupported
 from .formats.router import UnsupportedFormat
 from .pipeline import Scrubber, build_registry, country_coverage, default_registry
-from .report import build_report, format_console
+from .report import (
+    build_report,
+    build_restore_report,
+    format_console,
+    format_restore_console,
+)
+from .restore import Restorer
 from .verify import LeakDetected
 
 EXIT_OK = 0
 EXIT_USAGE = 2
 EXIT_LEAK = 3
 EXIT_UNSUPPORTED = 4
+#: A restore that wrote its file and did not finish. Distinct from EXIT_LEAK
+#: because it is the opposite failure and the opposite handling: a leak means
+#: nothing was written, an incomplete restore means the output is there with a
+#: placeholder still visible in it. Kept in step with ``rpc.INCOMPLETE_RESTORE``,
+#: as 3 and 4 already are, and a test pins the pairing.
+EXIT_INCOMPLETE = 5
 
 #: Conditions where the input cannot be processed correctly and the honest answer
 #: is to refuse. Grouped so scrub and inspect report them identically.
@@ -82,6 +106,39 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     scrub.add_argument(
+        "--map",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "also write an encrypted key file so the values can be put back with "
+            "'freedocs restore'. A directory gets one <stem>.fdmap per document. "
+            "Off by default: without it the mapping is destroyed at the end of "
+            "the run and the scrub cannot be undone by anyone, including you"
+        ),
+    )
+    scrub.add_argument(
+        "--map-passphrase-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            "read the key file's passphrase from the first line of this file. "
+            "There is deliberately no --map-passphrase: a passphrase on a command "
+            "line goes into the shell history and into 'ps'. Without this, "
+            "FREEDOCS_MAP_PASSPHRASE is read, and failing that you are prompted"
+        ),
+    )
+    scrub.add_argument(
+        "--map-in-output-dir",
+        action="store_true",
+        help=(
+            "permit writing the key file inside --output-dir. Refused by default: "
+            "the realistic accident is zipping that folder and sending it, which "
+            "hands over the scrubbed document and the key to undo it together"
+        ),
+    )
+    scrub.add_argument(
         "--allow-leaks",
         action="store_true",
         help="write the output even if verification finds surviving values",
@@ -114,6 +171,30 @@ def _build_parser() -> argparse.ArgumentParser:
             "is sent to it, so this is deliberately not the default."
         ),
     )
+
+    restore = sub.add_parser(
+        "restore",
+        help="put the real values back into a document that came back from a model",
+    )
+    restore.add_argument("files", nargs="+", type=Path)
+    restore.add_argument(
+        "--map",
+        type=Path,
+        required=True,
+        metavar="PATH",
+        help="the key file written by 'freedocs scrub --map'",
+    )
+    restore.add_argument(
+        "-o", "--output-dir", type=Path, required=True, help="directory for restored copies"
+    )
+    restore.add_argument(
+        "--map-passphrase-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help="read the passphrase from the first line of this file",
+    )
+    restore.add_argument("--report", type=Path, help="write a JSON report to this path")
 
     inspect = sub.add_parser(
         "inspect", help="report what would be removed, without writing anything"
@@ -255,6 +336,73 @@ def _reviewer(args: argparse.Namespace) -> LlmReviewer | None:
         raise SystemExit(str(exc)) from exc
 
 
+#: Where a passphrase may come from when no file names one. Read here rather
+#: than in each command so the two directions cannot end up with different rules.
+PASSPHRASE_ENV = "FREEDOCS_MAP_PASSPHRASE"
+
+
+def _passphrase(args: argparse.Namespace, *, confirm: bool) -> str:
+    """The key file's passphrase, from a file, the environment, or a prompt.
+
+    There is no ``--map-passphrase VALUE`` and there must not be one. An argument
+    lands in the shell history and is visible in ``ps`` to every other user on the
+    machine, which for this particular secret means the key to every value in the
+    document.
+
+    A missing passphrase with no terminal to ask at is a usage error, never a
+    silent skip: the alternative is a scrub that quietly writes no key file and a
+    user who finds out when they try to restore.
+    """
+    named = getattr(args, "map_passphrase_file", None)
+    if named is not None:
+        try:
+            first = named.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise SystemExit(f"cannot read {named}: {exc.strerror or 'unreadable'}") from exc
+        # First line only, so an editor's trailing newline is not part of the
+        # secret - a passphrase that works from one editor and not another is the
+        # worst kind of intermittent.
+        value = first[0] if first else ""
+        if not value:
+            raise SystemExit(f"{named} is empty; it should hold the passphrase on its first line")
+        return value
+
+    from_env = os.environ.get(PASSPHRASE_ENV)
+    if from_env:
+        return from_env
+
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            "no passphrase for the key file: pass --map-passphrase-file, set "
+            f"{PASSPHRASE_ENV}, or run this where a terminal can prompt"
+        )
+    value = getpass.getpass("Key file passphrase: ")
+    if confirm and value != getpass.getpass("Again: "):
+        raise SystemExit("the two passphrases do not match; nothing was written")
+    try:
+        check_passphrase(value)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    return value
+
+
+def _map_target(args: argparse.Namespace) -> Path | None:
+    """Where the key file goes, refusing the output directory unless told.
+
+    Checked before the first file is read rather than after the last one is
+    written: a refusal that arrives once the scrubbed copies are already on disk
+    is a refusal the user has to undo by hand.
+    """
+    target = getattr(args, "map", None)
+    if target is None:
+        return None
+    if not getattr(args, "map_in_output_dir", False):
+        complaint = refuse_inside(target, args.output_dir)
+        if complaint:
+            raise SystemExit(complaint)
+    return target
+
+
 def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
     spec = getattr(args, "detectors", None)
     countries = _countries(args)
@@ -266,6 +414,11 @@ def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
 
 def _cmd_scrub(args: argparse.Namespace) -> int:
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    # Both resolved before anything is read. A bad passphrase rule or a key file
+    # aimed at the output directory must stop the run, not interrupt it halfway
+    # through with scrubbed copies already on disk.
+    map_target = _map_target(args)
+    passphrase = _passphrase(args, confirm=True) if map_target else ""
     try:
         scrubber = _scrubber(args, strict=not args.allow_leaks)
     except (ValueError, MissingDependency) as exc:
@@ -301,9 +454,82 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
         destination.write_bytes(result.output)
         print(format_console(result))
         print(f"  written: {destination}")
-        reports.append(build_report(result))
+
+        wrote_key = False
+        if map_target is not None:
+            key_path = map_path_for(map_target, path)
+            key_map = key_map_from(result, placeholder_language=args.placeholder_language)
+            try:
+                write_key_map(key_path, key_map, passphrase)
+            except MissingDependency as exc:
+                # The scrubbed file is already on disk and is correct, so this is
+                # not a reason to claim the run failed - but the user asked to be
+                # able to undo it and cannot, so it is not a success either.
+                print(f"{path.name}: {exc}", file=sys.stderr)
+                return EXIT_UNSUPPORTED
+            wrote_key = True
+            print(f"  key file: {key_path}")
+            # Said where the key file is written as well as where it is read: the
+            # person choosing to keep one is the person who should know its limit.
+            for message in key_map.warnings():
+                print(f"  warning: {message}")
+
+        reports.append(build_report(result, key_file=wrote_key))
         if not result.verify.ok:
             status = EXIT_LEAK
+
+    if args.report and reports:
+        args.report.write_text(json.dumps(reports, indent=2), encoding="utf-8")
+        print(f"report: {args.report}")
+    return status
+
+
+def _cmd_restore(args: argparse.Namespace) -> int:
+    """Put the values back, per file, from one key file.
+
+    Shaped like :func:`_cmd_scrub` on purpose - helper construction inside a
+    guard, then a loop where a refusal names the file and continues. One
+    difference, and it is the whole character of this command: **an incomplete
+    restore still writes its file.** A scrub that leaks writes nothing, because a
+    nearly-clean document gets sent. A restore that left a placeholder behind has
+    produced the caller's best artifact with a visible defect in it, so the bytes
+    go to disk, every problem is printed, and the exit code says so.
+    """
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    passphrase = _passphrase(args, confirm=False)
+    try:
+        key_map = read_key_map(args.map, passphrase)
+    except MissingDependency as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_UNSUPPORTED
+    except (BadPassphrase, MalformedMap) as exc:
+        # Configuration, not input: every file in the list would fail identically,
+        # so there is nothing to continue to.
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+
+    # Printed once for the run rather than once per file: it is a property of the
+    # key file, and repeating it per document reads as a per-document problem.
+    for message in key_map.warnings():
+        print(f"warning: {message}", file=sys.stderr)
+
+    reports = []
+    status = EXIT_OK
+    for path in args.files:
+        try:
+            result = Restorer(key_map=key_map).restore(path)
+        except REFUSALS as exc:
+            print(f"{path.name}: {exc}", file=sys.stderr)
+            status = EXIT_UNSUPPORTED
+            continue
+
+        destination = args.output_dir / path.name
+        destination.write_bytes(result.output)
+        print(format_restore_console(result))
+        print(f"  written: {destination}")
+        reports.append(build_restore_report(result))
+        if not result.ok:
+            status = EXIT_INCOMPLETE
 
     if args.report and reports:
         args.report.write_text(json.dumps(reports, indent=2), encoding="utf-8")
@@ -534,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     handlers = {
         "scrub": _cmd_scrub,
+        "restore": _cmd_restore,
         "inspect": _cmd_inspect,
         "entities": _cmd_entities,
         "countries": _cmd_countries,

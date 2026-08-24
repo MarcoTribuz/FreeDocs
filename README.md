@@ -108,6 +108,11 @@ one placeholder, with the paragraph's formatting, the table and the styles intac
 - **Numbers you can re-run.** `freedocs benchmark` scores the layers against an
   annotated corpus, and the tool prints its own caveat every time.
   → [benchmark](docs/benchmark.md)
+- **Optionally, the way back.** `--map` writes an encrypted key file, and
+  `freedocs restore` puts the real values into whatever the model hands back. Off
+  by default, because it is the one thing that makes a scrub reversible: without
+  it the mapping is destroyed at the end of the run and nobody can undo it,
+  including you. → [the reverse path](docs/restore.md)
 
 ## Quickstart
 
@@ -232,6 +237,12 @@ The honest list, because the failures of a tool like this are silent by nature.
   anyway — leaving the name would fail the leak check — and reported as a warning
   naming what changed.
 - **A macro project cannot be redacted, only removed.**
+- **A key file is as confidential as the original document.** If you ask for one
+  with `--map`, that file can put every removed value back. It is encrypted and
+  refused inside the output folder, and after that it is yours to handle: never
+  send it with the scrubbed copy. It also cannot bring back content that was
+  *removed* rather than replaced — thumbnails, metadata, hidden slides — because
+  those were never given a placeholder. → [the reverse path](docs/restore.md)
 - **It is not a compliance guarantee and never claims the output is clean.**
   `report.CAVEATS` states the limits in the report itself.
 

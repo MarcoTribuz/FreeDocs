@@ -37,6 +37,15 @@ real document failed. The smoke test now inspects a sentence with a name in it a
 demands a `PERSON` finding. Anything imported inside a function needs
 `collect_submodules` in the spec; PyInstaller cannot see call-time imports.
 
+**The key file is in that same smoke test, for that same reason.**
+`capabilities.mapping_available` answers from `find_spec`, which is true of a
+bundle whose cipher never made it in — `core/mapping.py` imports `cryptography`
+*inside* the two functions that use it, because the extra is optional. So the
+smoke test scrubs with `--map`, restores from the result, and demands the name
+back. Asking the capability alone is precisely the mistake the paragraph above was
+written after. The spec needs
+`collect_submodules("cryptography")` for it.
+
 **Not in the bundle, on purpose:** the NER model (~1.2 GB, fetched to the user's
 cache on first use) and Tesseract. Both absences are reported through
 `capabilities`, so the app says so rather than failing mysteriously.

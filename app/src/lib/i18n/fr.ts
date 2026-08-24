@@ -239,6 +239,7 @@ export const fr = {
 		policy: () => 'décision',
 		'write-back': () => 'écriture de la copie',
 		verify: () => 'fouille de la copie',
+		match: () => 'je cherche les marqueurs',
 		review: () => 'deuxième avis'
 	},
 	stageOf: ({ name, index, count }) => `${name} — étape ${index} sur ${count}`,
@@ -249,6 +250,74 @@ export const fr = {
 	 * jamais dans le type, parce qu'un même intitulé couvre douze pays et qu'un
 	 * nom national serait faux pour onze d'entre eux.
 	 */
+	// ---- le chemin inverse --------------------------------------------------
+	modeLabel: () => 'Que faire',
+	modeScrub: () => 'Retirer',
+	modeRestore: () => 'Remettre',
+	modeAnnounce: ({ name }) => `Passé à ${name}`,
+
+	keyFileTitle: () => 'Fichier de clé',
+	keyFileHint: () =>
+		'Écrit un fichier chiffré qui permet de remettre les valeurs retirées dans ' +
+		'ce que le modèle renvoie. Sans lui, ce nettoyage est irréversible pour tout le monde.',
+	keyFileEnable: () => 'Écrire aussi un fichier de clé',
+	keyFileWhere: () => 'Où le mettre',
+	keyFileChooseWhere: () => 'Choisir un dossier',
+	keyFilePassphrase: () => 'Phrase secrète',
+	keyFileConfirm: () => 'Répéter la phrase secrète',
+	keyFileUnavailable: () => 'Cette version ne peut pas écrire de fichier de clé.',
+	keyFileNeedsDirectory: () => 'Choisis un dossier en dehors du dossier de destination.',
+	keyFileNeedsPassphrase: ({ min }) => `Au moins ${min} caractères.`,
+	keyFileMismatch: () => 'Les deux phrases secrètes ne correspondent pas.',
+	keyFileDanger: () =>
+		'Ce fichier est aussi confidentiel que le document d’origine. Garde-le loin ' +
+		'de la copie nettoyée, et n’envoie jamais les deux ensemble.',
+	keyFileWritten: () => 'Fichier de clé',
+	chooseKeyDirectory: () => 'Où mettre le fichier de clé',
+	chooseKeyFile: () => 'Choisir un fichier de clé',
+	keyFileFilter: () => 'Fichier de clé FreeDocs',
+
+	stepRestoreFile: () => 'Document et clé',
+	restoreTitle: () => 'Remettre les valeurs',
+	restoreHint: () =>
+		'Choisis ce qui est revenu du modèle, et le fichier de clé du nettoyage qui l’a produit.',
+	restoreDocument: () => 'Document revenu du modèle',
+	restoreChooseDocument: () => 'Choisir un document',
+	restoreKey: () => 'Fichier de clé',
+	restoreChooseKey: () => 'Choisir un fichier de clé',
+	restorePassphrase: () => 'Phrase secrète',
+	restoreNeedsDocument: () => 'Choisis le document qui est revenu.',
+	restoreNeedsKey: () => 'Choisis le fichier de clé de ce nettoyage.',
+	restoreNeedsPassphrase: () => 'Saisis la phrase secrète de ce fichier de clé.',
+	restoreRun: () => 'Remettre les valeurs',
+	restoring: () => 'Je remets les valeurs…',
+	restoreAgain: () => 'Remettre dans un autre',
+
+	restoreResultTitle: () => 'Ce qui est revenu',
+	restoredSummary: ({ values, occurrences }) =>
+		`${values} ${values <= 1 ? 'valeur remise' : 'valeurs remises'}, à ` +
+		`${occurrences} ${occurrences <= 1 ? 'endroit' : 'endroits'}`,
+	restoreNothingMatched: () =>
+		'Aucun marqueur de ce fichier de clé n’était dans le document.',
+	restoreNotPresentTitle: () => 'Pas dans ce document',
+	restoreNotPresentHint: () =>
+		'Ils étaient dans le fichier de clé et pas dans le retour — le plus souvent du texte que le modèle a supprimé.',
+	restoreUnknownTitle: () => 'Laissés tels quels',
+	restoreUnknownHint: () =>
+		'Ils ressemblent à des marqueurs et ce fichier de clé ne les connaît pas. ' +
+		'Deviner la valeur visée mettrait les mauvaises données dans le document, ils ont donc été laissés en place.',
+	restoreProblemsTitle: () => 'Non revenues',
+	restoreVerified: () => 'Le document a été réouvert, et chaque valeur est arrivée.',
+	restoreIncomplete: ({ count }) =>
+		`${count} ${count <= 1 ? 'valeur n’est pas revenue' : 'valeurs ne sont pas revenues'}. ` +
+		'Le document a été écrit quand même — ce qui manque y est visible.',
+	restoreCaveatsTitle: () => 'Ce que remettre les valeurs ne fait pas',
+
+	announceRestored: ({ count }) =>
+		`Terminé. ${count} ${count <= 1 ? 'valeur remise' : 'valeurs remises'}.`,
+	announceRestoredWithProblems: ({ count }) =>
+		`Terminé, mais ${count} ${count <= 1 ? 'valeur n’est pas revenue' : 'valeurs ne sont pas revenues'}.`,
+
 	entity: {
 		PERSON: () => 'Personne',
 		ORGANISATION: () => 'Société',

@@ -8,6 +8,7 @@ import pytest
 
 from freedocs import diagnostics
 from freedocs.cli import main
+from freedocs.core.mapping import mapping_unavailable_reason
 from freedocs.diagnostics import MINIMUM_PYTHON, Check, run_checks
 
 
@@ -145,3 +146,40 @@ def test_an_incomplete_bundled_model_fails_the_check(monkeypatch, tmp_path):
     check = diagnostics._ner_check()
     assert not check.ok
     assert check.fix
+
+
+def test_the_key_file_check_reports_the_extra():
+    """One authority. The check must not form its own opinion about the cipher's
+    presence: a second answer here can disagree with the one `capabilities`
+    published and the one `--map` will raise."""
+    check = diagnostics._mapping_check()
+    assert check.name == "Key file"
+    assert check.ok == (mapping_unavailable_reason() is None)
+
+
+def test_a_missing_key_file_extra_is_degraded_and_not_broken(monkeypatch):
+    """A build without it scrubs exactly as well and stays irreversible, which is
+    the engine's default anyway - so this is "does less", not "is broken"."""
+    # Patched at the source module, not on `diagnostics`: `_mapping_check` imports
+    # it inside the function - the same lazy-import discipline every optional layer
+    # here follows - so a module-level attribute would never be read.
+    monkeypatch.setattr(
+        "freedocs.core.mapping.mapping_unavailable_reason",
+        lambda: "cryptography is not installed",
+    )
+    check = diagnostics._mapping_check()
+    assert not check.ok
+    assert check.degraded
+    assert not check.required
+    # A fix a developer can act on, and none inside a bundle - the rule
+    # `_sync_fix` exists for.
+    assert check.fix == "uv sync --extra restore"
+
+
+def test_a_packaged_build_gets_no_key_file_fix(monkeypatch):
+    monkeypatch.setattr(
+        "freedocs.core.mapping.mapping_unavailable_reason",
+        lambda: "cryptography is not installed",
+    )
+    monkeypatch.setattr(diagnostics, "_frozen", lambda: True)
+    assert diagnostics._mapping_check().fix is None

@@ -23,10 +23,27 @@ confidential data must not go with it. Everything below follows from that.
 - **Nothing leaves the machine.** No network call is part of a scrub. The optional
   review layer talks to a local Ollama, and a non-loopback host is refused unless
   the caller explicitly passes `--review-remote`.
-- **The re-identification mapping never reaches disk.** Placeholder-to-original
-  lives in memory for one run and is destroyed in a `finally` block, including when
-  a stage raises. Scrubbing is anonymisation, not pseudonymisation: there is no key
-  to leak, and no way to restore the values afterwards.
+- **The re-identification mapping never reaches disk unless you ask for it, by
+  name.** By default, placeholder-to-original lives in memory for one run and is
+  destroyed in a `finally` block, including when a stage raises: there is no key to
+  leak, and no way to restore the values afterwards — by anyone, including you.
+  That is anonymisation and it is still the default.
+
+  `scrub --map` turns one run into *pseudonymisation* instead. It writes a **key
+  file**, which is the placeholder-to-original mapping for that one document. It is
+  encrypted with a passphrase (scrypt, then AES-256-GCM with the cleartext header
+  bound as associated data), written mode `0600`, and refused inside the output
+  directory unless you say you meant it — because the accident that happens is
+  zipping the output folder and sending the scrubbed document along with the key
+  to undo it. There is **no unencrypted form** of this file, and no
+  `--map-passphrase` argument: a passphrase on a command line is in the shell
+  history and visible in `ps`.
+
+  What that shifts onto you: **a key file is as confidential as the original
+  document.** It is not a report and must not be treated as one. Keep it away from
+  the scrubbed copy, and never send the two together.
+
+  See [docs/restore.md](docs/restore.md).
 - **The report carries counts and positions, never values.** So does
   `Leak.describe()`: an error about confidential values surviving must not carry
   them, because that message travels to stderr and through the RPC layer.
@@ -48,7 +65,12 @@ confidential data must not go with it. Everything below follows from that.
   visible text, in a hidden part, in metadata, in an embedded object, or in the
   pixels of a redacted scan.
 - Anything that writes the placeholder-to-original mapping, or a confidential
-  value, to disk, to a log, to a report or into an error message.
+  value, to disk, to a log, to a report or into an error message. The opt-in key
+  file narrows this bullet and does not remove it. Still in scope: a key file
+  written when no caller named a path and a passphrase; a key file that is not
+  encrypted, or whose cleartext header carries a value; a passphrase or an original
+  value reaching a report, a log, stderr or an RPC error payload; and a key file
+  that opens without its passphrase.
 - The engine performing a network request during a scrub, or the review layer
   reaching a non-loopback host without `--review-remote`.
 - An output file that verification passed but that still contains a value it
@@ -78,6 +100,15 @@ discussing in a public issue — just not as security reports.
   report states which layers were loaded.
 - **A broken Excel formula after a sheet was renamed.** Deliberate, and reported as
   a warning: leaving the identifying name would fail the leak check.
+- **A key file being readable by someone who has it and its passphrase.** That is
+  what it is for. Losing control of the file is a handling problem; the tool's job
+  is to make sure the file cannot be read *without* the passphrase, and to refuse
+  to put it next to the document it undoes.
+- **A restore leaving a placeholder in the document.** Placeholders are matched
+  literally, so a token the model translated, reformatted or invented is reported
+  and left alone. Guessing which value a damaged token meant would put somebody
+  else's data in the document, which is the failure worth avoiding; a visible
+  placeholder is not.
 
 ## Supported versions
 

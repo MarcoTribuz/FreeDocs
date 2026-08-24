@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { goTo, session, start, type Step } from '$lib/app.svelte';
+	import { ORDER, goTo, session, start, type Step } from '$lib/app.svelte';
 	import { announce } from '$lib/announce.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
@@ -11,6 +11,8 @@
 	import StepRail from '$lib/components/StepRail.svelte';
 	import FileStep from '$lib/screens/FileStep.svelte';
 	import ResultStep from '$lib/screens/ResultStep.svelte';
+	import RestoreResult from '$lib/screens/RestoreResult.svelte';
+	import RestoreStep from '$lib/screens/RestoreStep.svelte';
 	import ReviewStep from '$lib/screens/ReviewStep.svelte';
 
 	/**
@@ -42,21 +44,32 @@
 	 * A step the user cannot be on cannot be the current one, and two sources for
 	 * that fact is a window showing the review screen with nothing to review.
 	 */
-	const reachable = $derived<Record<Step, boolean>>({
-		file: true,
-		review: session.files.length > 0,
-		result: session.results.length > 0
-	});
+	const reachable = $derived<Record<Step, boolean>>(
+		session.mode === 'restore'
+			? // Restoring has no review step: the decisions were made in the scrub
+				// that produced the key file, and there is nothing here to preview.
+				{ file: true, review: false, result: session.restoreResult !== null }
+			: {
+					file: true,
+					review: session.files.length > 0,
+					result: session.results.length > 0
+				}
+	);
 
 	const step = $derived<Step>(reachable[session.step] ? session.step : 'file');
 
 	const labels = $derived<Record<Step, string>>({
-		file: m.stepFile(),
+		file: session.mode === 'restore' ? m.stepRestoreFile() : m.stepFile(),
 		review: m.stepReview(),
 		result: m.stepResult()
 	});
 
-	const order: Step[] = ['file', 'review', 'result'];
+	/**
+	 * The steps of the mode showing. Per mode, so the position announced is the
+	 * position in *this* task — "step 2 of 2" when restoring, not "2 of 3" with one
+	 * step that does not exist.
+	 */
+	const order = $derived<Step[]>(ORDER[session.mode]);
 
 	/*
 	 * A step change is the SPA equivalent of a page load, and neither of the two
@@ -65,10 +78,14 @@
 	 * than by a ref threaded through three components — each screen owns its own
 	 * <h2 tabindex="-1"> for exactly this.
 	 */
-	let announced: Step | null = null;
+	let announced: string | null = null;
 	$effect(() => {
-		if (announced === step) return;
-		announced = step;
+		// Keyed on the mode too: switching direction lands on `file` in both, so a
+		// key of the step alone would announce nothing at the moment the whole task
+		// changed.
+		const now = `${session.mode}/${step}`;
+		if (announced === now) return;
+		announced = now;
 		announce(
 			m.stepAnnounce({
 				position: order.indexOf(step) + 1,
@@ -95,7 +112,9 @@
 		const at = ['1', '2', '3'].indexOf(event.key);
 		if (at === -1) return;
 		const wanted = order[at];
-		if (!reachable[wanted]) return;
+		// `order` is shorter when restoring, so 3 addresses nothing there rather
+		// than falling through to a step this mode does not have.
+		if (!wanted || !reachable[wanted]) return;
 		event.preventDefault();
 		goTo(wanted);
 	}
@@ -172,9 +191,15 @@
 				Keyed on the step so the old screen leaves and the new one arrives,
 				rather than the contents cross-fading in place.
 			-->
-			{#key step}
+			{#key `${session.mode}/${step}`}
 				<div in:fly={{ y: 8, duration: duration(DUR.slow) }}>
-					{#if step === 'file'}
+					{#if session.mode === 'restore'}
+						{#if step === 'result'}
+							<RestoreResult />
+						{:else}
+							<RestoreStep />
+						{/if}
+					{:else if step === 'file'}
 						<FileStep />
 					{:else if step === 'review'}
 						<ReviewStep />

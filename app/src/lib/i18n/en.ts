@@ -231,6 +231,7 @@ export const en = {
 		policy: () => 'deciding',
 		'write-back': () => 'writing the copy',
 		verify: () => 'searching the copy',
+		match: () => 'finding the placeholders',
 		review: () => 'second opinion'
 	},
 	stageOf: ({ name, index, count }) => `${name} — step ${index} of ${count}`,
@@ -245,6 +246,74 @@ export const en = {
 	 * stands for twelve countries and a national name for it would be wrong on
 	 * eleven.
 	 */
+	// ---- the reverse path ---------------------------------------------------
+	modeLabel: () => 'What to do',
+	modeScrub: () => 'Remove',
+	modeRestore: () => 'Put back',
+	modeAnnounce: ({ name }) => `Switched to ${name}`,
+
+	keyFileTitle: () => 'Key file',
+	keyFileHint: () =>
+		'Write an encrypted file that can put the removed values back into whatever ' +
+		'the model returns. Without one, this scrub cannot be undone by anyone.',
+	keyFileEnable: () => 'Also write a key file',
+	keyFileWhere: () => 'Where to put it',
+	keyFileChooseWhere: () => 'Choose a folder',
+	keyFilePassphrase: () => 'Passphrase',
+	keyFileConfirm: () => 'Passphrase again',
+	keyFileUnavailable: () => 'This build cannot write a key file.',
+	keyFileNeedsDirectory: () => 'Choose a folder outside the output folder.',
+	keyFileNeedsPassphrase: ({ min }) => `At least ${min} characters.`,
+	keyFileMismatch: () => 'The two passphrases do not match.',
+	keyFileDanger: () =>
+		'This file is as confidential as the original document. Keep it away from ' +
+		'the scrubbed copy, and never send the two together.',
+	keyFileWritten: () => 'Key file',
+	chooseKeyDirectory: () => 'Where to put the key file',
+	chooseKeyFile: () => 'Choose a key file',
+	keyFileFilter: () => 'FreeDocs key file',
+
+	stepRestoreFile: () => 'Document and key',
+	restoreTitle: () => 'Put the values back',
+	restoreHint: () =>
+		'Choose what came back from the model, and the key file from the scrub that ' +
+		'produced it.',
+	restoreDocument: () => 'Document from the model',
+	restoreChooseDocument: () => 'Choose a document',
+	restoreKey: () => 'Key file',
+	restoreChooseKey: () => 'Choose a key file',
+	restorePassphrase: () => 'Passphrase',
+	restoreNeedsDocument: () => 'Choose the document that came back.',
+	restoreNeedsKey: () => 'Choose the key file from that scrub.',
+	restoreNeedsPassphrase: () => 'Type the passphrase for that key file.',
+	restoreRun: () => 'Put the values back',
+	restoring: () => 'Putting the values back…',
+	restoreAgain: () => 'Restore another',
+
+	restoreResultTitle: () => 'What came back',
+	restoredSummary: ({ values, occurrences }) =>
+		`${values} ${values === 1 ? 'value' : 'values'} put back, in ` +
+		`${occurrences} ${occurrences === 1 ? 'place' : 'places'}`,
+	restoreNothingMatched: () => 'No placeholder from this key file was in the document.',
+	restoreNotPresentTitle: () => 'Not in this document',
+	restoreNotPresentHint: () =>
+		'These were in the key file and not in what came back — usually text the model dropped.',
+	restoreUnknownTitle: () => 'Left alone',
+	restoreUnknownHint: () =>
+		'These look like placeholders and this key file does not know them. Guessing ' +
+		'which value each meant would put the wrong data in the document, so they were left as they are.',
+	restoreProblemsTitle: () => 'Did not make it back',
+	restoreVerified: () => 'The document was re-opened, and every value arrived.',
+	restoreIncomplete: ({ count }) =>
+		`${count} ${count === 1 ? 'value' : 'values'} did not make it back. ` +
+		'The document was written anyway — what is missing is visible in it.',
+	restoreCaveatsTitle: () => 'What putting values back does not do',
+
+	announceRestored: ({ count }) =>
+		`Finished. ${count} ${count === 1 ? 'value' : 'values'} put back.`,
+	announceRestoredWithProblems: ({ count }) =>
+		`Finished, but ${count} ${count === 1 ? 'value' : 'values'} did not make it back.`,
+
 	entity: {
 		PERSON: () => 'Person',
 		ORGANISATION: () => 'Organisation',

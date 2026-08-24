@@ -236,6 +236,7 @@ export const de = {
 		policy: () => 'entscheide',
 		'write-back': () => 'schreibe die Kopie',
 		verify: () => 'durchsuche die Kopie',
+		match: () => 'suche die Platzhalter',
 		review: () => 'Zweitmeinung'
 	},
 	stageOf: ({ name, index, count }) => `${name} — Schritt ${index} von ${count}`,
@@ -246,6 +247,74 @@ export const de = {
 	 * in den Typ, weil ein Stamm für zwölf Länder steht und ein nationaler Name
 	 * für elf falsch wäre. Also "USt-Nummer", nicht "Umsatzsteuer-Identnummer".
 	 */
+	// ---- der umgekehrte Weg -------------------------------------------------
+	modeLabel: () => 'Was tun',
+	modeScrub: () => 'Entfernen',
+	modeRestore: () => 'Zurücksetzen',
+	modeAnnounce: ({ name }) => `Gewechselt zu ${name}`,
+
+	keyFileTitle: () => 'Schlüsseldatei',
+	keyFileHint: () =>
+		'Schreibt eine verschlüsselte Datei, mit der die entfernten Werte in das ' +
+		'zurückkommen, was das Modell liefert. Ohne sie kann diese Bereinigung niemand rückgängig machen.',
+	keyFileEnable: () => 'Auch eine Schlüsseldatei schreiben',
+	keyFileWhere: () => 'Wohin damit',
+	keyFileChooseWhere: () => 'Ordner wählen',
+	keyFilePassphrase: () => 'Passphrase',
+	keyFileConfirm: () => 'Passphrase wiederholen',
+	keyFileUnavailable: () => 'Dieser Build kann keine Schlüsseldatei schreiben.',
+	keyFileNeedsDirectory: () => 'Wähle einen Ordner außerhalb des Zielordners.',
+	keyFileNeedsPassphrase: ({ min }) => `Mindestens ${min} Zeichen.`,
+	keyFileMismatch: () => 'Die beiden Passphrasen stimmen nicht überein.',
+	keyFileDanger: () =>
+		'Diese Datei ist so vertraulich wie das Originaldokument. Halte sie von der ' +
+		'bereinigten Kopie fern, und verschicke die beiden nie zusammen.',
+	keyFileWritten: () => 'Schlüsseldatei',
+	chooseKeyDirectory: () => 'Wohin mit der Schlüsseldatei',
+	chooseKeyFile: () => 'Schlüsseldatei wählen',
+	keyFileFilter: () => 'FreeDocs-Schlüsseldatei',
+
+	stepRestoreFile: () => 'Dokument und Schlüssel',
+	restoreTitle: () => 'Werte zurücksetzen',
+	restoreHint: () =>
+		'Wähle, was vom Modell zurückkam, und die Schlüsseldatei der Bereinigung, die es erzeugt hat.',
+	restoreDocument: () => 'Dokument vom Modell',
+	restoreChooseDocument: () => 'Dokument wählen',
+	restoreKey: () => 'Schlüsseldatei',
+	restoreChooseKey: () => 'Schlüsseldatei wählen',
+	restorePassphrase: () => 'Passphrase',
+	restoreNeedsDocument: () => 'Wähle das zurückgekommene Dokument.',
+	restoreNeedsKey: () => 'Wähle die Schlüsseldatei dieser Bereinigung.',
+	restoreNeedsPassphrase: () => 'Gib die Passphrase dieser Schlüsseldatei ein.',
+	restoreRun: () => 'Werte zurücksetzen',
+	restoring: () => 'Setze die Werte zurück…',
+	restoreAgain: () => 'Weiteres zurücksetzen',
+
+	restoreResultTitle: () => 'Was zurückkam',
+	restoredSummary: ({ values, occurrences }) =>
+		`${values} ${values === 1 ? 'Wert' : 'Werte'} zurückgesetzt, an ` +
+		`${occurrences} ${occurrences === 1 ? 'Stelle' : 'Stellen'}`,
+	restoreNothingMatched: () =>
+		'Kein Platzhalter aus dieser Schlüsseldatei war im Dokument.',
+	restoreNotPresentTitle: () => 'Nicht in diesem Dokument',
+	restoreNotPresentHint: () =>
+		'Diese standen in der Schlüsseldatei und nicht im Rückläufer — meist Text, den das Modell weggelassen hat.',
+	restoreUnknownTitle: () => 'Unangetastet',
+	restoreUnknownHint: () =>
+		'Diese sehen wie Platzhalter aus und diese Schlüsseldatei kennt sie nicht. ' +
+		'Zu raten, welcher Wert gemeint war, würde die falschen Daten ins Dokument schreiben — also blieben sie stehen.',
+	restoreProblemsTitle: () => 'Nicht zurückgekommen',
+	restoreVerified: () => 'Das Dokument wurde erneut geöffnet, und jeder Wert ist angekommen.',
+	restoreIncomplete: ({ count }) =>
+		`${count} ${count === 1 ? 'Wert ist' : 'Werte sind'} nicht zurückgekommen. ` +
+		'Das Dokument wurde trotzdem geschrieben — was fehlt, ist darin sichtbar.',
+	restoreCaveatsTitle: () => 'Was das Zurücksetzen nicht leistet',
+
+	announceRestored: ({ count }) =>
+		`Fertig. ${count} ${count === 1 ? 'Wert' : 'Werte'} zurückgesetzt.`,
+	announceRestoredWithProblems: ({ count }) =>
+		`Fertig, aber ${count} ${count === 1 ? 'Wert ist' : 'Werte sind'} nicht zurückgekommen.`,
+
 	entity: {
 		PERSON: () => 'Person',
 		ORGANISATION: () => 'Firma',

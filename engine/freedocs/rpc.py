@@ -36,6 +36,16 @@ from typing import Any, TextIO
 
 from .core.errors import MissingDependency, ModelNotFound
 from .core.findings import EntityType
+from .core.mapping import (
+    BadPassphrase,
+    MalformedMap,
+    key_map_from,
+    map_path_for,
+    mapping_unavailable_reason,
+    read_key_map,
+    refuse_inside,
+    write_key_map,
+)
 from .core.overrides import Override, StaleOverride, parse_override
 from .core.policy import (
     DEFAULT_LOCALE,
@@ -68,7 +78,8 @@ from .pipeline import (
     country_coverage,
     default_registry,
 )
-from .report import CAVEATS, build_report
+from .report import CAVEATS, RESTORE_CAVEATS, build_report, build_restore_report
+from .restore import Restorer
 from .verify import LeakDetected
 
 #: Application error codes. Distinct from JSON-RPC's own range so the app can
@@ -81,6 +92,11 @@ UNSUPPORTED_FORMAT = 1
 NEEDS_OCR = 2
 LEAK_DETECTED = 3
 MISSING_DEPENDENCY = 4
+#: A restore that wrote its file and did not finish. Deliberately the same number
+#: as ``cli.EXIT_INCOMPLETE``, as 3 and 4 already match their exit codes, so one
+#: failure has one number whichever front end reported it. Unlike LEAK_DETECTED
+#: the output *was* written - see ``Restorer.restore``.
+INCOMPLETE_RESTORE = 5
 
 #: How much flat text ``inspect`` will put on the wire when asked for a preview.
 #:
@@ -257,6 +273,13 @@ class Session:
             # first scan could not deliver.
             "ocr_available": ocr_unavailable_reason() is None,
             "ocr_unavailable_reason": ocr_unavailable_reason(),
+            # Whether this build can write and read a key file. Published for the
+            # same reason as the OCR pair and answered by the same kind of single
+            # authority: a window that offered the control and then failed on the
+            # first attempt is the bug `ocr_unavailable_reason()` exists to
+            # prevent, one feature over.
+            "mapping_available": mapping_unavailable_reason() is None,
+            "mapping_unavailable_reason": mapping_unavailable_reason(),
             # Whether the model travels with this build or is fetched on first
             # use. Sent because the window cannot work it out: it is a property
             # of how the app was packaged, and a portable copy that says
@@ -279,6 +302,10 @@ class Session:
             # the element type of a published list is not an additive change.
             "detector_spec_notes": dict(LAYER_SPEC_NOTES),
             "caveats": list(CAVEATS),
+            # A separate list, because a restore's limits are not a scrub's and a
+            # merged one would show a reader of either screen four sentences that
+            # do not apply.
+            "restore_caveats": list(RESTORE_CAVEATS),
         }
 
     def doctor(self, params: dict[str, Any]) -> dict[str, Any]:
@@ -450,6 +477,10 @@ class Session:
             raise RpcError(INVALID_REQUEST, "'paths' must be a non-empty list")
         output_dir = _require_path(params, "output_dir", must_exist=False)
         output_dir.mkdir(parents=True, exist_ok=True)
+        # Resolved before the first file is read. A key file aimed at the output
+        # directory, or one asked for with no passphrase, must stop the request
+        # rather than interrupt it with scrubbed copies already on disk.
+        map_target, passphrase = _map_from(params, output_dir)
 
         scrubber = Scrubber(
             policy=_policy_from(params),
@@ -477,11 +508,23 @@ class Session:
                     ),
                     path,
                     output_dir,
+                    map_target=map_target,
+                    passphrase=passphrase,
+                    placeholder_language=_locale_from(params),
                 )
             )
         return {"results": results}
 
-    def _scrub_one(self, scrubber: Scrubber, path: Path, output_dir: Path) -> dict[str, Any]:
+    def _scrub_one(
+        self,
+        scrubber: Scrubber,
+        path: Path,
+        output_dir: Path,
+        *,
+        map_target: Path | None = None,
+        passphrase: str = "",
+        placeholder_language: str = DEFAULT_LOCALE,
+    ) -> dict[str, Any]:
         """One file's outcome, as data rather than as an exception.
 
         A batch must not stop because its third file is a scan nobody can read,
@@ -520,19 +563,118 @@ class Session:
 
         destination = output_dir / path.name
         destination.write_bytes(result.output)
+
+        key_file: str | None = None
+        key_warnings: list[str] = []
+        if map_target is not None:
+            key_path = map_path_for(map_target, path)
+            key_map = key_map_from(result, placeholder_language=placeholder_language)
+            try:
+                write_key_map(key_path, key_map, passphrase)
+            except MissingDependency as exc:
+                # The scrubbed copy is already on disk and is correct, so this is
+                # reported against the file rather than raised for the batch - but
+                # it is a failure: the caller asked to be able to undo this and
+                # cannot.
+                return _failure(path, MISSING_DEPENDENCY, str(exc))
+            except ValueError as exc:
+                # The passphrase rules. Value-free by construction in
+                # core/mapping.py, which is what makes it safe to forward.
+                return _failure(path, INVALID_REQUEST, str(exc))
+            # The path, unlike in the JSON report: this response goes down a local
+            # pipe to the process that chose the location, and a window that
+            # cannot say where the key went is a window nobody can find it from.
+            key_file = str(key_path)
+            key_warnings = key_map.warnings()
+
         return {
             "path": str(path),
             "ok": True,
             "output": str(destination),
             "removed": len(result.removed),
             "flagged": len(result.reported),
-            "warnings": list(result.warnings),
+            "warnings": [*result.warnings, *key_warnings],
             "hidden_removed": [
                 {"part": item.part, "kind": item.kind, "detail": item.detail}
                 for item in result.hidden_removed
             ],
             "review": _review_payload(result),
-            "report": build_report(result),
+            "key_file": key_file,
+            "report": build_report(result, key_file=key_file is not None),
+        }
+
+    def restore(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Put one document's values back from its key file.
+
+        **One path, not a list.** A key file describes one document, so a batch
+        here would either apply one map to several documents - which is what the
+        per-document scoping in ``Override.for_path`` exists to prevent, one
+        feature over - or need a map per path and stop being one request.
+
+        The passphrase arrives over the pipe. That is the same channel that
+        already carries the extracted document text, going to a child process the
+        caller started; what matters is that no failure below puts it into a
+        response, which is why every error here comes from ``core/mapping.py``
+        rather than being composed near the value.
+        """
+        path = _require_path(params, "path")
+        map_path = _require_path(params, "map")
+        output_dir = _require_path(params, "output_dir", must_exist=False)
+        passphrase = params.get("passphrase")
+        if not isinstance(passphrase, str) or not passphrase:
+            raise RpcError(INVALID_REQUEST, "'passphrase' must be a non-empty string")
+
+        try:
+            key_map = read_key_map(map_path, passphrase)
+        except MissingDependency as exc:
+            raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+        except (BadPassphrase, MalformedMap) as exc:
+            raise RpcError(INVALID_REQUEST, str(exc)) from exc
+
+        restorer = Restorer(key_map=key_map, progress=self.stage_reporter(str(path)))
+        try:
+            result = restorer.restore(path)
+        except UnsupportedFormat as exc:
+            raise RpcError(UNSUPPORTED_FORMAT, str(exc)) from exc
+        except ScannedPdfNotSupported as exc:
+            raise RpcError(NEEDS_OCR, str(exc)) from exc
+        except MissingDependency as exc:
+            raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        destination = output_dir / path.name
+        # Written even when incomplete. The opposite of a leak: a scrub that
+        # failed verification must write nothing because a nearly-clean document
+        # gets sent, while a half-restored one is still the caller's best artifact
+        # and its defect is visible in it. The response says so and the caller
+        # decides.
+        destination.write_bytes(result.output)
+        return {
+            "path": str(path),
+            "ok": result.ok,
+            "output": str(destination),
+            "format": result.format_name,
+            "restored": [
+                {
+                    "placeholder": entry.placeholder,
+                    "entity": entry.entity,
+                    "occurrences": entry.occurrences,
+                    "expected": entry.expected,
+                }
+                for entry in result.restored
+            ],
+            "not_present": list(result.unused),
+            "unknown_placeholders": list(result.unknown),
+            "warnings": list(result.warnings),
+            "problems": [
+                {
+                    "placeholder": problem.placeholder,
+                    "entity": problem.entity,
+                    "kind": problem.kind,
+                }
+                for problem in result.problems
+            ],
+            "report": build_restore_report(result),
         }
 
 
@@ -637,6 +779,38 @@ def _locale_from(params: dict[str, Any]) -> str:
             f"{', '.join(PLACEHOLDER_LOCALES)}",
         )
     return str(locale)
+
+
+def _map_from(params: dict[str, Any], output_dir: Path) -> tuple[Path | None, str]:
+    """Where the key file goes and what opens it, or (None, "") for no key file.
+
+    Validated here rather than at the moment of writing, so a request that cannot
+    produce a key file is refused before any document is read. The two refusals
+    are the ones a caller can act on:
+
+    - a ``map`` with no ``map_passphrase``, because there is no unencrypted form
+      of this file and quietly writing nothing would be worse than saying so;
+    - a ``map`` inside ``output_dir``, which is the accident that actually
+      happens - zipping the output folder and sending the scrubbed document along
+      with the key to undo it. The rule itself lives in ``core/mapping.py`` so
+      the CLI and this layer cannot disagree about it.
+    """
+    raw = params.get("map")
+    if raw is None:
+        return None, ""
+    target = _as_path(raw)
+    passphrase = params.get("map_passphrase")
+    if not isinstance(passphrase, str) or not passphrase:
+        raise RpcError(
+            INVALID_REQUEST,
+            "'map' asks for a key file, so 'map_passphrase' is required: there is "
+            "no unencrypted form of it",
+        )
+    if not bool(params.get("map_in_output_dir")):
+        complaint = refuse_inside(target, output_dir)
+        if complaint:
+            raise RpcError(INVALID_REQUEST, complaint)
+    return target, passphrase
 
 
 def _override_from(params: dict[str, Any]) -> Override:
@@ -760,6 +934,7 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "review_models": session.review_models,
         "inspect": session.inspect,
         "scrub": session.scrub,
+        "restore": session.restore,
     }
 
 

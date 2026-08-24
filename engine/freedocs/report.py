@@ -1,9 +1,18 @@
 """What was removed, and what the tool is not claiming.
 
-The report deliberately does not contain the original values. Writing them to a
-JSON file next to the scrubbed document would undo the whole exercise: it would
-be a re-identification key on disk. Findings are reported by type, count and
-position, never by content.
+The report deliberately does not contain the original values. Findings are
+reported by type, count and position, never by content, and that is unchanged by
+the existence of a key file: the two are different artifacts with different
+rules. A key file is encrypted, is written only where a caller named a path and a
+passphrase, and is the one thing that can undo a scrub. A report is plaintext, is
+written wherever ``--report`` points, and must stay safe to attach to a ticket.
+Putting the values in it would make every report a re-identification key, so it
+notes only *that* a key file exists - never where it is, because a report that
+travels should not carry a pointer to the key.
+
+The restore side is reported by the same rule: :func:`build_restore_report`
+carries placeholders, entity names and counts. A placeholder is a label the
+scrubbed document already published; the value behind it never appears here.
 """
 
 from __future__ import annotations
@@ -12,6 +21,7 @@ from typing import Any
 
 from .core.policy import Action
 from .pipeline import ScrubResult
+from .restore import RestoreResult
 
 #: Stated in every report. Users who believe a tool is perfect stop checking, and
 #: this one has a known, bounded scope.
@@ -57,9 +67,23 @@ CAVEATS = [
     "Review the output before sending it anywhere.",
 ]
 
+#: Appended only to a report for a run that wrote a key file. Its own constant so
+#: the ordinary report is unchanged byte for byte: a caveat about a key file on a
+#: run that has none is a sentence that trains the reader to skip caveats.
+KEY_FILE_CAVEAT = (
+    "A key file was written for this document. It is encrypted, and it is the "
+    "one thing that can put the removed values back - so it is as confidential "
+    "as the original document, and it must never travel with the scrubbed copy."
+)
 
-def build_report(result: ScrubResult) -> dict[str, Any]:
-    """A JSON-serialisable summary containing no confidential values."""
+
+def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, Any]:
+    """A JSON-serialisable summary containing no confidential values.
+
+    ``key_file`` says a key file was written for this document. A boolean and not
+    a path: this file may be attached to a ticket, and where the key lives is the
+    one thing about it worth not writing down here.
+    """
     by_entity: dict[str, dict[str, int]] = {}
     # Which countries an entity type turned up for. One type now stands for many
     # countries, so "3 tax numbers removed" no longer tells the reader whether
@@ -114,7 +138,10 @@ def build_report(result: ScrubResult) -> dict[str, Any]:
                 for leak in result.verify.leaks
             ],
         },
-        "caveats": CAVEATS,
+        # A fact about the run, so it belongs beside the other run facts rather
+        # than only in the prose below.
+        "key_file_written": key_file,
+        "caveats": [*CAVEATS, KEY_FILE_CAVEAT] if key_file else CAVEATS,
     }
 
 
@@ -162,4 +189,103 @@ def format_console(result: ScrubResult) -> str:
         # Printed in full rather than counted: a quasi-identifier is only
         # actionable if you can see which words it is.
         lines.extend(f"    {concern.describe()}" for concern in result.review.concerns)
+    return "\n".join(lines)
+
+
+#: What a restore does not do, stated in its own report for the reason
+#: :data:`CAVEATS` exists: the failures of this direction are quiet too, and the
+#: first three are the expectations most likely to be wrong.
+RESTORE_CAVEATS = [
+    "Restore puts values back. It cannot bring back content that was *removed*: "
+    "thumbnails, metadata, custom XML stores, hidden slides and macro projects "
+    "were deleted rather than replaced, so there is no placeholder to undo.",
+    "One placeholder stood for one value. Where the same value appeared with "
+    "different case or spacing, the first spelling seen in the source document is "
+    "what comes back.",
+    "Placeholders are matched literally. A stem the model translated, a number it "
+    "invented or a token it reformatted is reported and left alone - guessing "
+    "which value a damaged token meant would write somebody else's data into the "
+    "document.",
+    "No detector runs, so a confidential value the model introduced on its own is "
+    "not found here. Scrub the result again if that is a risk.",
+    "Review the output before sending it anywhere.",
+]
+
+
+def build_restore_report(result: RestoreResult) -> dict[str, Any]:
+    """A JSON-serialisable summary of one restore, carrying no original values.
+
+    Placeholders and entity names only. A placeholder is a label the scrubbed
+    document already published to whoever read it, so printing one discloses
+    nothing the recipient did not have; the value behind it is exactly what this
+    file must not hold.
+    """
+    return {
+        "source": result.source.name,
+        "format": result.format_name,
+        "output_characters": result.output_chars,
+        "restored": [
+            {
+                "placeholder": entry.placeholder,
+                "entity": entry.entity,
+                "occurrences": entry.occurrences,
+                # What the scrub replaced. Reported beside the count actually
+                # found so a shortfall reads as "the model dropped text" rather
+                # than as a restore that half worked.
+                "expected": entry.expected,
+            }
+            for entry in result.restored
+        ],
+        "totals": {
+            "values_restored": len(result.restored),
+            "occurrences_restored": sum(entry.occurrences for entry in result.restored),
+            "values_not_present": len(result.unused),
+            "unknown_placeholders": len(result.unknown),
+        },
+        "not_present": list(result.unused),
+        "unknown_placeholders": list(result.unknown),
+        "warnings": list(result.warnings),
+        "verification": {
+            "passed": result.ok,
+            "problems": [
+                {
+                    "placeholder": problem.placeholder,
+                    "entity": problem.entity,
+                    "kind": problem.kind,
+                }
+                for problem in result.problems
+            ],
+        },
+        "caveats": RESTORE_CAVEATS,
+    }
+
+
+def format_restore_console(result: RestoreResult) -> str:
+    """Short human summary, shaped like :func:`format_console`.
+
+    Same shape on purpose: the two directions of one tool should not read as two
+    tools.
+    """
+    lines = [f"{result.source.name}  [{result.format_name}]"]
+    if result.restored:
+        lines.append("  restored:")
+        counts: dict[str, int] = {}
+        for entry in result.restored:
+            counts[entry.entity] = counts.get(entry.entity, 0) + entry.occurrences
+        lines.extend(f"    {entity:<22} {count}" for entity, count in sorted(counts.items()))
+    else:
+        lines.append("  restored: no placeholder from this key file was found")
+
+    # Printed in full rather than counted, both of them: a placeholder is only
+    # actionable if you can see which one it is.
+    if result.unused:
+        lines.append(f"  not in this document: {', '.join(result.unused)}")
+    if result.unknown:
+        lines.append(
+            f"  placeholder-shaped and unknown to this key file: {', '.join(result.unknown)}"
+        )
+
+    lines.extend(f"  warning: {message}" for message in result.warnings)
+    lines.append(f"  verify: {result.summary()}")
+    lines.extend(f"    {problem.describe()}" for problem in result.problems)
     return "\n".join(lines)

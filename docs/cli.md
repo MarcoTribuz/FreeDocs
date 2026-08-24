@@ -59,6 +59,9 @@ uv run freedocs scrub FILE [FILE ...] -o DIR
 | `--review MODEL` | ask a local Ollama model to read the result — see [llm-review.md](llm-review.md) |
 | `--review-host URL` | which Ollama (default `http://127.0.0.1:11434`) |
 | `--review-remote` | permit a host that is not on this machine |
+| `--map PATH` | also write an encrypted key file, so the scrub can be undone — see [restore.md](restore.md) |
+| `--map-passphrase-file PATH` | read the key file's passphrase from the first line of this file |
+| `--map-in-output-dir` | permit the key file inside `--output-dir`; refused by default |
 
 Console output on a `.docx`:
 
@@ -107,6 +110,54 @@ be wrong on eleven.
 failed verification exits non-zero and writes nothing, which is deliberate: a file
 that is nearly clean is more dangerous than one that obviously is not, because it
 gets sent.
+
+**`--map` is the one flag that makes a scrub reversible**, and the only one that
+creates something as confidential as the input. Without it the mapping is destroyed
+at the end of the run and the scrub cannot be undone by anyone, including you. With
+it, one encrypted `<stem>.fdmap` per document is written — and it must not travel
+with the scrubbed copy. There is no `--map-passphrase`: a passphrase on a command
+line is in the shell history and visible through `ps`. Read
+[restore.md](restore.md) before using it.
+
+## `restore` — put the values back
+
+```bash
+uv run freedocs restore FILE [FILE ...] --map KEYFILE -o DIR
+```
+
+| Flag | What it does |
+|---|---|
+| `--map PATH` | required; the key file written by `scrub --map` |
+| `-o, --output-dir DIR` | required; restored copies keep their filename |
+| `--map-passphrase-file PATH` | read the passphrase from the first line of this file |
+| `--report PATH` | machine-readable JSON summary — placeholders and counts, never values |
+
+The file you pass is **whatever came back from the model**, not the document you
+sent: a rewritten paragraph, a summary, an answer pasted into a `.md`. Any
+supported format is read, and the placeholders are found in it.
+
+```console
+$ freedocs restore risposta.md --map keys/offerta.fdmap -o back/
+risposta.md  [plaintext]
+  restored:
+    IBAN                   1
+    PERSON                 5
+  not in this document: [EMAIL_1]
+  placeholder-shaped and unknown to this key file: [PERSONA_1]
+  verify: restored: 6 occurrence(s) of 4 value(s) against 1841 characters of output
+  written: back/risposta.md
+```
+
+Both extra lines matter. `not in this document` is a placeholder the key file knows
+and the returned text does not have — usually text the model dropped, and not a
+failure. `unknown to this key file` is a token that *looks* like ours and is not in
+the map: a stem the model translated, a number it invented. Those are left exactly
+where they are, because guessing which value a damaged token meant would put
+somebody else's data in the document.
+
+Runs no detector and loads no model, so it works the same on a build without the
+`ner` extra. Needs the `restore` extra for the cipher; `freedocs doctor` says
+whether this build has it.
 
 ## `entities`, `countries`, `doctor`
 
@@ -167,6 +218,13 @@ than raising — refused is loud, absent is quiet.
 | 2 | usage error, including an unknown detector spec or country code |
 | 3 | **verification found a surviving value; nothing was written for that file** |
 | 4 | the input cannot be processed correctly and the honest answer is to refuse: unsupported format, a scanned PDF with no OCR available, a missing optional dependency |
+| 5 | **`restore` only: the file was written and something did not make it back** |
 
 Code 3 is the one to wire into a script. It means the tool did the work, checked
 its own output, and refused to hand back a file it could not vouch for.
+
+Code 5 is its mirror and the handling is deliberately opposite: the restored file
+**is** on disk. A scrub that leaks must write nothing, because a nearly-clean
+document gets sent; a half-restored one is your best available artifact and its
+defect is visible in it. Treat 5 as "look at the output", not as "nothing
+happened".

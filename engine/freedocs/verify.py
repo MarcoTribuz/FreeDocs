@@ -9,6 +9,11 @@ obviously is not, because it gets sent.
 This is also why the allocator's mapping is not needed here. Verification works
 from the finding text captured during detection, which the caller holds for the
 duration of the run and discards with everything else.
+
+The reverse direction has its own check in ``restore.py``, and it is not this one
+run backwards. It asks two questions rather than one - is the placeholder gone,
+*and* did the value arrive - because a handler that silently drops a replacement
+satisfies the first and fails the second, and only the pair catches it.
 """
 
 from __future__ import annotations
