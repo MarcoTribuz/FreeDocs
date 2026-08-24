@@ -142,6 +142,8 @@ export interface Messages {
 	resultTitle(): string;
 	removedAndFlagged(a: { removed: number; flagged: number }): string;
 	hiddenRemovedTitle(): string;
+	/** The same list before the scrub, so the preview is not silent about it. */
+	hiddenPendingTitle(): string;
 	nothingWritten(): string;
 
 	// ---- announced, not shown ----------------------------------------------

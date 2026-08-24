@@ -1218,6 +1218,31 @@ def test_a_development_build_still_prints_the_whole_thing(session: Session, caps
     assert "Traceback" in capsys.readouterr().err
 
 
+def test_inspect_reports_the_hidden_content_the_terminal_reports(session: Session, tmp_path: Path):
+    """`freedocs inspect` names the thumbnail, the comments and the tracked
+    changes; `rpc.inspect` did not, so the window's preview was silent about
+    exactly the leak users do not expect and learned of it only after a scrub.
+
+    Both halves are the same read: `Scrubber.read` already calls `scrub_hidden`,
+    so this was a field missing from a payload rather than work not done. The
+    detail is safe to send because it is a description and never a value - which
+    is `HiddenItem`'s own rule, and which is what makes rendering it in a preview
+    reasonable at all.
+    """
+    pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+    from .docx_builder import DocxSpec, write_docx
+
+    # The default spec already carries metadata a scrub drops - a creator, a
+    # template path, a company - which is exactly the class of thing a preview
+    # was staying silent about.
+    path = write_docx(tmp_path / "con-nascosti.docx", DocxSpec(paragraphs=[["Ciao"]]))
+    payload = result_of(session, "inspect", path=str(path))
+
+    kinds = {item["kind"] for item in payload["hidden"]}
+    assert kinds, "the preview must say what would be dropped"
+    assert all(isinstance(item["detail"], str) for item in payload["hidden"])
+
+
 def test_capabilities_says_whether_the_network_is_blocked(session: Session):
     """ "Nothing leaves the machine" is the claim the whole tool rests on, so the
     window should be repeating something it asked rather than something it
