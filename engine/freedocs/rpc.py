@@ -359,7 +359,14 @@ class Session:
         advice the engine cannot know is right — a portable zip is replaced, an
         installer is reinstalled, and which one this is is not a fact in here.
         """
-        checks = run_checks(str(params.get("review_host") or REVIEW_HOST))
+        checks = run_checks(
+            str(params.get("review_host") or REVIEW_HOST),
+            # Off unless asked. Reading 1.2 GB is the difference between a pane
+            # that opens instantly and one that stalls, and the question it
+            # answers - were these bytes altered without the length changing -
+            # is one a person asks deliberately, not on every render.
+            hashes=bool(params.get("hashes")),
+        )
         return {
             "version": engine_version(),
             "ok": all(check.ok for check in checks if check.required),

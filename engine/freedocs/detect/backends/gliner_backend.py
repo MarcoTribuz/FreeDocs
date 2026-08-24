@@ -22,6 +22,7 @@ from pathlib import Path
 
 from ...core.egress import permitted
 from ...core.errors import MissingDependency, ModelNotFound
+from ...core.model_manifest import MANIFEST_NAME, verify
 from ..ner import RawEntity
 
 #: Roughly 1.2 GB, fetched to the Hugging Face cache on first use by an installed
@@ -98,6 +99,42 @@ def model_source() -> str:
     return str(directory)
 
 
+def verify_bundled(model_id: str) -> None:
+    """Refuse a bundled payload that is not the one the build recorded.
+
+    **Hashes, not sizes, and that is the whole point.** A truncated copy fails
+    deep inside ``from_pretrained`` and looks broken, which is bad but loud. A
+    payload whose bytes changed while its length did not loads perfectly and
+    detects *less* — and silently detecting less is this tool's defining failure,
+    the thing every other guard in the codebase exists to prevent. Only a hash
+    sees it. Measured on the real 1.2 GB payload: 0.7 seconds, once, beside a
+    model load that already takes several.
+
+    Here rather than in :func:`model_source` on purpose. That function answers
+    "where are the weights" and is called every time a backend is constructed,
+    which is once per ``Scrubber``; this answers "are they the right weights" and
+    belongs beside the single load it protects.
+
+    Two things are deliberately *not* refused. A repository id is not a directory
+    and the hub checks its own blobs, so the installer route is untouched. And a
+    directory carrying no manifest is left alone: ``FREEDOCS_NER_MODEL`` is also
+    the hook a developer uses to point at a checkout, and a manifest is what a
+    *built* payload carries — its absence means nobody claimed anything about
+    this copy, not that the copy is damaged.
+    """
+    directory = Path(model_id)
+    if not (directory / MANIFEST_NAME).is_file():
+        return
+    problems = verify(directory, repo=DEFAULT_MODEL, hashes=True)
+    if problems:
+        raise ModelNotFound(
+            f"the bundled model at {directory} is not what this build recorded: "
+            + "; ".join(problems)
+            + ". Replace the copy rather than trusting it: a payload that loads "
+            "and is not the one measured detects less, silently."
+        )
+
+
 @dataclass
 class GlinerBackend:
     name: str = "gliner2"
@@ -134,6 +171,9 @@ class GlinerBackend:
         # `HF_HUB_OFFLINE` says otherwise. It lifts the egress block by name
         # rather than the block keeping a list of hosts it trusts - what makes
         # this acceptable is which call it is, not where it goes.
+        # Before the load, not after: the point is to refuse the payload rather
+        # than to notice afterwards that the answers were wrong.
+        verify_bundled(self.model_id)
         with contextlib.redirect_stdout(io.StringIO()), permitted("loading the NER model"):
             return GLiNER2.from_pretrained(self.model_id, map_location="cpu")
 

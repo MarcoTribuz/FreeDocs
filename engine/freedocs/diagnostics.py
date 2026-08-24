@@ -135,7 +135,7 @@ def _extra_check(name: str, module: str, extra: str, *, purpose: str) -> Check:
     )
 
 
-def _weights() -> tuple[bool, str, str | None]:
+def _weights(*, hashes: bool = False) -> tuple[bool, str, str | None]:
     """Whether the weights are usable, how to say where they are, and any fix.
 
     Two shapes, and the difference is worth reporting rather than flattening. An
@@ -145,8 +145,12 @@ def _weights() -> tuple[bool, str, str | None]:
     and that must surface here rather than as a document failing deep inside
     ``from_pretrained``.
 
-    Sizes only, never hashes and never a load: a doctor that read 1.2 GB, or that
-    triggered the download it is reporting on, is a diagnostic nobody runs twice.
+    Sizes by default, never a load: a doctor that triggered the download it is
+    reporting on is a diagnostic nobody runs twice. ``hashes`` asks the expensive
+    question - 0.7 seconds on the real payload - and it is the only one that sees
+    bytes changed without the length changing, which is the failure that loads
+    perfectly and detects less. Off by default and on when asked, because the
+    common case is a person checking whether the build works.
     """
     from .core.model_manifest import verify
     from .detect.backends.gliner_backend import DEFAULT_MODEL, MODEL_ENV
@@ -156,7 +160,7 @@ def _weights() -> tuple[bool, str, str | None]:
         return True, "weights are fetched to the Hugging Face cache on first use", None
 
     directory = Path(configured).expanduser()
-    problems = verify(directory, repo=DEFAULT_MODEL)
+    problems = verify(directory, repo=DEFAULT_MODEL, hashes=hashes)
     if not problems:
         return True, f"weights bundled in {directory}", None
     # The first problem only. They cascade from one cause — a truncated copy
@@ -169,7 +173,7 @@ def _weights() -> tuple[bool, str, str | None]:
     )
 
 
-def _ner_check() -> Check:
+def _ner_check(*, hashes: bool = False) -> Check:
     """The layer and the weights' *presence* — never the weights themselves.
 
     Deliberately does not load the model. The 1.2 GB download happens on first
@@ -186,7 +190,7 @@ def _ner_check() -> Check:
             fix=_sync_fix("ner"),
             required=False,
         )
-    usable, where, fix = _weights()
+    usable, where, fix = _weights(hashes=hashes)
     return Check(
         name="NER layer",
         ok=usable,
@@ -320,8 +324,13 @@ def _sandbox_check() -> Check:
     return Check(name="Process hardening", ok=True, detail=describe(), required=False)
 
 
-def run_checks(review_host: str) -> list[Check]:
-    """Every check, in the order a reader wants them: floor first, extras after."""
+def run_checks(review_host: str, *, hashes: bool = False) -> list[Check]:
+    """Every check, in the order a reader wants them: floor first, extras after.
+
+    ``hashes`` is threaded through rather than decided here: only the weights
+    check has an expensive question to ask, and whether to pay for it belongs to
+    whoever ran the doctor.
+    """
     return [
         _python_check(),
         _extra_check(
@@ -336,7 +345,7 @@ def run_checks(review_host: str) -> list[Check]:
             "ooxml",
             purpose="docx, xlsx and pptx files are refused",
         ),
-        _ner_check(),
+        _ner_check(hashes=hashes),
         _ocr_check(),
         _mapping_check(),
         _layers_check(),

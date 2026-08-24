@@ -248,6 +248,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     doctor.add_argument("--json", action="store_true", help="machine-readable report on stdout")
     doctor.add_argument(
+        "--hashes",
+        action="store_true",
+        help="check the bundled model's weights against their recorded SHA-256, "
+        "not just their length. About a second, and the only check that sees "
+        "bytes altered without the length changing.",
+    )
+    doctor.add_argument(
         "--strict",
         action="store_true",
         help=(
@@ -710,7 +717,10 @@ def _cmd_doctor(args: argparse.Namespace) -> int:
 
     The facts are gathered in :mod:`freedocs.diagnostics`; this only prints them.
     """
-    checks = run_checks(getattr(args, "review_host", None) or DEFAULT_HOST)
+    checks = run_checks(
+        getattr(args, "review_host", None) or DEFAULT_HOST,
+        hashes=bool(getattr(args, "hashes", False)),
+    )
     if args.json:
         print(
             json.dumps(

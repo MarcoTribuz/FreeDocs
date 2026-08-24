@@ -1615,8 +1615,21 @@ environment — which `PATH` always is.
 **A bundled payload can be incomplete in a way a downloaded one cannot** — a full
 disk, a stick pulled mid-write. `core/model_manifest.py` owns the format because
 `packaging/model.py` writes it and `diagnostics._weights()` reads it; sizes on
-every `doctor`, hashes only on request, because hashing 1.2 GB catches only bytes
-that changed without the length changing.
+every `doctor`, hashes on `doctor --hashes` and on every **load**.
+
+The load is the one that matters and it is hashes, not sizes. A truncated copy
+fails deep inside `from_pretrained` and looks broken, which is bad but loud; a
+payload whose bytes changed while its length did not **loads perfectly and detects
+less**, and silently detecting less is this tool's defining failure. Measured: one
+flipped bit in `model.safetensors` leaves `doctor` reporting `ok` and
+`doctor --hashes` reporting the mismatch, and a scrub now refuses before loading.
+0.7 seconds on the real 1.2 GB payload, once, beside a load that already takes
+several. `verify_bundled` sits in `gliner_backend` next to that load rather than in
+`model_source()`, which answers "where are the weights" and runs once per
+`Scrubber`. Two things it does **not** refuse: a repository id, since the hub
+checks its own blobs and the installer route must stay untouched; and a directory
+with no manifest, since `FREEDOCS_NER_MODEL` is also how a developer points at a
+checkout — no manifest means nobody claimed anything, not that the copy is damaged.
 
 **`doctor`'s fixes are `sys.frozen`-aware and become absent, not rewritten.** What
 a packaged user should do about a missing extra depends on which build they have —

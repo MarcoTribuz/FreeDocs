@@ -362,3 +362,54 @@ def test_a_stripped_environment_still_has_a_pathext_answer(monkeypatch, tmp_path
     odd = tmp_path / "tesseract.txt"
     odd.write_text("MZ", encoding="utf-8")
     assert not _is_executable(odd)
+
+
+# --- the payload's integrity, checked where it is used ------------------------
+
+
+def test_a_payload_altered_without_changing_its_length_is_refused(tmp_path: Path):
+    """The one failure a size check cannot see, and the one that matters most.
+
+    A truncated copy fails deep inside `from_pretrained` and looks broken. A
+    payload whose *bytes* changed while its length did not loads perfectly and
+    detects less — and silently detecting less is this tool's defining failure,
+    the thing every other guard here exists to prevent. Sizes cannot see it;
+    only a hash can.
+    """
+    from freedocs.detect.backends.gliner_backend import verify_bundled
+
+    root = write_payload(tmp_path / "ner-model")
+    weights = root / "model.safetensors"
+    original = weights.read_bytes()
+    weights.write_bytes(b"X" + original[1:])
+    assert weights.stat().st_size == len(original), "the test must not change the length"
+
+    with pytest.raises(ModelNotFound, match="SHA-256"):
+        verify_bundled(str(root))
+
+
+def test_an_intact_payload_is_accepted(tmp_path: Path):
+    """The half a wrong check breaks: refusing a good bundle is an outage."""
+    from freedocs.detect.backends.gliner_backend import verify_bundled
+
+    verify_bundled(str(write_payload(tmp_path / "ner-model")))
+
+
+def test_the_hub_route_is_not_hash_checked(tmp_path: Path):
+    """A repository id is not a directory, and the hub already checks its own
+    blobs. Refusing to load because there is no manifest beside a cache entry
+    would break every installer build."""
+    from freedocs.detect.backends.gliner_backend import DEFAULT_MODEL, verify_bundled
+
+    verify_bundled(DEFAULT_MODEL)
+
+
+def test_a_directory_with_no_manifest_is_left_alone(tmp_path: Path):
+    """`FREEDOCS_NER_MODEL` is also the developer's hook for pointing at a
+    checkout. A manifest is what a *built* payload carries, so its absence means
+    "nobody claimed anything about this" rather than "this is damaged"."""
+    from freedocs.detect.backends.gliner_backend import verify_bundled
+
+    root = write_payload(tmp_path / "ner-model")
+    (root / MANIFEST_NAME).unlink()
+    verify_bundled(str(root))
