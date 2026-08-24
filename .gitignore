@@ -11,6 +11,9 @@ venv/
 # one. Not committed: a second copy of a dependency set is a second thing that
 # can be out of date, and this one would be silently wrong rather than loudly.
 .audit-requirements.txt
+# `cargo cyclonedx` writes beside Cargo.toml and `scripts/provenance.py` moves the
+# file into `dist/`. Ignored as a net for the run that fails between those two.
+app/src-tauri/sbom.json
 dist/
 build/
 .pytest_cache/

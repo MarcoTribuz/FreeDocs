@@ -40,7 +40,7 @@ evidence than a green run there was, and is worth saying out loud rather than
 forgetting.
 
     python3 scripts/ci.py check        # the pull-request gate
-    python3 scripts/ci.py build        # the sidecar and the desktop bundle
+    python3 scripts/ci.py build        # the sidecar, the bundle, and its manifest
     python3 scripts/ci.py all
 """
 
@@ -144,6 +144,15 @@ def cargo_audit() -> str | None:
     if found:
         return found
     fallback = Path.home() / ".cargo" / "bin" / "cargo-audit"
+    return str(fallback) if fallback.is_file() else None
+
+
+def cargo_cyclonedx() -> str | None:
+    """Where `cargo cyclonedx` is. Another separate binary, looked for the same way."""
+    found = shutil.which("cargo-cyclonedx")
+    if found:
+        return found
+    fallback = Path.home() / ".cargo" / "bin" / "cargo-cyclonedx"
     return str(fallback) if fallback.is_file() else None
 
 
@@ -351,6 +360,20 @@ def build_steps() -> list[Step]:
             # dies after minutes of bundling. PATH: tauri resolves cargo by name.
             {"CI": "true", **cargo_path_env()},
             skip=None if binary else "cargo is not installed or not on PATH",
+        ),
+        # After the bundle, because it describes what the bundle turned out to
+        # be. The installers are unsigned by decision, so a checksum and a
+        # manifest are what a person downloading one can actually check - and
+        # with no runner to attach them to a release, the artifact and its
+        # manifest have to be made by the same command on the same machine.
+        Step("build: checksums and SBOM", ["python3", "scripts/provenance.py"], ROOT),
+        Step(
+            "build: rust SBOM",
+            ["python3", "scripts/provenance.py", "--rust"],
+            ROOT,
+            skip=None
+            if cargo_cyclonedx()
+            else "cargo-cyclonedx is not installed (cargo install cargo-cyclonedx)",
         ),
     ]
 
