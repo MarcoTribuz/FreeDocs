@@ -382,3 +382,128 @@ def _one_entry_map() -> KeyMap:
             ),
         ),
     )
+
+
+# --- the file's own parameters, which arrive from whoever sent it -------------
+
+
+def _reheader(path: Path, change) -> None:
+    """Rewrite the cleartext header in place, leaving the ciphertext alone.
+
+    Every test below is about a reader that must refuse *before* it does any
+    work, so the ciphertext never needs to be valid for the changed header - and
+    deliberately is not, since a test that also had to re-encrypt would be
+    testing the recipe rather than the guard.
+    """
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    change(envelope)
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        # scrypt's cost is n*r*p and only the first two touch memory, so
+        # SCRYPT_MAXMEM bounded two of the three and nothing bounded p at all.
+        ("p", 2**24),
+        ("n", 2**30),
+        ("r", 2**20),
+        ("p", 0),
+        ("p", -1),
+        ("n", 1.5),
+        ("r", "8"),
+        ("p", True),
+    ],
+)
+def test_a_hostile_work_factor_is_refused_before_any_derivation_runs(
+    tmp_path: Path, monkeypatch, field: str, value: object
+):
+    """A key file is a thing people send each other, and opening one is a
+    passphrase attempt against somebody else's bytes.
+
+    The band is checked rather than the clock, and the derivation is made to
+    explode if it is reached: a timing assertion would be flaky, and "it finished
+    quickly" is a weaker claim than "no work was started". Without the band a
+    declared p of 2**24 grinds inside `hashlib.scrypt` for hours, and the engine
+    is single-threaded with no cancel by design - so that is the whole session,
+    while the Tauri side reports a timeout and the sidecar keeps burning a core.
+    """
+    import hashlib as hashlib_module
+
+    path = tmp_path / ("doc" + MAP_SUFFIX)
+    write_key_map(path, _one_entry_map(), PASSPHRASE)
+    _reheader(path, lambda envelope: envelope["kdf"].__setitem__(field, value))
+
+    def refuse(*args, **kwargs):  # pragma: no cover - reaching this is the failure
+        raise AssertionError(f"the derivation ran with {field}={value!r}")
+
+    monkeypatch.setattr(hashlib_module, "scrypt", refuse)
+    with pytest.raises(MalformedMap):
+        read_key_map(path, PASSPHRASE)
+
+
+def test_the_parameters_this_build_writes_are_inside_its_own_band(tmp_path: Path):
+    """Guards the obvious way to get the band wrong: a ceiling below the default
+    refuses every key file this build has ever written."""
+    path = tmp_path / ("doc" + MAP_SUFFIX)
+    write_key_map(path, _one_entry_map(), PASSPHRASE)
+    assert read_key_map(path, PASSPHRASE).entries
+
+
+def test_a_key_file_too_large_to_be_one_is_refused_before_it_is_read(tmp_path: Path):
+    """`read_text` takes the whole file, and `json.loads` then takes it again.
+
+    A few hundred bytes per entry means the cap is thousands of entries, so
+    nothing this tool writes can reach it - and a hostile file is refused by its
+    size rather than by however much memory the machine happened to have.
+    """
+    from freedocs.core.mapping import MAX_MAP_BYTES
+
+    path = tmp_path / ("doc" + MAP_SUFFIX)
+    path.write_bytes(b"{" + b" " * (MAX_MAP_BYTES + 1))
+    with pytest.raises(MalformedMap, match="bytes"):
+        read_key_map(path, PASSPHRASE)
+
+
+def test_a_count_that_is_not_a_number_is_refused_as_a_key_file_problem(tmp_path: Path):
+    """`int()` on whatever the file said raised a bare ValueError.
+
+    `rpc.handle` renders an unexpected exception as `f"{type(exc).__name__}:
+    {exc}"`, so that reached the caller as a message about Python's parsing
+    rather than about the file - in the one module whose every other failure
+    names the file and nothing else.
+    """
+    import base64
+
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    from freedocs.core.mapping import _aad, _derive
+
+    path = tmp_path / ("doc" + MAP_SUFFIX)
+    write_key_map(path, _one_entry_map(), PASSPHRASE)
+
+    envelope = json.loads(path.read_text(encoding="utf-8"))
+    header = {key: value for key, value in envelope.items() if key != "entries"}
+    payload = json.dumps(
+        {
+            "entries": [
+                {
+                    "placeholder": "[IBAN_1]",
+                    "value": "x",
+                    "entity": "IBAN",
+                    "country": None,
+                    "occurrences": "molte",
+                    "variants": 1,
+                }
+            ]
+        }
+    ).encode("utf-8")
+    salt = base64.b64decode(envelope["kdf"]["salt"])
+    nonce = base64.b64decode(envelope["nonce"])
+    envelope["entries"] = base64.b64encode(
+        AESGCM(_derive(PASSPHRASE, salt)).encrypt(nonce, payload, _aad(header))
+    ).decode("ascii")
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    with pytest.raises(MalformedMap, match="occurrences"):
+        read_key_map(path, PASSPHRASE)

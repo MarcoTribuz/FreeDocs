@@ -74,6 +74,35 @@ SCRYPT_R = 8
 SCRYPT_P = 1
 SCRYPT_MAXMEM = 128 * SCRYPT_N * SCRYPT_R * 2
 
+#: The band a *file's own* KDF parameters must fall in, since a reader derives
+#: the key from what the file declares rather than from the constants above.
+#:
+#: ``SCRYPT_MAXMEM`` already bounded two of the three by accident: scrypt's cost
+#: is n*r*p and only n and r touch memory, so a raised n or r fails inside
+#: ``hashlib.scrypt`` and becomes a clean :class:`MalformedMap`. Nothing bounded
+#: p at all, and a key file declaring ``p = 2**24`` grinds for hours - inside a
+#: single-threaded engine with no cancel, which is the whole session, while the
+#: caller sees a timeout and the process keeps burning a core. A key file is a
+#: thing people send each other, so this is reachable exactly as the feature
+#: intends to be used.
+#:
+#: Read as a time budget, not a taste in parameters. The per-field ceilings are
+#: generous enough that a future version could raise the defaults and a file
+#: written by one would still open; the product is what actually bounds the wait,
+#: and is deliberately checked separately so an absurd single value is named as
+#: itself.
+MAX_SCRYPT_N = 1 << 20
+MAX_SCRYPT_R = 64
+MAX_SCRYPT_P = 16
+MAX_SCRYPT_WORK = 16 * SCRYPT_N * SCRYPT_R * SCRYPT_P
+
+#: Refused above this, checked before the file is read rather than after.
+#: ``read_text`` takes the whole file into memory and ``json.loads`` then takes
+#: it again, so the size is the cheapest thing to refuse on. An entry is a few
+#: hundred bytes, which puts this at thousands of them: nothing this tool writes
+#: can reach it, and a file that does is not a key file.
+MAX_MAP_BYTES = 8 * 1024 * 1024
+
 SALT_BYTES = 16
 #: AES-GCM's standard nonce length. Random per file, never reused: the key is
 #: derived per file from a fresh salt, so even an identical passphrase and
@@ -301,6 +330,45 @@ def _unb64(value: object, field: str) -> bytes:
         raise MalformedMap(f"{field!r} is not valid base64") from exc
 
 
+def _work_factor(kdf: dict[str, Any], name: str) -> tuple[int, int, int]:
+    """The file's own scrypt parameters, refused unless they are in the band.
+
+    Refused *before* any derivation runs, which is the whole point: a ceiling
+    enforced by ``hashlib.scrypt`` failing is a ceiling on memory, and the
+    parameter that costs only time had none. Every rejection is a
+    :class:`MalformedMap` naming the field and the band, because the caller's
+    only useful move is to distrust the file.
+
+    ``bool`` is excluded explicitly: ``isinstance(True, int)`` is true, so a
+    ``"p": true`` would otherwise derive with p=1 and be treated as a valid file.
+    A JSON float - ``1e9``, or 1.5 - is refused for what it is rather than
+    silently truncated.
+    """
+    read: dict[str, int] = {}
+    for field, default, ceiling in (
+        ("n", SCRYPT_N, MAX_SCRYPT_N),
+        ("r", SCRYPT_R, MAX_SCRYPT_R),
+        ("p", SCRYPT_P, MAX_SCRYPT_P),
+    ):
+        raw = kdf.get(field, default)
+        if isinstance(raw, bool) or not isinstance(raw, int):
+            raise MalformedMap(f"{name} declares a scrypt {field} that is not a whole number")
+        if not 1 <= raw <= ceiling:
+            raise MalformedMap(
+                f"{name} declares scrypt {field}={raw}; this build reads 1 to {ceiling}"
+            )
+        read[field] = raw
+
+    work = read["n"] * read["r"] * read["p"]
+    if work > MAX_SCRYPT_WORK:
+        raise MalformedMap(
+            f"{name} asks for {work // (SCRYPT_N * SCRYPT_R * SCRYPT_P)} times the key "
+            "derivation work this build does; each parameter is in range but their "
+            "product is not"
+        )
+    return read["n"], read["r"], read["p"]
+
+
 def _header(key_map: KeyMap, salt: bytes, nonce: bytes) -> dict[str, Any]:
     """The cleartext half, which is also the AEAD associated data.
 
@@ -394,6 +462,12 @@ def read_key_map(path: Path, passphrase: str) -> KeyMap:
     aesgcm = _require_cryptography()
 
     try:
+        size = path.stat().st_size
+        if size > MAX_MAP_BYTES:
+            raise MalformedMap(
+                f"{path.name} is {size} bytes; this build reads a key file of up to "
+                f"{MAX_MAP_BYTES} bytes, which is thousands of entries"
+            )
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise MalformedMap(f"cannot read {path.name}: {exc.strerror or 'unreadable'}") from exc
@@ -427,14 +501,18 @@ def read_key_map(path: Path, passphrase: str) -> KeyMap:
     # written with different scrypt parameters still opens. The AAD is then
     # whatever the file says, which is exactly what binds the two halves.
     header = {key: value for key, value in envelope.items() if key != "entries"}
+    n, r, p = _work_factor(kdf, path.name)
     try:
         key = hashlib.scrypt(
             passphrase.encode("utf-8"),
             salt=salt,
-            n=int(kdf.get("n", SCRYPT_N)),
-            r=int(kdf.get("r", SCRYPT_R)),
-            p=int(kdf.get("p", SCRYPT_P)),
+            n=n,
+            r=r,
+            p=p,
             dklen=KEY_BYTES,
+            # Kept as a second, independent ceiling. The band above bounds the
+            # wait; this bounds the allocation, and a power-of-two n inside the
+            # band can still ask for more memory than this build will give it.
             maxmem=SCRYPT_MAXMEM,
         )
     except (TypeError, ValueError) as exc:
@@ -496,8 +574,8 @@ def _parse_payload(
                 value=value,
                 entity=entity,
                 country=row.get("country") if isinstance(row.get("country"), str) else None,
-                occurrences=int(row.get("occurrences") or 0),
-                variants=int(row.get("variants") or 1),
+                occurrences=_count(row, "occurrences", 0, name),
+                variants=_count(row, "variants", 1, name),
             )
         )
 
@@ -509,6 +587,23 @@ def _parse_payload(
         placeholder_language=language if isinstance(language, str) else "en",
         entries=tuple(entries),
     )
+
+
+def _count(row: dict[str, Any], field: str, default: int, name: str) -> int:
+    """One entry's count, refused as a key-file problem rather than a traceback.
+
+    ``int(row.get(field) or default)`` raised a bare ``ValueError`` on anything
+    non-numeric, and ``rpc.handle`` renders an unexpected exception as
+    ``f"{type(exc).__name__}: {exc}"`` - so the caller got a message about
+    Python's integer parsing, in the one module whose every other failure names
+    the file and nothing else.
+    """
+    raw = row.get(field)
+    if raw is None:
+        return default
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw < 0:
+        raise MalformedMap(f"{name} has an entry whose {field!r} is not a count")
+    return raw
 
 
 def map_path_for(target: Path, source: Path) -> Path:
