@@ -27,3 +27,16 @@ class ModelNotFound(RuntimeError):
     nobody named — and on a machine that does have a network, as a silent 1.2 GB
     download that defeats the point of bundling the weights.
     """
+
+
+class OutputRefused(OSError):
+    """An output path is not something this engine will write to.
+
+    Here rather than in ``core/outputs.py`` for that module's own reason: both
+    adapters catch it, and a caller catching one module's private copy is how the
+    CLI came to report "unsupported format" for an uninstalled package.
+
+    The case it exists for is a symbolic link where an output file belongs, which
+    ``write_bytes`` would have followed. Refused rather than followed, and named
+    so the caller can say which file rather than printing a traceback.
+    """

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from itertools import pairwise
 from pathlib import Path
 
@@ -1119,6 +1120,37 @@ def test_capabilities_publishes_whether_a_key_file_is_possible(session: Session)
     # A separate list from `caveats`: a restore's limits are not a scrub's, and one
     # merged list would show a reader of either screen sentences that do not apply.
     assert caps["restore_caveats"] and caps["restore_caveats"] != caps["caveats"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not meaningful here")
+def test_the_restored_document_is_owner_only_over_the_pipe_too(
+    session: Session, document: Path, tmp_path: Path
+):
+    """The pipe's half of the rule `core/outputs.py` holds.
+
+    Asserted on both adapters deliberately: they are two adapters over one
+    engine, and `15ee0e1` was an entire commit about the same thing being missing
+    on the untested side.
+    """
+    out_dir, keys, back = tmp_path / "out", tmp_path / "keys", tmp_path / "back"
+    result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(out_dir),
+        map=str(keys),
+        map_passphrase=PASSPHRASE,
+    )
+    restored = result_of(
+        session,
+        "restore",
+        path=str(out_dir / document.name),
+        map=str(keys / (document.stem + ".fdmap")),
+        passphrase=PASSPHRASE,
+        output_dir=str(back),
+    )
+    assert Path(restored["output"]).stat().st_mode & 0o777 == 0o600
+    assert back.stat().st_mode & 0o777 == 0o700
 
 
 def test_capabilities_publishes_the_passphrase_floor(session: Session):

@@ -632,6 +632,30 @@ has to act on.
 cannot reach either channel. Both assert the second half too: the warning must
 still say what the sheet is called now, since deleting it would also have passed.
 
+**Who may read an output is decided by what is in it, and one module decides.**
+`core/outputs.py` answers both halves. A file from which the document could be
+reconstructed is owner-only — the key file, a restored document, and the report,
+which carries no values since `build_report` was audited but does carry where each
+one was and what the source was called. A file this tool exists to hand to
+somebody else is left to the umask, and the scrubbed copy is the only one of
+those: narrowing it would tighten the handoff the tool is for, and stage 6 has
+already searched it for every value that was meant to be gone. The rule is *what
+the file contains*, not which command produced it — the bug was a key file at
+`0o600` beside a restored document, holding the same values in the clear, at
+whatever the umask said.
+
+Every output also goes through `O_NOFOLLOW`, because `write_bytes` after
+`mkdir(exist_ok=True)` follows a symlink and a shared or predictable output
+directory is where a pre-planted one waits. `O_EXCL` was **rejected**: re-running
+a scrub into the same output directory is ordinary use, and turning that into a
+refusal buys nothing the symlink guard does not. A refused path is
+`OutputRefused` → `EXIT_USAGE` / `OUTPUT_REFUSED`, per file — the document was
+fine and the path was not. `write_key_map` was folded onto the same writer rather
+than keeping its own `os.open`; its comments are what the module was built from,
+and a restored document needed every one of them. **On Windows this protects the
+path and not the mode**: `O_NOFOLLOW` does not exist there and `os.open`'s mode
+argument controls only the read-only attribute.
+
 **Verification fails loudly.** Stage 6 re-opens the output, re-extracts it
 (hidden parts included) and searches for every value that was supposed to be
 gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing.

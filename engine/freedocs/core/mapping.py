@@ -39,7 +39,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import os
 import secrets
 from dataclasses import dataclass
 from pathlib import Path
@@ -47,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 
 from .errors import MissingDependency
 from .findings import EntityType
+from .outputs import private_directory, write_private
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: pipeline imports core, not vice versa
     from ..pipeline import ScrubResult
@@ -439,17 +439,16 @@ def write_key_map(path: Path, key_map: KeyMap, passphrase: str) -> None:
     sealed = aesgcm(_derive(passphrase, salt)).encrypt(nonce, payload, _aad(header))
     envelope = {**header, "entries": _b64(sealed)}
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # Opened with an explicit mode rather than written and then chmod'ed: between
-    # those two calls the key sits on disk world-readable.
-    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-        json.dump(envelope, handle, indent=2, sort_keys=True, ensure_ascii=False)
-        handle.write("\n")
-    # An existing file keeps its old mode through O_CREAT, so this is the case
-    # where writing over yesterday's key file would otherwise keep yesterday's
-    # permissions.
-    os.chmod(path, 0o600)
+    private_directory(path.parent)
+    # Through `core/outputs.py` rather than a second `os.open` here. This
+    # function's own comments are what that module was built from - the explicit
+    # mode rather than a write-then-chmod, and the chmod anyway because O_CREAT
+    # leaves an existing file's mode alone - and a restored document turned out to
+    # need every one of them.
+    write_private(
+        path,
+        (json.dumps(envelope, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"),
+    )
 
 
 def read_key_map(path: Path, passphrase: str) -> KeyMap:
