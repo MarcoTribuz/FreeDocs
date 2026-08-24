@@ -204,6 +204,27 @@
 		</div>
 	</div>
 
+	{#if inspection.hidden?.length}
+		<!-- The leak users do not expect, said before the scrub rather than after.
+		     The terminal has named these since `15ee0e1` and this screen did not,
+		     so the only place to learn that a thumbnail or a comment was going was
+		     the result page — after the decision had been made.
+
+		     `lang="en"` on the list: `kind` is a closed vocabulary and `detail` is
+		     an engine f-string, and the window's rule is that enum-shaped things
+		     get real words while sentences are quoted. Neither is a value, which
+		     is the engine's own contract for this type and what makes showing it
+		     here reasonable at all. -->
+		<Card padding="tight">
+			<h4>{m.hiddenPendingTitle()}</h4>
+			<ul class="hidden-list" lang="en">
+				{#each inspection.hidden as item (item.part + item.kind + item.detail)}
+					<li><span class="mono">{item.part}</span> — {item.kind}: {item.detail}</li>
+				{/each}
+			</ul>
+		</Card>
+	{/if}
+
 	{#if inspection.warnings.length}
 		<Callout tone="warn" verbatim>
 			{#each inspection.warnings as warning (warning)}<p>{warning}</p>{/each}
@@ -214,6 +235,20 @@
 {/if}
 
 <style>
+	.hidden-list {
+		list-style: none;
+		margin: var(--space-2) 0 0;
+		padding: 0;
+		display: grid;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-2);
+	}
+
+	.hidden-list li {
+		line-height: 1.5;
+	}
+
 	.head {
 		display: flex;
 		align-items: flex-start;

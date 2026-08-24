@@ -480,6 +480,19 @@ class Session:
             # preview taken with all thirteen, and the difference is the whole
             # point of the option.
             "warnings": inspection.warnings,
+            # What would be dropped that is not text. `freedocs inspect` has
+            # named the thumbnail, the comments and the tracked changes since
+            # `15ee0e1`; this payload did not, so the window's preview was silent
+            # about the leak users do not expect and learned of it only after a
+            # scrub. The same read produced both - `Scrubber.read` already calls
+            # `scrub_hidden` - so this was a missing field rather than missing
+            # work. `detail` is a description and never a value, which is what
+            # makes it safe to render on a screen and, one channel over, safe to
+            # write to a report.
+            "hidden": [
+                {"part": item.part, "kind": item.kind, "detail": item.detail}
+                for item in extraction.hidden
+            ],
             "findings": [
                 {
                     "start": finding.span.start,

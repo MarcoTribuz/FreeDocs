@@ -119,6 +119,7 @@ export const it = {
 		return `${gone}, ${seen}.`;
 	},
 	hiddenRemovedTitle: () => 'Contenuto nascosto rimosso',
+	hiddenPendingTitle: () => 'Contenuto nascosto che verrà rimosso',
 	nothingWritten: () => 'Non è stato scritto nulla.',
 
 	announceValuesFound: ({ file, count }) =>

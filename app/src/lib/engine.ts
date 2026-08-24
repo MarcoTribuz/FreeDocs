@@ -146,6 +146,16 @@ export interface Inspection {
 	/** The whole document's length, even when the preview below is truncated. */
 	characters: number;
 	warnings: string[];
+	/**
+	 * What would be dropped that is not text: metadata, a thumbnail, comments,
+	 * tracked changes, a hidden sheet.
+	 *
+	 * The leak users do not expect, and the preview used to be silent about it —
+	 * the terminal named it and the window learned of it only after a scrub. Each
+	 * `detail` is a description and never a value, which is the engine's own rule
+	 * for this type.
+	 */
+	hidden: HiddenItem[];
 	findings: Finding[];
 	/**
 	 * The extracted text, present only when `includeText` was asked for.

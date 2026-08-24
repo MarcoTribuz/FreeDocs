@@ -121,6 +121,7 @@ export const en = {
 		return `${gone}, ${seen}.`;
 	},
 	hiddenRemovedTitle: () => 'Hidden content removed',
+	hiddenPendingTitle: () => 'Hidden content that will be removed',
 	nothingWritten: () => 'Nothing was written.',
 
 	announceValuesFound: ({ file, count }) =>

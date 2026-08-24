@@ -120,6 +120,7 @@ export const de = {
 		return `${gone}, ${seen}.`;
 	},
 	hiddenRemovedTitle: () => 'Entfernte versteckte Inhalte',
+	hiddenPendingTitle: () => 'Versteckte Inhalte, die entfernt werden',
 	nothingWritten: () => 'Es wurde nichts geschrieben.',
 
 	announceValuesFound: ({ file, count }) =>

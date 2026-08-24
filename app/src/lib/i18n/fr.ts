@@ -125,6 +125,7 @@ export const fr = {
 		return `${gone}, ${seen}.`;
 	},
 	hiddenRemovedTitle: () => 'Contenu caché supprimé',
+	hiddenPendingTitle: () => 'Contenu caché qui sera supprimé',
 	nothingWritten: () => "Rien n'a été écrit.",
 
 	announceValuesFound: ({ file, count }) =>
