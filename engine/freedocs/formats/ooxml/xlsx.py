@@ -265,8 +265,14 @@ class XlsxHandler(FormatHandler):
     # -- write-back ------------------------------------------------------------
 
     def write_back(self, edits: list[AnchorEdit]) -> bytes:
-        renamed = self._renamed_entities(edits)
+        # Read before the edits land and reported after them, because the useful
+        # half of "this was renamed" is what it is called *now* - see
+        # _renamed_entities for why that is also the only half that may be said.
+        anchored = {
+            edit.anchor.locator.read(): edit.anchor.locator for edit in edits if _is_attribute(edit)
+        }
         apply_ooxml_edits(self.package, edits)
+        renamed = self._renamed_entities(anchored)
         if renamed:
             # Excel stores a cross-sheet reference as the sheet's *name*
             # ('Clienti'!A1), and a structured reference as the table's name, so
@@ -282,7 +288,27 @@ class XlsxHandler(FormatHandler):
             )
         return self.package.to_bytes()
 
-    def _renamed_entities(self, edits: list[AnchorEdit]) -> set[str]:
-        """Which named entities an edit actually touches."""
-        touched = {edit.anchor.locator.read() for edit in edits if _is_attribute(edit)}
-        return {f"{kind} {name!r}" for kind, name in self._named_entities if name in touched}
+    def _renamed_entities(self, anchored: dict[str, AttributeLocator]) -> set[str]:
+        """What each renamed entity is called now, never what it was called before.
+
+        This string reaches ``ScrubResult.warnings`` and from there
+        ``build_report``, which is written to disk - so the old name must not be
+        in it. A sheet called ``Clienti-Rossi`` is exactly the identifying value
+        the rename existed to remove, and naming it in the report next to the
+        scrubbed workbook would undo the removal for anyone reading either.
+
+        The new name is safe for the same reason ``build_restore_report`` prints
+        placeholders: it is a label the scrubbed workbook already publishes to
+        whoever opens it. It is also the more actionable half, because it is what
+        a formula that broke now refers to.
+
+        ``anchored`` maps each edited attribute's original value to its locator,
+        captured before the edits were applied; the locator now reads the new
+        value. Comparing the two is what makes this report only the attributes
+        that actually changed, rather than every attribute an edit touched.
+        """
+        return {
+            f"{kind} {anchored[name].read()!r}"
+            for kind, name in self._named_entities
+            if name in anchored and anchored[name].read() != name
+        }

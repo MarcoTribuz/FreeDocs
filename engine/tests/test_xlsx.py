@@ -348,13 +348,20 @@ def test_hidden_content_is_inventoried(loaded: Path):
     } <= kinds
 
 
-def test_a_very_hidden_sheet_is_named_in_the_report(loaded: Path):
+def test_a_very_hidden_sheet_is_located_in_the_report(loaded: Path):
+    """Located, not named: the detail reaches disk. See `HiddenItem`.
+
+    The state is the actionable half - "very hidden" cannot be undone from the
+    Excel UI at all - and the position is what finds the sheet in the output,
+    where its redacted name is visible anyway.
+    """
     items = [
         item
         for item in l1_scrubber().scrub_file(loaded).hidden_removed
         if item.kind == "hidden-sheet"
     ]
     assert items and "very hidden" in items[0].detail
+    assert "Sorgente" not in items[0].detail
 
 
 def test_hidden_sheets_are_reported_but_kept(loaded: Path):

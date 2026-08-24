@@ -549,7 +549,11 @@ class PdfTextHandler(FormatHandler):
                 HiddenItem(
                     part="document",
                     kind="embedded-files",
-                    detail=f"{len(embedded)} file(s): {', '.join(embedded)}",
+                    # The count, never the names. An attachment is routinely called
+                    # after the person or the case it concerns, and this reaches
+                    # `build_report`, which is written to disk beside the scrubbed
+                    # document.
+                    detail=f"{len(embedded)} file(s) attached to the document",
                 )
             )
 
