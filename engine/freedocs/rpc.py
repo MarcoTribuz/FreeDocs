@@ -37,6 +37,7 @@ from typing import Any, TextIO
 from .core.errors import MissingDependency, ModelNotFound
 from .core.findings import EntityType
 from .core.mapping import (
+    MIN_PASSPHRASE,
     BadPassphrase,
     MalformedMap,
     key_map_from,
@@ -280,6 +281,14 @@ class Session:
             # prevent, one feature over.
             "mapping_available": mapping_unavailable_reason() is None,
             "mapping_unavailable_reason": mapping_unavailable_reason(),
+            # The passphrase floor, published for the same reason as the two
+            # `max_characters` above: the window needs it to disable a button
+            # before the request, and a copy of it in the window is a rule the
+            # window is holding. It had one - raising the floor here left the
+            # window still accepting eight characters, the engine refusing inside
+            # the `scrub` request, and the failure landing after the scrubbed
+            # copies were written.
+            "passphrase_min_characters": MIN_PASSPHRASE,
             # Whether the model travels with this build or is fetched on first
             # use. Sent because the window cannot work it out: it is a property
             # of how the app was packaged, and a portable copy that says

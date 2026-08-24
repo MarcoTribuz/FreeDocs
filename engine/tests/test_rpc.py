@@ -1121,6 +1121,21 @@ def test_capabilities_publishes_whether_a_key_file_is_possible(session: Session)
     assert caps["restore_caveats"] and caps["restore_caveats"] != caps["caveats"]
 
 
+def test_capabilities_publishes_the_passphrase_floor(session: Session):
+    """The window held this as its own constant, which is the one rule it had.
+
+    Raise the floor in `core/mapping.py` and the window went on accepting eight
+    characters: the engine refused inside the `scrub` request and the failure
+    landed after the scrubbed copies were written. Asserted against the module's
+    own constant rather than against 8, so the two cannot drift apart in the way
+    this test exists to stop.
+    """
+    from freedocs.core.mapping import MIN_PASSPHRASE
+
+    caps = result_of(session, "capabilities")
+    assert caps["passphrase_min_characters"] == MIN_PASSPHRASE
+
+
 def test_scrub_without_map_reports_no_key_file(session: Session, document: Path, tmp_path: Path):
     result = result_of(session, "scrub", paths=[str(document)], output_dir=str(tmp_path / "out"))[
         "results"

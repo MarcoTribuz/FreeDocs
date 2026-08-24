@@ -75,6 +75,16 @@ export interface Capabilities {
 	mapping_available: boolean;
 	mapping_unavailable_reason: string | null;
 	/**
+	 * The shortest passphrase the engine will accept for a key file.
+	 *
+	 * Read from here rather than declared in the window. It was a `const` in
+	 * `app.svelte.ts`, which is the one rule this window held: raise the floor in
+	 * `core/mapping.py` and the window went on accepting eight characters, the
+	 * engine refused inside the `scrub` request, and the failure arrived after the
+	 * scrubbed copies were on disk.
+	 */
+	passphrase_min_characters: number;
+	/**
 	 * What a *restore* does not do. A separate list from `caveats`: a restore's
 	 * limits are not a scrub's, and one merged list would show a reader of either
 	 * screen sentences that do not apply to what they are looking at.

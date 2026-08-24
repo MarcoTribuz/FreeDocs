@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {
-		MIN_PASSPHRASE,
 		keyFileAvailable,
 		keyFileBlocker,
+		passphraseMinimum,
 		pickKeyDirectory,
 		session
 	} from '$lib/app.svelte';
@@ -33,7 +33,7 @@
 	const blocker = $derived(keyFileBlocker());
 	const passphraseError = $derived(
 		blocker === 'passphrase'
-			? m.keyFileNeedsPassphrase({ min: MIN_PASSPHRASE })
+			? m.keyFileNeedsPassphrase({ min: passphraseMinimum() })
 			: blocker === 'mismatch'
 				? m.keyFileMismatch()
 				: undefined
