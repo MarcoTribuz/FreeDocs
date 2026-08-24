@@ -15,6 +15,10 @@ with correct check digits, belonging to nobody.
 Expect an acknowledgement within a week. This is a small project with one
 maintainer, so a fix may take longer than that; you will be told which it is.
 
+A source review of the whole project, with every finding, what was done about it
+and what is deliberately still open, is in
+[docs/security-review.md](docs/security-review.md).
+
 ## The threat model
 
 FreeDocs exists because a document has to be handed to a language model and its

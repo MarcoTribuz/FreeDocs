@@ -18,6 +18,7 @@ measurement that disagrees with itself after the next benchmark run.
 | [portable.md](portable.md) | The unzip-and-run bundle: why it needs no writable state, and what does not travel with it |
 | [restore.md](restore.md) | The reverse path: the opt-in encrypted key file, and putting the values back into what the model returned |
 | [llm-review.md](llm-review.md) | The opt-in second opinion over already-anonymised text |
+| [security-review.md](security-review.md) | A source review of the whole project: sixteen findings, what was done about each, and what is deliberately still open |
 
 Contributing is covered in [CONTRIBUTING.md](../CONTRIBUTING.md); the threat
 model and how to report a vulnerability are in [SECURITY.md](../SECURITY.md).
