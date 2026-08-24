@@ -75,6 +75,19 @@ OCR the first scan could not deliver. One `ocr_unavailable_reason()` decides, so
 the capability and the refusal cannot disagree, and the refusal names which half
 is missing.
 
+**The binary is looked for in the usual install locations, not only on `PATH`.**
+`PATH` is a property of how the process was started, not of what is installed: a
+macOS `.app` opened from Finder inherits launchd's environment, so its `PATH` is
+`/usr/bin:/bin:/usr/sbin:/sbin` and a Homebrew Tesseract at `/opt/homebrew/bin`
+cannot be on it whatever the user installs next. The bundle reported OCR
+unavailable on a machine where `brew install tesseract` had already succeeded,
+while the language-data half resolved fine — because `_SYSTEM_TESSDATA` was
+already a list of locations and the binary half was `shutil.which` alone.
+`_SYSTEM_BINARIES` is the matching list, tried after `FREEDOCS_TESSERACT` and
+after `PATH` so that a build somebody chose still wins. A binary found off `PATH`
+has its directory prepended to `PATH`, because PyMuPDF resolves the executable by
+name and takes no argument for it.
+
 Check what this machine can actually do:
 
 ```bash

@@ -43,6 +43,29 @@ def write_payload(root: Path, *, repo: str = DEFAULT_MODEL) -> Path:
     return root
 
 
+def hide_system_binaries(monkeypatch) -> None:
+    """Pretend no package manager has installed Tesseract.
+
+    `_SYSTEM_BINARIES` names real paths, so on any developer machine with
+    Homebrew's Tesseract the fallback answers and a test asserting the absent case
+    would be measuring this machine rather than the code. Emptying it is also how
+    the tests below separate the three tiers from each other.
+    """
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+
+
+def executable(path: Path) -> Path:
+    """A file the platform running the tests agrees is runnable."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n", encoding="utf-8")
+    path.chmod(0o755)
+    return path
+
+
+def binary_name() -> str:
+    return "tesseract.exe" if sys.platform == "win32" else "tesseract"
+
+
 # -- where the model comes from ------------------------------------------------
 
 
@@ -149,6 +172,7 @@ def test_the_tesseract_override_is_validated_not_trusted(monkeypatch, tmp_path):
     override that bypassed it would report OCR available and then fail on the
     first scan.
     """
+    hide_system_binaries(monkeypatch)
     monkeypatch.setenv("FREEDOCS_TESSERACT", str(tmp_path / "nowhere" / "tesseract"))
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert tesseract_binary() is None
@@ -165,6 +189,7 @@ def test_a_file_that_is_not_executable_does_not_count(monkeypatch, tmp_path):
     Asserting the POSIX case on Windows is what made this pass locally and fail
     in CI.
     """
+    hide_system_binaries(monkeypatch)
     if sys.platform == "win32":
         fake = tmp_path / "tesseract.txt"
         fake.write_text("not a program", encoding="utf-8")
@@ -185,14 +210,100 @@ def test_an_executable_override_is_adopted_and_put_on_path(monkeypatch, tmp_path
     data and none for the binary. So an override that only satisfied
     `tesseract_binary` would report OCR available and still fail.
     """
-    binary = tmp_path / "bin" / ("tesseract.exe" if sys.platform == "win32" else "tesseract")
-    binary.parent.mkdir()
-    binary.write_text("#!/bin/sh\n", encoding="utf-8")
-    binary.chmod(0o755)
+    binary = executable(tmp_path / "bin" / binary_name())
     monkeypatch.setenv("FREEDOCS_TESSERACT", str(binary))
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert tesseract_binary() == str(binary)
     assert str(binary.parent) in os.environ["PATH"].split(os.pathsep)
+
+
+# -- the launch context, which is what actually varies ------------------------
+
+
+def test_a_package_manager_install_is_found_when_path_cannot_see_it(monkeypatch, tmp_path):
+    """The reported regression, and it is about how the process was started.
+
+    A macOS `.app` opened from Finder inherits launchd's environment, so `PATH` is
+    `/usr/bin:/bin:/usr/sbin:/sbin` — `/opt/homebrew/bin` is not on it and cannot
+    be. The bundle therefore reported no Tesseract on a machine where `brew
+    install tesseract` had already succeeded, while the language-data half
+    resolved fine because `_SYSTEM_TESSDATA` was already a list of locations.
+    """
+    binary = executable(tmp_path / "opt" / "homebrew" / "bin" / binary_name())
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(binary),))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() == str(binary)
+
+
+def test_a_binary_found_off_path_is_put_on_path(monkeypatch, tmp_path):
+    """Same requirement as the override, and the reason the two share `_adopt`.
+
+    PyMuPDF resolves `tesseract` through `PATH` and takes no argument for it. A
+    fallback that reported the path without the side effect would make
+    `capabilities` promise OCR and the first scan fail inside Tesseract — the
+    bug the fallback exists to fix, moved one step later.
+    """
+    binary = executable(tmp_path / "opt" / "homebrew" / "bin" / binary_name())
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(binary),))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() == str(binary)
+    assert str(binary.parent) in os.environ["PATH"].split(os.pathsep)
+
+
+def test_the_override_still_wins_over_an_installed_one(monkeypatch, tmp_path):
+    """A caller who named a binary gets that binary, not whatever is installed."""
+    chosen = executable(tmp_path / "chosen" / binary_name())
+    installed = executable(tmp_path / "installed" / binary_name())
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(installed),))
+    monkeypatch.setenv("FREEDOCS_TESSERACT", str(chosen))
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() == str(chosen)
+
+
+def test_path_still_wins_over_an_installed_one(monkeypatch, tmp_path):
+    """The list is a last resort.
+
+    Someone who put a chosen build on `PATH` has said which one they want just as
+    clearly as the override does, so the fallback must not overrule it.
+    """
+    on_path = executable(tmp_path / "on-path" / binary_name())
+    installed = executable(tmp_path / "installed" / binary_name())
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(installed),))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setattr("freedocs.formats.pdf.shutil.which", lambda _: str(on_path))
+    assert tesseract_binary() == str(on_path)
+
+
+def test_the_installed_locations_are_tried_in_order(monkeypatch, tmp_path):
+    """First hit wins, so Apple-silicon Homebrew beats a MacPorts leftover."""
+    first = executable(tmp_path / "homebrew" / binary_name())
+    second = executable(tmp_path / "macports" / binary_name())
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(first), str(second)))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() == str(first)
+
+
+def test_an_unrunnable_file_in_an_installed_location_is_not_adopted(monkeypatch, tmp_path):
+    """The list is checked, not trusted — same standard as the override.
+
+    A directory left behind by an uninstall can hold a file of the right name.
+    Adopting it would put the capability and the refusal back in disagreement,
+    which is the one thing this module must not do.
+    """
+    fake = tmp_path / "leftover" / ("tesseract.txt" if sys.platform == "win32" else "tesseract")
+    fake.parent.mkdir(parents=True)
+    fake.write_text("not a program", encoding="utf-8")
+    if sys.platform != "win32":
+        fake.chmod(0o644)
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(fake),))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() is None
+    reason = ocr_unavailable_reason()
+    assert reason is not None and "executable" in reason
 
 
 def test_the_pyinstaller_data_directory_is_a_tessdata_candidate(monkeypatch, tmp_path):
