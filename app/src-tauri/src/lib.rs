@@ -10,6 +10,28 @@ use engine::Engine;
 use serde_json::Value;
 use tauri::{Manager, State};
 
+/// A note on `capabilities/default.json`, which is a JSON file and cannot hold
+/// one.
+///
+/// The two plugins are narrowed to the single command each is used for:
+/// `dialog:allow-open` and `opener:allow-reveal-item-in-dir`, replacing the
+/// `default` sets that also carried `save`, `ask`, `confirm`, `message`,
+/// `open-url` and `open-path`. Free, and checkable — the build fails on a
+/// permission name that does not exist.
+///
+/// `core:default` is deliberately left whole, and the reason is worth stating so
+/// nobody narrows it for the look of the thing. What it would defend against is
+/// injected JavaScript after a webview compromise — and such JavaScript can
+/// already call `engine_request` below, which forwards an arbitrary method and
+/// arbitrary params to a process that trusts its caller by design. That is
+/// arbitrary file read and write. Narrowing `core:path` next to it is closing a
+/// window in a house with no door.
+///
+/// The door is the one worth fitting, and it is not a permission list: it is
+/// either path authorisation here in Rust, or removing the engine's filesystem
+/// authority altogether so there is nothing to authorise. The second closes the
+/// sandbox gap in `core/sandbox.py` at the same time.
+///
 /// Forward one request to the engine.
 ///
 /// Async, and the blocking wait happens on a blocking task: a scrub with OCR
