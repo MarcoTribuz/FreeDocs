@@ -13,8 +13,6 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/MarcoTribuz/FreeDocs/actions/workflows/engine.yml"><img src="https://github.com/MarcoTribuz/FreeDocs/actions/workflows/engine.yml/badge.svg" alt="engine CI"></a>
-  <a href="https://github.com/MarcoTribuz/FreeDocs/actions/workflows/app.yml"><img src="https://github.com/MarcoTribuz/FreeDocs/actions/workflows/app.yml/badge.svg" alt="app build"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/licenza-AGPL--3.0--or--later-2f9e79" alt="AGPL-3.0-or-later"></a>
   <img src="https://img.shields.io/badge/python-3.10%20%E2%80%93%203.12-2f9e79" alt="Python dalla 3.10 alla 3.12">
   <img src="https://img.shields.io/badge/gira-100%25%20offline-2f9e79" alt="Gira completamente offline">
