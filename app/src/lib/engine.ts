@@ -484,6 +484,22 @@ async function request<T>(method: string, params: Record<string, unknown> = {}):
 }
 
 /** Whether the engine started at all, and why not if it did not. */
+/**
+ * Tell the engine it may release what it read.
+ *
+ * The engine caches an extraction per document so that excusing one occurrence
+ * does not re-OCR a scan. That cached text is a *superset* of the findings — it
+ * holds the confidential text no layer detected — so it is worth keeping while a
+ * document is on screen and worth nothing once it is not.
+ *
+ * Fire and forget, deliberately. Nothing the user is doing depends on the
+ * answer, and a tidy-up that can fail a screen transition is worse than a tidy-up
+ * that is occasionally skipped.
+ */
+export function forget(paths?: string[]): void {
+	void request<{ released: number }>('forget', paths ? { paths } : {}).catch(() => {});
+}
+
 export async function engineStatus(): Promise<string | null> {
 	try {
 		await invoke('engine_status');

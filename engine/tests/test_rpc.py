@@ -1243,6 +1243,46 @@ def test_inspect_reports_the_hidden_content_the_terminal_reports(session: Sessio
     assert all(isinstance(item["detail"], str) for item in payload["hidden"])
 
 
+def test_forget_releases_the_extracted_text_a_session_is_holding(session: Session, document: Path):
+    """The one thing this process keeps in memory that is worse than a finding.
+
+    `Extraction.stream.text` is a *superset* of what was detected: it contains
+    the confidential text no layer found. It is cached so that excusing one
+    occurrence does not re-OCR a scan, which is worth it while a document is
+    being reviewed and worth nothing once it is not - and until now the only way
+    to release it was to end the session.
+
+    Counted rather than searched, because the point is the release and not the
+    representation: a test that grepped the process's memory would be testing
+    CPython.
+    """
+    result_of(session, "inspect", path=str(document), include_text=True)
+    assert session._extractions, "the reading should be cached while it is useful"
+
+    released = result_of(session, "forget")
+    assert released["released"] == 1
+    assert not session._extractions
+
+
+def test_forget_can_name_one_document(session: Session, document: Path, tmp_path: Path):
+    """A batch is several documents and leaving one of them is not leaving all
+    of them, so the caller says which."""
+    other = tmp_path / "altro.txt"
+    other.write_text("Nessun dato qui.\n", encoding="utf-8")
+    result_of(session, "inspect", path=str(document))
+    result_of(session, "inspect", path=str(other))
+    assert len(session._extractions) == 2
+
+    assert result_of(session, "forget", paths=[str(other)])["released"] == 1
+    assert len(session._extractions) == 1
+
+
+def test_forgetting_something_never_read_is_not_an_error(session: Session, tmp_path: Path):
+    """The window calls this on every exit path, including the ones where nothing
+    was ever inspected. A refusal there would make a tidy-up into a failure."""
+    assert result_of(session, "forget", paths=[str(tmp_path / "mai-visto.txt")])["released"] == 0
+
+
 def test_capabilities_says_whether_the_network_is_blocked(session: Session):
     """ "Nothing leaves the machine" is the claim the whole tool rests on, so the
     window should be repeating something it asked rather than something it

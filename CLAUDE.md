@@ -352,6 +352,19 @@ from the *live* handler. Merging them into one list dropped three of those, and
 the tests said so; `Inspection.notes` keeps the configuration's warnings apart
 for that reason.
 
+**What the engine keeps resident, and how to make it stop.** One process serves
+the session, so what it holds it holds until the session ends: the loaded GLiNER2
+weights, and up to four cached extractions. The weights are the point. The
+extractions are the exposure — `Extraction.stream.text` is a *superset* of the
+findings, since it contains the confidential text no layer detected, which is the
+whole reason `include_text` is opt-in and the whole reason that text must never
+reach a report. A `forget` method releases them, named or all, and the window
+calls it on every path that drops a document: removing one file, clearing them
+all, changing mode. Fire and forget from the window — nothing the user is doing
+depends on the answer, and a tidy-up that can fail a screen transition is worse
+than one occasionally skipped. Passphrases are not in this list because they never
+reach the engine's memory beyond the request that carried them.
+
 **Extractions are cached per `(path, mtime, size)`, four at a time.** Every kept
 occurrence re-inspects, because propagation means one decision can change other
 findings and the window is not allowed to guess the new answer — and without the

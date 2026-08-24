@@ -21,6 +21,7 @@ import {
 	doctor as fetchDoctor,
 	engineStatus,
 	entities,
+	forget as forgetExtractions,
 	inspect,
 	onNotify,
 	restore,
@@ -396,6 +397,10 @@ export function select(path: string | null): void {
 export function removeFile(path: string): void {
 	session.files = session.files.filter((item) => item !== path);
 	delete session.inspections[path];
+	// And in the engine, which is holding the extracted text — a superset of the
+	// findings, since it contains whatever no layer detected. The window dropping
+	// its copy while the sidecar keeps one is half a tidy-up.
+	forgetExtractions([path]);
 	// The decisions went with the file. Keeping them would apply a span from a
 	// document nobody is looking at to whatever is opened next.
 	const { [path]: _keptSpans, ...spans } = session.keptSpans;
@@ -407,6 +412,7 @@ export function removeFile(path: string): void {
 }
 
 export function clearFiles(): void {
+	forgetExtractions(session.files);
 	session.files = [];
 	session.inspections = {};
 	session.keptSpans = {};
@@ -435,6 +441,9 @@ export function setMode(mode: Mode): void {
 	session.mode = mode;
 	session.step = 'file';
 	session.problem = null;
+	// Nothing from the scrub direction is reachable from the restore one, so
+	// whatever the engine is still holding for it is being held for nobody.
+	forgetExtractions();
 	// The two directions do not share a secret. Leaving one mode's passphrase in
 	// memory while the other is on screen is a secret nobody decided to keep.
 	forgetSecrets();
