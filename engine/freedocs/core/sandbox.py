@@ -20,14 +20,39 @@ startup; torch adds to it. A limit that kills the engine on launch, or that has
 to be set so high it bounds nothing, is worse than none - and the document limits
 in ``core/limits.py`` already bound the allocation an input can actually drive.
 
-**Filesystem confinement is absent, and it is a gap rather than a decision.**
-Landlock on Linux, an AppContainer or job object on Windows, a signed hardened
-runtime on macOS: each is real and each is unverifiable from here. This project
-has never run on Linux or Windows - it builds there - and a Landlock ruleset that
-is subtly wrong does not fail loudly, it stops the engine reading the document
-the user chose. The macOS half is blocked further back: the hardened runtime is
+**Filesystem confinement is absent, and the reason is architectural rather than
+"nobody has tested it".** That was the first answer and it is the weaker one.
+
+Landlock's rules are applied once, are irreversible, and name paths that have to
+be known *before* the process restricts itself. This engine is deliberately one
+long-lived process serving a whole session - the whole point, since loading
+GLiNER2 takes seconds and running it takes milliseconds - so at the moment it
+could restrict itself the user has chosen nothing. There are no paths to declare.
+Every way out from there is worse than the disease: confining to ``$HOME``
+separates nothing, because the documents and ``~/.ssh`` are both under it;
+denying writes breaks an output directory chosen later; and lazy imports make a
+mistake invisible until it matters, since ``pymupdf`` loads on the first PDF and
+``gliner2`` on the first detection, so a ruleset missing part of ``site-packages``
+fails halfway through one scrub on one format rather than at startup.
+
+**The shape that does work is to remove this process's filesystem authority
+altogether**: the Tauri shell reads the bytes and writes the output - it is the
+process that actually holds the user's consent, having shown the dialog - and the
+engine only computes. Then Landlock, ``sandbox-exec`` and a Windows job object all
+become trivial and need no paths in advance, *and* the confused-deputy problem
+goes with it, because an engine with no path authority has none to be abused. That
+second half is the real justification; the sandbox is the bonus. What it costs is
+the transport: this channel is newline-delimited JSON and a 400 MB PDF in base64
+is a 533 MB line, so it needs a side channel. It is its own piece of work, not a
+patch.
+
+Only the app would gain. The CLI is launched from the user's own shell, where the
+process already *is* the user.
+
+The macOS half is blocked further back in any case: the hardened runtime is
 applied by code signing, and signing is a paid certificate this project has
-decided against. Said out loud in ``doctor`` rather than implied by silence.
+decided against. All of it is said out loud in ``doctor`` rather than implied by
+silence.
 
 The other half of the sandbox is real and lives next door: ``core/egress.py``
 turns "no network call is part of a scrub" from a property of the code as written
@@ -107,7 +132,7 @@ def _confinement_gap() -> str:
     if sys.platform == "darwin":
         return "the hardened runtime is applied by code signing, which this project does not do"
     if sys.platform.startswith("linux"):
-        return "Landlock is not implemented; this project has never been run on Linux"
+        return "Landlock needs its paths before the session knows any of them"
     if os.name == "nt":
         return "no job object or AppContainer; this project has never been run on Windows"
     return "not implemented on this platform"  # pragma: no cover - other Unix

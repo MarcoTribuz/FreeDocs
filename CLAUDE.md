@@ -798,13 +798,29 @@ because a dump can hold the passphrase and every value the scrub removed. Nothin
 else. **`RLIMIT_AS` was measured and rejected**: this process reserves 425 GB of
 address space on macOS before importing anything, so any ceiling is either useless
 or fatal at startup, and `core/limits.py` already bounds what an input can drive.
-**Filesystem confinement is absent and that is a gap, not a decision** — Landlock,
-a Windows job object, a signed macOS hardened runtime. None can be run from here;
-this project builds on Linux and Windows and has never been launched there, and a
-Landlock ruleset that is subtly wrong does not fail loudly, it stops the engine
-reading the document the user chose. `doctor` prints both halves in one line, and
-`capabilities` publishes `network_blocked` and `hardening`, so the absence cannot
-be read as presence.
+**Filesystem confinement is absent, and the reason is architectural.** "Nobody has
+run it on Linux" was the first answer and it is the weaker one. Landlock's rules
+are applied once, are irreversible, and name paths that must be known *before* the
+process restricts itself — and this engine is one long-lived process serving a
+whole session, so when it could restrict itself the user has chosen nothing. There
+are no paths to declare. `$HOME` separates nothing (documents and `~/.ssh` are both
+under it), denying writes breaks an output directory chosen later, and lazy imports
+mean a ruleset missing part of `site-packages` fails halfway through one scrub on
+one format rather than at startup.
+
+**The shape that works is to remove the engine's filesystem authority entirely** —
+the shell reads the bytes and writes the output, the engine only computes — after
+which Landlock, `sandbox-exec` and a job object all become trivial *and* the
+confused-deputy problem goes with them, because an engine with no path authority
+has none to abuse. That second half is the justification; the sandbox is the bonus.
+The cost is the transport: a 400 MB PDF in base64 is a 533 MB line on a
+newline-delimited channel, so it needs a side channel. Its own piece of work, not a
+patch. Only the app gains — the CLI runs in the user's own shell, where the process
+already *is* the user. macOS is blocked further back anyway: the hardened runtime is
+applied by code signing, which this project has decided against.
+
+`doctor` prints both halves in one line, and `capabilities` publishes
+`network_blocked` and `hardening`, so the absence cannot be read as presence.
 
 **Verification fails loudly.** Stage 6 re-opens the output, re-extracts it
 (hidden parts included) and searches for every value that was supposed to be
