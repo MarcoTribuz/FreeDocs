@@ -34,7 +34,13 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, TextIO
 
-from .core.errors import MissingDependency, ModelNotFound, OutputRefused
+from .core.errors import (
+    InputTooLarge,
+    MalformedDocument,
+    MissingDependency,
+    ModelNotFound,
+    OutputRefused,
+)
 from .core.findings import EntityType
 from .core.mapping import (
     MIN_PASSPHRASE,
@@ -104,6 +110,13 @@ INCOMPLETE_RESTORE = 5
 #: well-formed and the filesystem was not, and rather than a silent follow
 #: because following it writes the caller's document somewhere nobody chose.
 OUTPUT_REFUSED = 6
+#: The document is larger, or expands larger, than this build reads. Distinct
+#: from UNSUPPORTED_FORMAT because the format is supported and the caller's move
+#: is different: split the document, not install something.
+INPUT_TOO_LARGE = 7
+#: A parser refused the file. Also distinct from UNSUPPORTED_FORMAT, which would
+#: read as "this build cannot open PDFs" about a PDF that is simply broken.
+MALFORMED_DOCUMENT = 8
 
 #: How much flat text ``inspect`` will put on the wire when asked for a preview.
 #:
@@ -553,6 +566,10 @@ class Session:
             return _failure(path, INVALID_REQUEST, str(exc))
         except UnsupportedFormat as exc:
             return _failure(path, UNSUPPORTED_FORMAT, str(exc))
+        except InputTooLarge as exc:
+            return _failure(path, INPUT_TOO_LARGE, str(exc))
+        except MalformedDocument as exc:
+            return _failure(path, MALFORMED_DOCUMENT, str(exc))
         except ScannedPdfNotSupported as exc:
             return _failure(path, NEEDS_OCR, str(exc))
         except (MissingDependency, ModelNotFound) as exc:
@@ -656,6 +673,10 @@ class Session:
             result = restorer.restore(path)
         except UnsupportedFormat as exc:
             raise RpcError(UNSUPPORTED_FORMAT, str(exc)) from exc
+        except InputTooLarge as exc:
+            raise RpcError(INPUT_TOO_LARGE, str(exc)) from exc
+        except MalformedDocument as exc:
+            raise RpcError(MALFORMED_DOCUMENT, str(exc)) from exc
         except ScannedPdfNotSupported as exc:
             raise RpcError(NEEDS_OCR, str(exc)) from exc
         except MissingDependency as exc:
@@ -903,6 +924,10 @@ def _read(scrubber: Scrubber, path: Path) -> Extraction:
         return scrubber.read(path)
     except UnsupportedFormat as exc:
         raise RpcError(UNSUPPORTED_FORMAT, str(exc)) from exc
+    except InputTooLarge as exc:
+        raise RpcError(INPUT_TOO_LARGE, str(exc)) from exc
+    except MalformedDocument as exc:
+        raise RpcError(MALFORMED_DOCUMENT, str(exc)) from exc
     except ScannedPdfNotSupported as exc:
         raise RpcError(NEEDS_OCR, str(exc)) from exc
     except MissingDependency as exc:

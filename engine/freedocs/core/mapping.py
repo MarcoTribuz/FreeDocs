@@ -46,6 +46,7 @@ from typing import TYPE_CHECKING, Any
 
 from .errors import MissingDependency
 from .findings import EntityType
+from .limits import MAX_MAP_BYTES
 from .outputs import private_directory, write_private
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: pipeline imports core, not vice versa
@@ -96,12 +97,6 @@ MAX_SCRYPT_R = 64
 MAX_SCRYPT_P = 16
 MAX_SCRYPT_WORK = 16 * SCRYPT_N * SCRYPT_R * SCRYPT_P
 
-#: Refused above this, checked before the file is read rather than after.
-#: ``read_text`` takes the whole file into memory and ``json.loads`` then takes
-#: it again, so the size is the cheapest thing to refuse on. An entry is a few
-#: hundred bytes, which puts this at thousands of them: nothing this tool writes
-#: can reach it, and a file that does is not a key file.
-MAX_MAP_BYTES = 8 * 1024 * 1024
 
 SALT_BYTES = 16
 #: AES-GCM's standard nonce length. Random per file, never reused: the key is

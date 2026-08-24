@@ -687,6 +687,51 @@ and a restored document needed every one of them. **On Windows this protects the
 path and not the mode**: `O_NOFOLLOW` does not exist there and `os.open`'s mode
 argument controls only the read-only attribute.
 
+**How big a thing may be is asked in four places and answered in one.**
+`core/limits.py` holds every ceiling — the input file, one OOXML part, a
+container's parts added up, PDF pages, a key file — because the router, the zip
+container, the PDF handler and `core/mapping.py` all ask, and four answers is
+four things to keep current. Breaches are `InputTooLarge`, which is in `REFUSALS`
+and has its own `RpcError` code, so one refused document names itself and the
+batch continues.
+
+The numbers are measurements, and each is recorded beside itself. Two of them are
+not what you would guess. **A 0.20 MB OOXML container took 334 MB of resident
+memory** — `OoxmlPackage.open` read every part into a dict with no cap — which at
+1000:1 makes a 20 MB attachment 20 GB. And **the cost of reading a PDF is not
+bounded by its size**: 200 000 distinct pages fit in 21 MB and extract in eleven
+seconds, which is survivable until OCR's measured 24 ms a page makes it eighty
+minutes and `harden_for_verification` reads them all again.
+
+**Two rules were written into the plan and then measured away**, which is what
+writing `tests/test_hostile_input.py` first is for — the same outcome the
+chunk-artifact defence had. An *inflation-ratio* check is redundant: real Office
+files sit at 22–24:1, so any ratio loose enough to pass them passes a bomb of the
+same shape, and the absolute ceilings already refuse it. And the *size-counting
+stream wrapper* is unnecessary, because `ZipExtFile` decompresses at most the
+declared `file_size` and then fails the CRC — a header claiming 1 KB for a 20 MB
+payload yields no bytes rather than 20 MB of them. That is what makes deciding
+from `infolist()` before any read both cheap and sound, and a test pins it because
+it is somebody else's implementation detail.
+
+**A nested package spends the parent's budget.** A chart's workbook is a zip
+inside a zip and the outer package counts it as one still-compressed part, so
+`OoxmlPackage.open` takes `spent=` and `PptxHandler` passes
+`self.package.inflated_bytes()`. `nested_handlers` re-raises `InputTooLarge`
+ahead of its broad `except Exception`: a *malformed* embedding is one part of a
+document the rest of which can still be scrubbed, but an embedding built to
+exhaust the process is the document, and warning about it would make nesting the
+way around the limit.
+
+**A parser's own exception is translated, never left to escape.** MuPDF answers a
+page tree whose kids are all one object with `RuntimeError: code=7: Invalid
+number of pages`; `zipfile` answers a lying header with `BadZipFile: Bad CRC-32`;
+the three OOXML handlers answered a zip missing its main part with a bare
+`ValueError`. None of those is in `REFUSALS`, so from the CLI each was a traceback
+and over the pipe `rpc.handle` rendered it into a response as a sentence about
+somebody else's internals. They are all `MalformedDocument` now. The library
+being right about the file is not the same as the caller being told about it.
+
 **Verification fails loudly.** Stage 6 re-opens the output, re-extracts it
 (hidden parts included) and searches for every value that was supposed to be
 gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing.

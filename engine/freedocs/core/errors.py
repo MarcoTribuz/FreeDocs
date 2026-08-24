@@ -40,3 +40,27 @@ class OutputRefused(OSError):
     ``write_bytes`` would have followed. Refused rather than followed, and named
     so the caller can say which file rather than printing a traceback.
     """
+
+
+class InputTooLarge(RuntimeError):
+    """A document is larger, or expands larger, than this build will read.
+
+    A refusal rather than a crash, and never a partial read: the alternative to
+    naming the limit is exhausting the process, and the engine is single-threaded
+    with no cancel, so that is the whole session rather than one file. The
+    ceilings themselves live in ``core/limits.py``, which is the only module that
+    answers "how big may a thing be".
+    """
+
+
+class MalformedDocument(RuntimeError):
+    """A parser refused the file, and the caller is told so in those terms.
+
+    MuPDF and ``zipfile`` both raise their own exceptions on a document built to
+    break them - `RuntimeError: code=7: Invalid number of pages`,
+    `BadZipFile: Bad CRC-32 for ...` - and those escaped untranslated. From the
+    CLI that is a traceback; over the pipe ``rpc.handle`` renders an unexpected
+    exception as ``f"{type(exc).__name__}: {exc}"``, so the caller was handed a
+    sentence about somebody else's internals. The library being right about the
+    file is not the same as the caller being told about it.
+    """

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ...core.errors import MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from ..base import FormatHandler, HiddenItem
 from .common import add_relationship_targets, apply_ooxml_edits
@@ -59,9 +60,9 @@ class DocxHandler(FormatHandler):
 
     def __init__(self, path: Path, data: bytes) -> None:
         super().__init__(path, data)
-        self.package = OoxmlPackage.open(data)
+        self.package = OoxmlPackage.open(data, name=path.name)
         if not self.package.has(DOCUMENT):
-            raise ValueError(f"{path.name} is an OOXML container but has no {DOCUMENT}")
+            raise MalformedDocument(f"{path.name} is an OOXML container but has no {DOCUMENT}")
 
     @classmethod
     def sniff(cls, path: Path, head: bytes) -> bool:
