@@ -77,8 +77,13 @@ pub fn run() {
             // has picked a file rather than after.
             let handle = app.handle().clone();
             match Engine::spawn(&handle) {
+                // Already an `Arc`: the reader thread holds one too, so the
+                // engine has to be shared before it is managed rather than
+                // after. It is also what lets a reader report its own process
+                // dying instead of looking the engine up through Tauri state,
+                // which was a lookup racing the `manage` below.
                 Ok(started) => {
-                    app.manage(Arc::new(started));
+                    app.manage(started);
                 }
                 Err(error) => {
                     // Not fatal: the window opens and shows the reason. A desktop
