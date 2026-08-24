@@ -772,6 +772,25 @@ document the rest of which can still be scrubbed, but an embedding built to
 exhaust the process is the document, and warning about it would make nesting the
 way around the limit.
 
+**`scripts/fuzz.py` is run on purpose and is not in the gate.** A run that finds
+nothing proves nothing, and a run that finds something has found a case for
+`tests/test_hostile_input.py` — not a reason to fail somebody's commit. It damages
+real seeds (a docx, an xlsx, a PDF, a `.fdmap`) rather than generating noise, which
+a magic-number check rejects in a microsecond, and the pass criterion is the
+exception *type*: anything outside the declared set is written out with its seed so
+it can be replayed.
+
+It earned its keep on the first four hundred cases: **twenty-nine escapes**, in
+five places nobody had enumerated. Twenty from `scrub_hidden` calling MuPDF's
+`scrub()`, twelve from reading a page's contents, one from loading a page — the
+PDF translation had been applied to `__init__` and `extract` only — plus
+`zlib.error` and `EOFError` out of the *decompressor*, which is deeper than
+`BadZipFile` and is what a flipped bit inside a deflate stream produces. Two more
+followed at 1500 cases: `zipfile` answers an unknown compression method with
+`NotImplementedError` and an encrypted entry with a bare `RuntimeError`. All four
+shapes are now deterministic tests, because the fuzzer is not in the gate. After
+the fixes: 7500 cases across five seeds, zero escapes.
+
 **A parser's own exception is translated, never left to escape.** MuPDF answers a
 page tree whose kids are all one object with `RuntimeError: code=7: Invalid
 number of pages`; `zipfile` answers a lying header with `BadZipFile: Bad CRC-32`;

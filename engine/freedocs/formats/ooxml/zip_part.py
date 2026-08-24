@@ -18,10 +18,11 @@ from __future__ import annotations
 import io
 import posixpath
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ...core.errors import MalformedDocument, MissingDependency
+from ...core.errors import InputTooLarge, MalformedDocument, MissingDependency
 from ...core.limits import refuse_oversized_archive
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -105,7 +106,25 @@ class OoxmlPackage:
                 package._infos = list(archive.infolist())
                 for info in infos:
                     package._raw[info.filename] = archive.read(info.filename)
-        except zipfile.BadZipFile as exc:
+        except InputTooLarge:
+            # Ours, and raised inside the block above. It has to come first
+            # because it is a `RuntimeError` subclass and the clause below claims
+            # those.
+            raise
+        except (zipfile.BadZipFile, zlib.error, EOFError, NotImplementedError, RuntimeError) as exc:
+            # Five types, and `scripts/fuzz.py` found four of them - which is the
+            # argument for the fuzzer in one line, because none of the four is
+            # something anyone would have thought to write a test for.
+            #
+            # `BadZipFile` is the header. `zlib.error` and `EOFError` come out of
+            # the *decompressor*, deeper, when an entry's stream is damaged
+            # rather than its directory - a flipped bit inside a deflate stream,
+            # which is the most ordinary way a file gets damaged.
+            # `NotImplementedError` is `zipfile` refusing a compression method or
+            # a version it does not implement, which a corrupted header routinely
+            # claims. And `RuntimeError` is its way of saying an entry is
+            # encrypted. Every one of them means the container is not one this
+            # build can read, which is what the caller needs to hear.
             raise MalformedDocument(f"{name} is not a readable zip container: {exc}") from exc
         return package
 
