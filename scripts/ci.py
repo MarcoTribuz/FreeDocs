@@ -366,7 +366,20 @@ def build_steps() -> list[Step]:
         # manifest are what a person downloading one can actually check - and
         # with no runner to attach them to a release, the artifact and its
         # manifest have to be made by the same command on the same machine.
-        Step("build: checksums and SBOM", ["python3", "scripts/provenance.py"], ROOT),
+        Step(
+            "build: checksums and SBOM",
+            [
+                "python3",
+                "scripts/provenance.py",
+                # The step above ran `tauri build` with no `--target`, so this is
+                # where it wrote. Said rather than searched for: a machine that
+                # has also run a `--target` build holds a second file with the
+                # same name, and `provenance.py` refuses to guess between them.
+                "--bundle-dir",
+                str((TAURI / "target" / "release" / "bundle").relative_to(ROOT)),
+            ],
+            ROOT,
+        ),
         Step(
             "build: rust SBOM",
             ["python3", "scripts/provenance.py", "--rust"],
