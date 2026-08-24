@@ -228,6 +228,68 @@ export interface Messages {
 	openFolder(): string;
 	scrubAgain(): string;
 
+
+	// ---- the reverse path: a key file, and putting the values back ----------
+	//
+	// UI copy about a UI action, so it is translated. The rule that keeps engine
+	// prose in English is about sentences the engine composed - a warning, a
+	// caveat, an error - and none of these is one.
+	modeLabel(): string;
+	modeScrub(): string;
+	modeRestore(): string;
+	modeAnnounce(a: { name: string }): string;
+
+	keyFileTitle(): string;
+	/** What the file is, said where the choice is made rather than afterwards. */
+	keyFileHint(): string;
+	keyFileEnable(): string;
+	keyFileWhere(): string;
+	keyFileChooseWhere(): string;
+	keyFilePassphrase(): string;
+	keyFileConfirm(): string;
+	/** Why the controls are disabled: this build has no cipher for the file. */
+	keyFileUnavailable(): string;
+	keyFileNeedsDirectory(): string;
+	keyFileNeedsPassphrase(a: { min: number }): string;
+	keyFileMismatch(): string;
+	/** The one warning that matters: this file undoes the scrub. */
+	keyFileDanger(): string;
+	keyFileWritten(): string;
+	chooseKeyDirectory(): string;
+	chooseKeyFile(): string;
+	keyFileFilter(): string;
+
+	stepRestoreFile(): string;
+	restoreTitle(): string;
+	restoreHint(): string;
+	restoreDocument(): string;
+	restoreChooseDocument(): string;
+	restoreKey(): string;
+	restoreChooseKey(): string;
+	restorePassphrase(): string;
+	restoreNeedsDocument(): string;
+	restoreNeedsKey(): string;
+	restoreNeedsPassphrase(): string;
+	restoreRun(): string;
+	restoring(): string;
+	restoreAgain(): string;
+
+	restoreResultTitle(): string;
+	restoredSummary(a: { values: number; occurrences: number }): string;
+	restoreNothingMatched(): string;
+	restoreNotPresentTitle(): string;
+	restoreNotPresentHint(): string;
+	restoreUnknownTitle(): string;
+	restoreUnknownHint(): string;
+	restoreProblemsTitle(): string;
+	restoreVerified(): string;
+	restoreIncomplete(a: { count: number }): string;
+	/** What a restore cannot do. Quoted from the engine, like every caveat. */
+	restoreCaveatsTitle(): string;
+
+	announceRestored(a: { count: number }): string;
+	announceRestoredWithProblems(a: { count: number }): string;
+
 	// ---- engine vocabulary: enumerable, so translated ----------------------
 	entity: Record<string, () => string>;
 	action: Record<'redact' | 'surrogate' | 'report' | 'keep', () => string>;

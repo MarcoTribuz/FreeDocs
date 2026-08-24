@@ -38,7 +38,8 @@ location is confidential".
 ## What the window shows, deliberately
 
 The detection layers actually loaded; whether OCR is available *and which half of
-Tesseract is missing when it is not*; what each country actually gets (the United
+Tesseract is missing when it is not*; whether this build can write a key file at
+all; what each country actually gets (the United
 States has no check digit behind its numbers, and its chip says so); which rules a
 raised threshold has silenced; every warning the engine raised; the hidden content
 that was removed; and whether stage 6 re-opened the output and found nothing. A
@@ -56,6 +57,41 @@ pipe that also answers the CLI, and four chances to soften a "not installed" int
 something that reads as "not required" is four chances to ship a build that
 quietly finds less. The rule is **if it came from an enum, translate it; if it
 came from an f-string, quote it.**
+
+## Two directions, as a mode rather than a fourth step
+
+The rail carries a switch — remove values, or put them back — above the steps
+rather than inside them. Restoring is not the continuation of a scrub: the document
+comes back from the model days later, and there is nothing in the session to
+continue from.
+
+Each mode owns its own step order (`ORDER` in `lib/app.svelte.ts`), which is what
+keeps the rule below intact. Restoring has **two** steps, not three with one greyed
+out: there is no review step because the decisions were made in the scrub that
+produced the key file, and a locked third step would promise one. So "step 2 of 2"
+is announced when restoring, and `3` addresses nothing there.
+
+The key-file controls live with the **scrub** options, before the run, not on the
+result screen after it. The engine writes the key file inside the `scrub` request,
+which is what keeps the placeholder-to-value mapping from ever crossing the pipe
+into this window — so the choice has to exist before the request is sent. The
+result screen then says where the file went; the warning about what it is stays
+where the decision was made, because a warning that arrives after the file exists
+is a warning about something already done.
+
+Three details worth not undoing:
+
+- **The control is disabled, not offered and then refused**, when
+  `capabilities.mapping_available` is false, with the engine's own sentence beside
+  it. That is the `ocr_unavailable_reason()` bug one feature over.
+- **Neither passphrase touches `localStorage`.** They live in `session` for one
+  call and are cleared in a `finally`, including when the mode changes. The theme
+  and the locale are two enum values and are persisted; this is the key to every
+  value in the document and is not.
+- **The window re-checks nothing it can be told.** `MIN_PASSPHRASE` exists here
+  only so the engine's refusal is not the first the user hears of it; the engine
+  refuses a short passphrase either way, and it wins. What was matched, what was
+  left alone and what did not come back are all the engine's answer, rendered.
 
 ## How it is put together
 
@@ -231,3 +267,12 @@ never overwritten, so the `FREEDOCS_ENGINE` trick above has siblings — pointin
 without building anything.
 
 Full layout, per platform, in [portable](portable.md).
+
+## The reverse path in the window
+
+Picking the returned document, its key file and the passphrase, then a result
+screen listing what came back, what the key file knew and the document did not, and
+what looked like a placeholder and was left alone. `ok: false` does **not** empty
+that screen: the engine wrote the restored file either way, so the path is always
+shown and the failure is stated beside it rather than instead of it. See
+[the reverse path](restore.md).

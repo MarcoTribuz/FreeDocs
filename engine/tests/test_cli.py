@@ -209,3 +209,261 @@ def test_both_adapters_report_the_same_version():
 
     session = rpc.Session(out=None)  # type: ignore[arg-type]
     assert session.capabilities()["version"] == engine_version()
+
+
+# --- the key file and the reverse path ---------------------------------------
+#
+# What these guard is the shape of the opt-in rather than the cipher, which
+# `test_mapping.py` owns. The adapter's job here is to refuse before it writes:
+# a key file aimed at the output directory, a passphrase with nowhere to come
+# from, or an incomplete restore reported as a success are all failures of wiring.
+
+
+@pytest.fixture
+def passphrase_file(tmp_path: Path) -> Path:
+    path = tmp_path / "pass.txt"
+    # A trailing newline on purpose: an editor adds one, and a passphrase that
+    # works from one editor and not another is the worst kind of intermittent.
+    path.write_text("correct horse battery staple\n", encoding="utf-8")
+    return path
+
+
+def test_no_key_file_is_written_unless_it_is_asked_for(document, tmp_path):
+    """The default is unchanged and must stay unchanged. Every file in the tree,
+    not just the output directory: a key file appearing anywhere is the failure."""
+    out_dir = tmp_path / "out"
+    assert cli.main(["scrub", *L1, str(document), "-o", str(out_dir)]) == cli.EXIT_OK
+    assert list(tmp_path.rglob("*.fdmap")) == []
+
+
+def test_a_key_file_is_written_where_it_was_asked_for(document, tmp_path, passphrase_file):
+    keys = tmp_path / "keys"
+    status = cli.main(
+        [
+            "scrub",
+            *L1,
+            str(document),
+            "-o",
+            str(tmp_path / "out"),
+            "--map",
+            str(keys),
+            "--map-passphrase-file",
+            str(passphrase_file),
+        ]
+    )
+    assert status == cli.EXIT_OK
+    # Named after the document, not after the run: one key file per document.
+    assert (keys / "offerta.fdmap").is_file()
+
+
+def test_a_key_file_aimed_at_the_output_directory_is_refused(
+    document, tmp_path, passphrase_file, capsys
+):
+    """Refused *before* anything is written, so the user is not left undoing a
+    directory by hand."""
+    out_dir = tmp_path / "out"
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "scrub",
+                *L1,
+                str(document),
+                "-o",
+                str(out_dir),
+                "--map",
+                str(out_dir / "keys"),
+                "--map-passphrase-file",
+                str(passphrase_file),
+            ]
+        )
+    assert list(tmp_path.rglob("*.fdmap")) == []
+
+
+def test_the_refusal_can_be_overridden_deliberately(document, tmp_path, passphrase_file):
+    out_dir = tmp_path / "out"
+    status = cli.main(
+        [
+            "scrub",
+            *L1,
+            str(document),
+            "-o",
+            str(out_dir),
+            "--map",
+            str(out_dir),
+            "--map-in-output-dir",
+            "--map-passphrase-file",
+            str(passphrase_file),
+        ]
+    )
+    assert status == cli.EXIT_OK
+    assert (out_dir / "offerta.fdmap").is_file()
+
+
+def test_an_empty_passphrase_file_is_a_usage_error(document, tmp_path):
+    empty = tmp_path / "pass.txt"
+    empty.write_text("", encoding="utf-8")
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "scrub",
+                *L1,
+                str(document),
+                "-o",
+                str(tmp_path / "out"),
+                "--map",
+                str(tmp_path / "keys"),
+                "--map-passphrase-file",
+                str(empty),
+            ]
+        )
+
+
+def test_the_passphrase_can_come_from_the_environment(document, tmp_path, monkeypatch):
+    monkeypatch.setenv(cli.PASSPHRASE_ENV, "correct horse battery staple")
+    keys = tmp_path / "keys"
+    status = cli.main(
+        ["scrub", *L1, str(document), "-o", str(tmp_path / "out"), "--map", str(keys)]
+    )
+    assert status == cli.EXIT_OK
+    assert (keys / "offerta.fdmap").is_file()
+
+
+def test_no_passphrase_and_no_terminal_is_a_usage_error(document, tmp_path, monkeypatch):
+    """A silent skip would mean a user who finds out at restore time that there is
+    nothing to restore from."""
+    monkeypatch.delenv(cli.PASSPHRASE_ENV, raising=False)
+    monkeypatch.setattr("sys.stdin", _NotATerminal())
+    with pytest.raises(SystemExit):
+        cli.main(
+            ["scrub", *L1, str(document), "-o", str(tmp_path / "out"), "--map", str(tmp_path / "k")]
+        )
+
+
+def test_scrub_then_restore_returns_the_document(document, tmp_path, passphrase_file):
+    original = document.read_text(encoding="utf-8")
+    out_dir, keys, back = tmp_path / "out", tmp_path / "keys", tmp_path / "back"
+
+    assert (
+        cli.main(
+            [
+                "scrub",
+                *L1,
+                str(document),
+                "-o",
+                str(out_dir),
+                "--map",
+                str(keys),
+                "--map-passphrase-file",
+                str(passphrase_file),
+            ]
+        )
+        == cli.EXIT_OK
+    )
+    assert (
+        cli.main(
+            [
+                "restore",
+                str(out_dir / "offerta.txt"),
+                "--map",
+                str(keys / "offerta.fdmap"),
+                "-o",
+                str(back),
+                "--map-passphrase-file",
+                str(passphrase_file),
+            ]
+        )
+        == cli.EXIT_OK
+    )
+    assert (back / "offerta.txt").read_text(encoding="utf-8") == original
+
+
+def test_a_wrong_passphrase_stops_the_restore_before_any_file(tmp_path, passphrase_file):
+    wrong = tmp_path / "wrong.txt"
+    wrong.write_text("something else entirely\n", encoding="utf-8")
+    keys = tmp_path / "keys"
+    keys.mkdir()
+    (keys / "x.fdmap").write_text("{}", encoding="utf-8")
+    target = tmp_path / "in.txt"
+    target.write_text("[PERSON_1]\n", encoding="utf-8")
+
+    status = cli.main(
+        [
+            "restore",
+            str(target),
+            "--map",
+            str(keys / "x.fdmap"),
+            "-o",
+            str(tmp_path / "back"),
+            "--map-passphrase-file",
+            str(wrong),
+        ]
+    )
+    assert status == cli.EXIT_USAGE
+    assert not (tmp_path / "back" / "in.txt").exists()
+
+
+def test_an_incomplete_restore_exits_five_and_still_writes(
+    document, tmp_path, passphrase_file, monkeypatch
+):
+    """The character of this command in one assertion. Distinct from EXIT_LEAK
+    because it is the opposite handling: a leak writes nothing, this writes the
+    caller's best artifact and says what is wrong with it."""
+    out_dir, keys, back = tmp_path / "out", tmp_path / "keys", tmp_path / "back"
+    cli.main(
+        [
+            "scrub",
+            *L1,
+            str(document),
+            "-o",
+            str(out_dir),
+            "--map",
+            str(keys),
+            "--map-passphrase-file",
+            str(passphrase_file),
+        ]
+    )
+
+    from freedocs.formats import plaintext
+
+    monkeypatch.setattr(
+        plaintext.PlainTextHandler,
+        "write_back",
+        lambda self, edits: self.data,
+    )
+    status = cli.main(
+        [
+            "restore",
+            str(out_dir / "offerta.txt"),
+            "--map",
+            str(keys / "offerta.fdmap"),
+            "-o",
+            str(back),
+            "--map-passphrase-file",
+            str(passphrase_file),
+        ]
+    )
+    assert status == cli.EXIT_INCOMPLETE
+    assert status != cli.EXIT_LEAK
+    assert (back / "offerta.txt").is_file()
+
+
+def test_the_exit_code_and_the_rpc_code_are_the_same_number():
+    """Two adapters, one failure, one number - as 3 already is. Drifting apart
+    would mean a shell script and a window disagreeing about what happened.
+
+    Only the pairs that are deliberate. ``EXIT_UNSUPPORTED`` is 4 and
+    ``MISSING_DEPENDENCY`` is 4 by coincidence, not by design: the terminal
+    collapses three refusals into one status where the pipe keeps them apart, so
+    pinning that pair would assert an intent nobody had.
+    """
+    from freedocs import rpc
+
+    assert cli.EXIT_INCOMPLETE == rpc.INCOMPLETE_RESTORE
+    assert cli.EXIT_LEAK == rpc.LEAK_DETECTED
+
+
+class _NotATerminal:
+    """Just enough of a stream for the no-prompt branch."""
+
+    def isatty(self) -> bool:
+        return False

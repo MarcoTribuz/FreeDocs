@@ -11,6 +11,7 @@ import {
 	type Progress,
 	type Stage,
 	type RemovedValue,
+	type RestoreResult,
 	type ScrubResult,
 	MISSING_DEPENDENCY,
 	NEEDS_OCR,
@@ -22,6 +23,7 @@ import {
 	entities,
 	inspect,
 	onNotify,
+	restore,
 	reviewModels,
 	scrub
 } from './engine';
@@ -47,7 +49,25 @@ import { resetReview } from './review.svelte';
  */
 export type Step = 'file' | 'review' | 'result';
 
+/**
+ * Which direction the window is working in.
+ *
+ * A mode rather than a fourth step. A document comes back from a model days after
+ * the scrub that produced it, so restoring is not the continuation of a wizard
+ * state — there is nothing in the session to continue from. Each mode owns its own
+ * step order, which keeps the rule above intact: reachability stays derived, and a
+ * step that means nothing in this mode is simply not in its order.
+ */
+export type Mode = 'scrub' | 'restore';
+
+/** The steps each mode has, in the order the rail shows them. */
+export const ORDER: Record<Mode, Step[]> = {
+	scrub: ['file', 'review', 'result'],
+	restore: ['file', 'result']
+};
+
 export const session = $state({
+	mode: 'scrub' as Mode,
 	/**
 	 * Which of the three steps is showing.
 	 *
@@ -123,7 +143,32 @@ export const session = $state({
 	models: null as string[] | null,
 	modelsProblem: null as string | null,
 	modelsBusy: false,
-	settingsOpen: false
+	settingsOpen: false,
+
+	/**
+	 * Whether to also write an encrypted key file, and what opens it.
+	 *
+	 * Collected before the run, not after, because the engine writes the key file
+	 * inside the `scrub` request — which is what keeps the mapping from ever
+	 * crossing the pipe into this window.
+	 *
+	 * `keyPassphrase` and `keyConfirm` are cleared in a `finally` after every run.
+	 * A secret that stays in memory because the run finished is a secret nobody
+	 * decided to keep, and there is nowhere for it to be persisted to: no
+	 * `localStorage`, unlike the theme and the locale.
+	 */
+	keyWanted: false,
+	keyDir: null as string | null,
+	keyPassphrase: '',
+	keyConfirm: '',
+	/** Where the engine put each key file, by document. Shown on the result step. */
+	keyFiles: {} as Record<string, string>,
+
+	/** The returned document, its key file, and what opens it. */
+	restoreFile: null as string | null,
+	restoreMap: null as string | null,
+	restorePassphrase: '',
+	restoreResult: null as RestoreResult | null
 });
 
 /** What the model dropdown offers: the typed host's answer, else the startup one. */
@@ -367,12 +412,158 @@ export function clearFiles(): void {
 	session.keptSpans = {};
 	session.extraValues = {};
 	session.results = [];
+	session.keyFiles = {};
 	select(null);
 	session.step = 'file';
+	forgetSecrets();
 }
 
 export function goTo(step: Step): void {
 	session.step = step;
+}
+
+/**
+ * Change direction, and land on the first step of the new mode.
+ *
+ * Not `goTo('file')` plus a flag: `step` is shared between the modes, and
+ * arriving in restore mode on a step that mode has never had is exactly the
+ * "showing Review with nothing to review" failure the derived reachability rule
+ * exists to prevent.
+ */
+export function setMode(mode: Mode): void {
+	if (session.mode === mode) return;
+	session.mode = mode;
+	session.step = 'file';
+	session.problem = null;
+	// The two directions do not share a secret. Leaving one mode's passphrase in
+	// memory while the other is on screen is a secret nobody decided to keep.
+	forgetSecrets();
+}
+
+/** Every passphrase this window is holding, gone. Called on every exit path. */
+function forgetSecrets(): void {
+	session.keyPassphrase = '';
+	session.keyConfirm = '';
+	session.restorePassphrase = '';
+}
+
+/** Whether the key-file controls can do anything, which is the engine's answer. */
+export function keyFileAvailable(): boolean {
+	return session.caps?.mapping_available ?? false;
+}
+
+/**
+ * What is still missing before a key file can be written.
+ *
+ * Returned as a key rather than a sentence so the screen translates it: these are
+ * the window's own preconditions, not the engine's prose. Null means ready.
+ */
+export function keyFileBlocker(): 'directory' | 'passphrase' | 'mismatch' | null {
+	if (!session.keyWanted) return null;
+	if (!session.keyDir) return 'directory';
+	if (session.keyPassphrase.length < MIN_PASSPHRASE) return 'passphrase';
+	if (session.keyPassphrase !== session.keyConfirm) return 'mismatch';
+	return null;
+}
+
+/**
+ * The engine's floor, restated here only to disable a button before the request.
+ *
+ * The engine refuses a shorter one and its refusal is the authority; this exists
+ * so the refusal is not the first the user hears of it. If the two ever disagree
+ * the engine wins, which is why the button being enabled is not a promise.
+ */
+export const MIN_PASSPHRASE = 8;
+
+export async function pickKeyDirectory(): Promise<void> {
+	const chosen = await open({
+		directory: true,
+		multiple: false,
+		title: i18n.m.chooseKeyDirectory()
+	});
+	if (!chosen || Array.isArray(chosen)) return;
+	session.keyDir = chosen;
+}
+
+export async function pickRestoreFile(): Promise<void> {
+	const chosen = await open({ multiple: false, directory: false });
+	if (!chosen || Array.isArray(chosen)) return;
+	session.restoreFile = chosen;
+	session.restoreResult = null;
+}
+
+export async function pickRestoreMap(): Promise<void> {
+	const chosen = await open({
+		multiple: false,
+		directory: false,
+		title: i18n.m.chooseKeyFile(),
+		filters: [{ name: i18n.m.keyFileFilter(), extensions: ['fdmap'] }]
+	});
+	if (!chosen || Array.isArray(chosen)) return;
+	session.restoreMap = chosen;
+	session.restoreResult = null;
+}
+
+export function clearRestore(): void {
+	session.restoreFile = null;
+	session.restoreMap = null;
+	session.restoreResult = null;
+	session.step = 'file';
+	forgetSecrets();
+}
+
+/** What is still missing before a restore can run. Null means ready. */
+export function restoreBlocker(): 'document' | 'key' | 'passphrase' | null {
+	if (!session.restoreFile) return 'document';
+	if (!session.restoreMap) return 'key';
+	if (!session.restorePassphrase) return 'passphrase';
+	return null;
+}
+
+/**
+ * Put the values back, and show what did not come back.
+ *
+ * `ok: false` is not a failure of this call and does not go through `fail()`: the
+ * engine wrote the file either way, and the result screen names every placeholder
+ * that did not make it. A half-restored document is still the user's best
+ * artifact — the opposite of a scrub that leaked, where nothing is written.
+ */
+export async function runRestore(): Promise<void> {
+	const document = session.restoreFile;
+	const key = session.restoreMap;
+	if (!document || !key || !session.restorePassphrase) return;
+
+	const target = await open({
+		directory: true,
+		multiple: false,
+		title: i18n.m.chooseOutputDirectory()
+	});
+	if (!target || Array.isArray(target)) return;
+
+	session.busy = 'restore';
+	session.problem = null;
+	session.restoreResult = null;
+	try {
+		const result = await restore(document, key, session.restorePassphrase, target);
+		session.restoreResult = result;
+		session.step = 'result';
+		announce(
+			result.ok
+				? i18n.m.announceRestored({
+						count: result.restored.reduce((sum, entry) => sum + entry.occurrences, 0)
+					})
+				: i18n.m.announceRestoredWithProblems({ count: result.problems.length }),
+			{ assertive: !result.ok }
+		);
+	} catch (error) {
+		fail(describe(error));
+	} finally {
+		session.busy = null;
+		session.stage = null;
+		// Held for the call and no longer. Retyping it is the correct cost of a
+		// secret this window is not allowed to keep.
+		forgetSecrets();
+	}
 }
 
 export async function pickFiles(): Promise<void> {
@@ -522,10 +713,21 @@ export async function runScrub(): Promise<void> {
 				countries: activeCountries(),
 				placeholderLanguage: session.placeholderLanguage,
 				review: session.reviewModel || null,
-				reviewHost: session.reviewHost
+				reviewHost: session.reviewHost,
+				// Both or neither, which `toParams` enforces: the engine refuses a key
+				// file with no passphrase rather than quietly writing nothing.
+				map: session.keyWanted ? session.keyDir : null,
+				mapPassphrase: session.keyWanted ? session.keyPassphrase : null
 			})
 		).results;
 
+		// Where each key went, collected here so the result screen has one place to
+		// read it from rather than reaching into each result.
+		session.keyFiles = Object.fromEntries(
+			session.results
+				.filter((result) => result.key_file)
+				.map((result) => [result.path, result.key_file as string])
+		);
 		session.step = 'result';
 		const failed = session.results.filter((result) => !result.ok).length;
 		announce(
@@ -543,5 +745,8 @@ export async function runScrub(): Promise<void> {
 		session.busy = null;
 		session.progress = null;
 		session.stage = null;
+		// The passphrase existed for this request. Emptying the fields after a
+		// successful scrub is deliberate: the next run is a new decision.
+		forgetSecrets();
 	}
 }

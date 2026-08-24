@@ -1,5 +1,14 @@
 <script lang="ts">
-	import { clearFiles, goTo, removeFile, select, session, type Step } from '$lib/app.svelte';
+	import {
+		clearFiles,
+		goTo,
+		removeFile,
+		select,
+		session,
+		setMode,
+		type Mode,
+		type Step
+	} from '$lib/app.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
 	import Button from './Button.svelte';
@@ -15,14 +24,54 @@
 
 	const m = $derived(i18n.m);
 
-	const steps = $derived<{ id: Step; label: string; locked?: string }[]>([
-		{ id: 'file', label: m.stepFile() },
-		{ id: 'review', label: m.stepReview(), locked: m.stepReviewLocked() },
-		{ id: 'result', label: m.stepResult(), locked: m.stepResultLocked() }
+	/**
+	 * The steps of the mode showing, in order.
+	 *
+	 * Per mode rather than one list with entries hidden: restoring has no review
+	 * step at all — there is nothing to preview, the decisions were made in the
+	 * scrub that produced the key file — and a greyed-out third step would promise
+	 * one.
+	 */
+	const steps = $derived<{ id: Step; label: string; locked?: string }[]>(
+		session.mode === 'restore'
+			? [
+					{ id: 'file', label: m.stepRestoreFile() },
+					{ id: 'result', label: m.stepResult(), locked: m.stepResultLocked() }
+				]
+			: [
+					{ id: 'file', label: m.stepFile() },
+					{ id: 'review', label: m.stepReview(), locked: m.stepReviewLocked() },
+					{ id: 'result', label: m.stepResult(), locked: m.stepResultLocked() }
+				]
+	);
+
+	const modes: { id: Mode; label: string }[] = $derived([
+		{ id: 'scrub', label: m.modeScrub() },
+		{ id: 'restore', label: m.modeRestore() }
 	]);
 </script>
 
 <nav class="rail" aria-label={m.stepsLabel()}>
+	<!--
+		Which direction, above the steps rather than inside them. Removing values and
+		putting them back are two tasks that share a window, not two stages of one:
+		the document comes back from the model days after the scrub, so there is no
+		session to continue from.
+	-->
+	<div class="modes" role="group" aria-label={m.modeLabel()}>
+		{#each modes as mode (mode.id)}
+			<button
+				type="button"
+				class="mode"
+				class:on={session.mode === mode.id}
+				aria-pressed={session.mode === mode.id}
+				onclick={() => setMode(mode.id)}
+			>
+				{mode.label}
+			</button>
+		{/each}
+	</div>
+
 	<ol class="steps">
 		{#each steps as step, index (step.id)}
 			{@const open = reachable[step.id]}
@@ -51,7 +100,7 @@
 		{/each}
 	</ol>
 
-	{#if session.files.length}
+	{#if session.mode === 'scrub' && session.files.length}
 		<div class="files">
 			<h2 class="heading">
 				{m.filesTitle()}
@@ -112,6 +161,38 @@
 		border-right: 1px solid var(--border);
 		background: var(--bg-subtle);
 		min-height: 100%;
+	}
+
+	.modes {
+		display: flex;
+		gap: 2px;
+		padding: 2px;
+		border-radius: var(--radius-2);
+		background: var(--surface-active);
+	}
+
+	.mode {
+		flex: 1;
+		padding: var(--space-1) var(--space-2);
+		border: 0;
+		border-radius: var(--radius-1);
+		background: none;
+		color: var(--text-2);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		font-weight: var(--weight-medium);
+		cursor: pointer;
+		transition:
+			background var(--dur-1) var(--ease-out),
+			color var(--dur-1) var(--ease-out);
+	}
+	.mode:hover {
+		color: var(--text);
+	}
+	.mode.on {
+		background: var(--surface);
+		color: var(--text);
+		box-shadow: var(--shadow-1);
 	}
 
 	.steps {

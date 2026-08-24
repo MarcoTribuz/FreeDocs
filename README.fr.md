@@ -114,6 +114,12 @@ paragraphe, le tableau et les styles intacts.
 - **Des chiffres que vous pouvez relancer.** `freedocs benchmark` évalue les
   couches sur un corpus annoté, et l'outil imprime sa propre mise en garde chaque
   fois. → [benchmark](docs/benchmark.md)
+- **Si vous le voulez, le chemin inverse.** `--map` écrit un fichier de clé
+  chiffré, et `freedocs restore` remet les vraies valeurs dans ce que le modèle
+  renvoie. Désactivé par défaut, car c'est la seule chose qui rend un nettoyage
+  réversible : sans lui, la correspondance est détruite à la fin de l'exécution et
+  personne ne peut l'annuler, vous compris.
+  → [le chemin inverse](docs/restore.md)
 
 ## Démarrage
 
@@ -248,6 +254,13 @@ par nature.
   références. C'est fait quand même — laisser le nom ferait échouer le contrôle de
   fuite — et rapporté comme un avertissement qui nomme ce qui a changé.
 - **Un projet de macros ne peut pas être nettoyé, seulement supprimé.**
+- **Un fichier de clé est aussi confidentiel que le document d'origine.** Si vous
+  en demandez un avec `--map`, ce fichier peut remettre chaque valeur retirée. Il
+  est chiffré et refusé dans le dossier de destination ; ensuite, c'est à vous de
+  le gérer : ne l'envoyez jamais avec la copie nettoyée. Il ne peut pas non plus
+  ramener ce qui a été *supprimé* plutôt que remplacé — vignettes, métadonnées,
+  diapositives masquées — car cela n'a jamais reçu de marqueur.
+  → [le chemin inverse](docs/restore.md)
 - **Ce n'est pas une garantie de conformité et il ne prétend jamais que la sortie
   est propre.** `report.CAVEATS` inscrit les limites dans le rapport lui-même.
 

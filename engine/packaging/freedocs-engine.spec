@@ -51,6 +51,16 @@ for package in ("gliner2", "torch", "transformers", "tokenizers", "safetensors")
     except Exception:  # noqa: BLE001 - the ner extra may not be installed
         pass
 
+# The key file's cipher. `core/mapping.py` imports it *inside* the two functions
+# that need it, because the extra is optional and `mapping_unavailable_reason()` is
+# what decides - so PyInstaller sees no import at all, exactly like the NER stack
+# above. Leaving it out produces a bundle whose `capabilities` says a key file is
+# possible and whose first `--map` fails.
+try:
+    hidden += collect_submodules("cryptography")
+except Exception:  # noqa: BLE001 - the restore extra may not be installed
+    pass
+
 # python-stdnum keeps one module per country and looks them up by name at call
 # time, so a static analyser sees none of them.
 hidden += collect_submodules("stdnum")

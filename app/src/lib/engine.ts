@@ -15,6 +15,12 @@ export const UNSUPPORTED_FORMAT = 1;
 export const NEEDS_OCR = 2;
 export const LEAK_DETECTED = 3;
 export const MISSING_DEPENDENCY = 4;
+/**
+ * A restore that wrote its file and did not finish. Deliberately not a leak:
+ * the output *is* there, with a placeholder still visible in it, which is the
+ * opposite handling from a scrub that failed verification and wrote nothing.
+ */
+export const INCOMPLETE_RESTORE = 5;
 
 export interface Capabilities {
 	version: string;
@@ -58,6 +64,22 @@ export interface Capabilities {
 	/** What each detector spec covers, so a menu of them is not three opaque strings. */
 	detector_spec_notes: Record<string, string>;
 	caveats: string[];
+	/**
+	 * Whether this build can write and read a key file.
+	 *
+	 * Asked rather than assumed, and the control is disabled when it is false. The
+	 * cipher is an optional extra, and a window that offered the option and then
+	 * failed on the first attempt is the bug `ocr_unavailable_reason` exists to
+	 * prevent, one feature over.
+	 */
+	mapping_available: boolean;
+	mapping_unavailable_reason: string | null;
+	/**
+	 * What a *restore* does not do. A separate list from `caveats`: a restore's
+	 * limits are not a scrub's, and one merged list would show a reader of either
+	 * screen sentences that do not apply to what they are looking at.
+	 */
+	restore_caveats: string[];
 }
 
 export interface Concern {
@@ -168,6 +190,12 @@ export interface Report {
 	hidden_content_removed: HiddenItem[];
 	warnings: string[];
 	verification: Verification;
+	/**
+	 * Whether a key file was written for this document. A boolean and not a path:
+	 * this report may be attached to a ticket, and where the key lives is the one
+	 * thing about it worth not writing down.
+	 */
+	key_file_written: boolean;
 	caveats: string[];
 }
 
@@ -181,8 +209,57 @@ export interface ScrubResult {
 	hidden_removed?: HiddenItem[];
 	/** Null when no review was requested. */
 	review?: Review | null;
+	/**
+	 * Where the key file went, or null when none was asked for.
+	 *
+	 * The path is here and deliberately not in `report`: this response comes down a
+	 * local pipe to the process that chose the location, while the report is a file
+	 * that may travel.
+	 */
+	key_file?: string | null;
 	report?: Report;
 	error?: { code: number; message: string; data?: unknown };
+}
+
+/** One placeholder that was found in the returned document and replaced. */
+export interface Restored {
+	placeholder: string;
+	entity: string;
+	/** How many times it was found in the returned document. */
+	occurrences: number;
+	/**
+	 * How many times the scrub replaced it in the original. A shortfall is not a
+	 * failure — a model that summarised the document legitimately kept fewer — but
+	 * it is what explains a surprising count.
+	 */
+	expected: number;
+}
+
+/**
+ * What a restore did, and what it could not do.
+ *
+ * `ok: false` does *not* mean nothing was written. A scrub that fails
+ * verification writes nothing, because a nearly-clean document gets sent; a
+ * half-restored one is still the user's best artifact and its defect is visible
+ * in it. So `output` is always a path.
+ */
+export interface RestoreResult {
+	path: string;
+	ok: boolean;
+	output: string;
+	format: string;
+	restored: Restored[];
+	/** In the key file, absent from the returned document. Usually text the model dropped. */
+	not_present: string[];
+	/**
+	 * Placeholder-shaped tokens the key file does not know: a stem the model
+	 * translated, a number it invented. Reported and left alone — matching them
+	 * loosely is how somebody else's value lands in the document.
+	 */
+	unknown_placeholders: string[];
+	warnings: string[];
+	problems: { placeholder: string; entity: string; kind: string }[];
+	report?: Record<string, unknown>;
 }
 
 export interface EntityInfo {
@@ -320,6 +397,26 @@ export interface ScrubOptions {
 	 * report, not to a log.
 	 */
 	includeText?: boolean;
+	/**
+	 * Where to write the encrypted key file, so the scrub can be undone later.
+	 *
+	 * Omitted means no key file, which is the default and leaves the run
+	 * irreversible by anyone. A directory gets one file per document; the engine
+	 * names them.
+	 */
+	map?: string | null;
+	/**
+	 * What opens the key file. Required alongside `map` — there is no unencrypted
+	 * form of it, and the engine refuses the pair rather than quietly writing
+	 * nothing. Held only for the duration of the call and never stored.
+	 */
+	mapPassphrase?: string | null;
+	/**
+	 * Permit the key file inside the output directory. The engine refuses that by
+	 * default, because the realistic accident is zipping the output folder and
+	 * sending the scrubbed document along with the key to undo it.
+	 */
+	mapInOutputDir?: boolean;
 }
 
 /**
@@ -420,6 +517,27 @@ export function scrub(
 	);
 }
 
+/**
+ * Put one document's values back from its key file.
+ *
+ * One path, not a list: a key file describes one document, so a batch would
+ * either apply one map to several documents or need a map per path and stop being
+ * one request.
+ */
+export function restore(
+	path: string,
+	map: string,
+	passphrase: string,
+	outputDir: string
+): Promise<RestoreResult> {
+	return request<RestoreResult>('restore', {
+		path,
+		map,
+		passphrase,
+		output_dir: outputDir
+	});
+}
+
 function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<string, unknown> {
 	const params: Record<string, unknown> = { ...base };
 	if (options.keep?.length) params.keep = options.keep;
@@ -438,6 +556,14 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	// Only alongside a model: a host on its own configures nothing, and sending it
 	// anyway would make an unused field look like it had an effect.
 	if (options.review && options.reviewHost) params.review_host = options.reviewHost;
+	// Both or neither. A `map` without a passphrase is refused by the engine, and
+	// sending one alone would make an unused field look like it had an effect — the
+	// same rule the review host above follows.
+	if (options.map && options.mapPassphrase) {
+		params.map = options.map;
+		params.map_passphrase = options.mapPassphrase;
+		if (options.mapInOutputDir) params.map_in_output_dir = true;
+	}
 	return params;
 }
 

@@ -1,9 +1,17 @@
 """What to do with each finding, and what to put in its place.
 
-FreeDocs performs *anonymisation*, not pseudonymisation: the mapping from
-placeholder back to original value lives in memory for the duration of one run
-and is then destroyed. Nothing is written to disk, so there is no key to steal
-and the output is not personal data under GDPR Art. 4(5) reasoning.
+FreeDocs performs *anonymisation* by default: the mapping from placeholder back
+to original value lives in memory for the duration of one run and is then
+destroyed. Nothing is written, so there is no key to steal and the output is not
+personal data under GDPR Art. 4(5) reasoning.
+
+A caller can turn one run into *pseudonymisation* instead, by naming a path and a
+passphrase for an encrypted key file - see ``core/mapping.py`` and
+``restore.py``. Nothing about this module changes when they do: the key file is
+composed from a finished ``ScrubResult``, whose ``Decision`` rows still carry both
+halves, so :class:`SurrogateAllocator` is not consulted and still forgets on the
+same line. Without that explicit request the scrub remains irreversible by
+anyone, including the person who ran it.
 
 That choice has a cost worth stating plainly: removing direct identifiers does
 not remove re-identification risk from quasi-identifiers. A document stripped of
@@ -199,7 +207,18 @@ class SurrogateAllocator:
     Stability matters within a document: the same value must always become the
     same placeholder, or the text stops making sense. Forgetting matters between
     documents: the counter and the value map are process-local and cleared by
-    :meth:`close`, which is what makes the scrub irreversible.
+    :meth:`close`, so no re-identification key can survive in a live process -
+    including through a crash, since ``pipeline.scrub`` closes in a ``finally``.
+
+    An opt-in key file does not change that and deliberately does not go through
+    here. ``core/mapping.key_map_from`` reads the finished ``ScrubResult``, which
+    holds the original in ``Decision.finding.text`` and the placeholder in
+    ``Decision.replacement``. So there is no accessor on this class to expose, no
+    reverse index to keep, and nothing here to reopen after :meth:`close`.
+
+    Note the mapping is also lossy on purpose: :func:`_normalise` collapses case
+    and internal whitespace, so a key file can only put back one spelling of a
+    value that appeared in several. ``MapEntry.variants`` counts them and says so.
     """
 
     def __init__(self, labels: dict[EntityType, str] | None = None) -> None:

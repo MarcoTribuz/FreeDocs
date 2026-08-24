@@ -138,3 +138,76 @@ def test_clean_document_is_returned_unchanged(tmp_path: Path):
     result = l1_scrubber().scrub_file(path)
     assert result.output.decode("utf-8") == text
     assert not result.removed
+
+
+# --- the key file, which is the one thing that can undo all of this -----------
+
+
+def test_no_key_file_is_written_by_default(source: Path, tmp_path: Path):
+    """The invariant this whole file is about, stated for the reverse direction.
+
+    Scrubbing writes no re-identification key unless a caller names a path and a
+    passphrase. Nothing in the pipeline can produce one: it is composed from a
+    finished result by whichever front end asked, so a scrub through the library
+    cannot leave one behind at all.
+    """
+    l1_scrubber().scrub_file(source)
+    assert list(tmp_path.rglob("*.fdmap")) == []
+
+
+def test_the_allocator_still_forgets_when_a_key_file_is_built(source: Path):
+    """Building a key file must not reopen the thing whose job is to forget.
+
+    It reads `ScrubResult.decisions`, which survives the run; the allocator is
+    closed in `pipeline.scrub`'s `finally` either way. If this ever needed an
+    accessor on `SurrogateAllocator`, the design would have gone wrong.
+    """
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    from freedocs.core.mapping import key_map_from
+
+    result = l1_scrubber().scrub_file(source)
+    key_map = key_map_from(result, placeholder_language="en")
+    assert key_map.entries, "the map should carry what the scrub removed"
+
+
+def test_a_key_file_on_disk_holds_no_canary_in_the_clear(source: Path, tmp_path: Path):
+    """The file exists to be readable *with* the passphrase and useless without.
+    Searched as bytes, like the PDF and OOXML leak checks: an encoding that
+    happened to differ would make a plaintext key file look encrypted."""
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    from freedocs.core.mapping import key_map_from, write_key_map
+
+    result = l1_scrubber().scrub_file(source)
+    path = tmp_path / "keys.fdmap"
+    write_key_map(path, key_map_from(result, placeholder_language="en"), "correct horse battery")
+
+    raw = path.read_bytes()
+    leaked = [name for name, value in CANARIES.items() if value.encode("utf-8") in raw]
+    assert not leaked, f"key file exposes {leaked}"
+
+
+def test_a_restore_puts_every_canary_back(source: Path, tmp_path: Path):
+    """The round trip, end to end, over the same document the leak checks use.
+
+    Its value here rather than only in `test_restore.py`: this file's canaries are
+    the ones with real check digits, so a restore that mangled a value would be
+    caught by the value not matching rather than by a length.
+    """
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    from freedocs.core.mapping import key_map_from, read_key_map, write_key_map
+    from freedocs.restore import Restorer
+
+    result = l1_scrubber().scrub_file(source)
+    scrubbed = tmp_path / "clean.txt"
+    scrubbed.write_bytes(result.output)
+    key_path = tmp_path / "keys.fdmap"
+    write_key_map(
+        key_path, key_map_from(result, placeholder_language="en"), "correct horse battery"
+    )
+
+    restored = Restorer(key_map=read_key_map(key_path, "correct horse battery")).restore(scrubbed)
+    assert restored.ok, [problem.describe() for problem in restored.problems]
+
+    text = restored.output.decode("utf-8")
+    removed = {finding.text for finding in result.removed}
+    assert not [value for value in removed if value not in text]

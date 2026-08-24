@@ -13,6 +13,15 @@ file to review.
 The allocator is closed in a ``finally`` block, so the placeholder-to-original
 mapping is destroyed even when a stage raises. That is deliberate: a crashed run
 must not leave a re-identification key in a live process.
+
+An opt-in key file changes nothing here, and that is why this module does not
+import ``core/mapping.py``. A caller who asked for one builds it from the
+``ScrubResult`` this function returns, whose ``Decision`` rows carry the original
+in ``finding.text`` and the placeholder in ``replacement``. So the reverse
+direction is a front-end decision about a finished result, not a branch inside
+the pipeline, and the line that destroys the allocator's mapping stays exactly
+where it is. The reverse path itself lives in ``restore.py``, which knows its own
+five stages and shares four of these names.
 """
 
 from __future__ import annotations

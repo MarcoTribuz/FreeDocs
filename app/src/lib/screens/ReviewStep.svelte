@@ -20,6 +20,7 @@
 	import Skeleton from '$lib/components/Skeleton.svelte';
 	import TextField from '$lib/components/TextField.svelte';
 	import AdvancedPanel from './AdvancedPanel.svelte';
+	import KeyFilePanel from './KeyFilePanel.svelte';
 	import DocumentText from './DocumentText.svelte';
 	import FindingDetail from './FindingDetail.svelte';
 	import FindingsTable from './FindingsTable.svelte';
@@ -180,6 +181,11 @@
 					</p>
 				{/if}
 			</Card>
+
+			<!-- The reverse path, decided before the run: the engine writes the key
+			     file inside the scrub request, which is what keeps the mapping from
+			     ever crossing the pipe into this window. -->
+			<KeyFilePanel />
 
 			{#if inspection.findings.length}
 				<Card padding="tight">

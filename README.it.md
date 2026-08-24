@@ -115,6 +115,11 @@ la tabella e gli stili intatti.
 - **Numeri che puoi rieseguire.** `freedocs benchmark` misura i layer su un
   corpus annotato, e lo strumento stampa il proprio caveat ogni volta.
   → [benchmark](docs/benchmark.md)
+- **Se vuoi, anche la strada di ritorno.** `--map` scrive un file chiave cifrato,
+  e `freedocs restore` rimette i valori veri in ciò che il modello restituisce.
+  Disattivato per default, perché è l'unica cosa che rende una pulizia
+  annullabile: senza, la mappa viene distrutta alla fine del run e nessuno può
+  annullarla, tu compreso. → [il percorso inverso](docs/restore.md)
 
 ## Partire subito
 
@@ -244,6 +249,12 @@ per natura.
   Viene fatto comunque — lasciare il nome farebbe fallire il controllo di fuga — e
   riportato come warning che dice cosa è cambiato.
 - **Un progetto di macro non può essere ripulito, solo rimosso.**
+- **Un file chiave è riservato quanto il documento originale.** Se lo chiedi con
+  `--map`, quel file può rimettere ogni valore rimosso. È cifrato e viene rifiutato
+  dentro la cartella di destinazione, e da lì in poi sta a te: non spedirlo mai
+  insieme alla copia pulita. Non può nemmeno riportare ciò che è stato *rimosso*
+  invece che sostituito — miniature, metadati, slide nascoste — perché a quelle non
+  è mai stato dato un segnaposto. → [il percorso inverso](docs/restore.md)
 - **Non è una garanzia di conformità e non dichiara mai che l'output è pulito.**
   `report.CAVEATS` mette i limiti nel report stesso.
 

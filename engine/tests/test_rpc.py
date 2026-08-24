@@ -1089,7 +1089,221 @@ def test_the_stage_names_are_a_closed_vocabulary():
     renders as its wire string in the middle of a translated sentence.
     """
     from freedocs.pipeline import INSPECT_STAGES, REVIEW_STAGE, STAGES
+    from freedocs.restore import RESTORE_STAGES
 
     assert STAGES == ("router", "extract", "detect", "policy", "write-back", "verify")
     assert REVIEW_STAGE == "review"
     assert set(INSPECT_STAGES) <= set(STAGES)
+    assert RESTORE_STAGES == ("router", "extract", "match", "write-back", "verify")
+    # The reverse path adds exactly one word to the vocabulary the catalogues have
+    # to carry. Pinned, because a second one arriving unnoticed is a wire string
+    # rendered raw in the middle of a translated sentence.
+    assert set(RESTORE_STAGES) - set(STAGES) == {"match"}
+
+
+# --- the key file and the reverse path ---------------------------------------
+#
+# The protocol is all the window can see, so these assert response shape and the
+# two refusals a caller can act on. The cipher itself is `test_mapping.py`'s.
+
+PASSPHRASE = "correct horse battery staple"
+
+
+def test_capabilities_publishes_whether_a_key_file_is_possible(session: Session):
+    """So the window can disable the control instead of offering it and failing -
+    which is the bug `ocr_unavailable_reason()` exists to prevent, one feature
+    over."""
+    caps = result_of(session, "capabilities")
+    assert isinstance(caps["mapping_available"], bool)
+    assert caps["mapping_available"] == (caps["mapping_unavailable_reason"] is None)
+    # A separate list from `caveats`: a restore's limits are not a scrub's, and one
+    # merged list would show a reader of either screen sentences that do not apply.
+    assert caps["restore_caveats"] and caps["restore_caveats"] != caps["caveats"]
+
+
+def test_scrub_without_map_reports_no_key_file(session: Session, document: Path, tmp_path: Path):
+    result = result_of(session, "scrub", paths=[str(document)], output_dir=str(tmp_path / "out"))[
+        "results"
+    ][0]
+    assert result["key_file"] is None
+    assert result["report"]["key_file_written"] is False
+    assert list(tmp_path.rglob("*.fdmap")) == []
+
+
+def test_a_map_without_a_passphrase_is_refused(session: Session, document: Path, tmp_path: Path):
+    """There is no unencrypted form of this file, so quietly writing nothing would
+    be worse than saying so."""
+    error = error_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        map=str(tmp_path / "keys"),
+    )
+    assert error["code"] == INVALID_REQUEST
+
+
+def test_a_map_inside_the_output_directory_is_refused(
+    session: Session, document: Path, tmp_path: Path
+):
+    out_dir = tmp_path / "out"
+    error = error_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(out_dir),
+        map=str(out_dir / "keys"),
+        map_passphrase=PASSPHRASE,
+    )
+    assert error["code"] == INVALID_REQUEST
+    # Refused before anything was read, so there is nothing to undo by hand.
+    assert not out_dir.exists() or list(out_dir.iterdir()) == []
+
+
+def _scrub_with_key(session: Session, document: Path, tmp_path: Path) -> dict:
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    return result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        map=str(tmp_path / "keys"),
+        map_passphrase=PASSPHRASE,
+    )["results"][0]
+
+
+def test_scrub_says_where_the_key_file_went(session: Session, document: Path, tmp_path: Path):
+    """The path, unlike in the JSON report: this response goes down a local pipe to
+    the process that chose the location, and a window that cannot say where the key
+    is is a window nobody can find it from."""
+    result = _scrub_with_key(session, document, tmp_path)
+    assert Path(result["key_file"]).is_file()
+    assert result["report"]["key_file_written"] is True
+    # The report on disk says a key exists and deliberately not where.
+    assert "key_file" not in str(result["report"]).replace("key_file_written", "")
+
+
+def test_restore_returns_the_document(session: Session, document: Path, tmp_path: Path):
+    scrubbed = _scrub_with_key(session, document, tmp_path)
+    returned = tmp_path / "returned.txt"
+    returned.write_text(
+        Path(scrubbed["output"]).read_text(encoding="utf-8") + "\nplus [PERSONA_1].\n",
+        encoding="utf-8",
+    )
+
+    result = result_of(
+        session,
+        "restore",
+        path=str(returned),
+        map=scrubbed["key_file"],
+        passphrase=PASSPHRASE,
+        output_dir=str(tmp_path / "back"),
+    )
+    assert result["ok"] is True
+    assert result["format"] == "plaintext"
+    assert {entry["placeholder"] for entry in result["restored"]}
+    # The token the model translated is reported and left alone.
+    assert result["unknown_placeholders"] == ["[PERSONA_1]"]
+    assert CANARIES["IBAN"] in Path(result["output"]).read_text(encoding="utf-8")
+
+
+def test_the_restore_report_carries_no_confidential_values(
+    session: Session, document: Path, tmp_path: Path
+):
+    scrubbed = _scrub_with_key(session, document, tmp_path)
+    result = result_of(
+        session,
+        "restore",
+        path=str(scrubbed["output"]),
+        map=scrubbed["key_file"],
+        passphrase=PASSPHRASE,
+        output_dir=str(tmp_path / "back"),
+    )
+    serialised = json.dumps(result["report"])
+    assert CANARIES["IT_CODICE_FISCALE"] not in serialised
+    assert CANARIES["IBAN"] not in serialised
+
+
+def test_a_wrong_passphrase_leaks_neither_it_nor_a_value(
+    session: Session, document: Path, tmp_path: Path
+):
+    """`handle` renders an unexpected exception as its own message straight into a
+    response, so this is the test that keeps `core/mapping.py` honest."""
+    scrubbed = _scrub_with_key(session, document, tmp_path)
+    response = handle(
+        session,
+        json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": 9,
+                "method": "restore",
+                "params": {
+                    "path": scrubbed["output"],
+                    "map": scrubbed["key_file"],
+                    "passphrase": "not the passphrase at all",
+                    "output_dir": str(tmp_path / "back"),
+                },
+            }
+        ),
+    )
+    blob = json.dumps(response)
+    assert response["error"]["code"] == INVALID_REQUEST
+    assert "not the passphrase at all" not in blob
+    assert CANARIES["IBAN"] not in blob
+    assert not (tmp_path / "back" / "scheda.txt").exists()
+
+
+def test_restore_needs_a_passphrase(session: Session, tmp_path: Path):
+    target = tmp_path / "in.txt"
+    target.write_text("[PERSON_1]\n", encoding="utf-8")
+    error = error_of(
+        session,
+        "restore",
+        path=str(target),
+        map=str(target),
+        output_dir=str(tmp_path / "back"),
+    )
+    assert error["code"] == INVALID_REQUEST
+
+
+def test_restore_announces_its_stages(document: Path, tmp_path: Path):
+    """One request, and the notifications a stepper would be drawn from."""
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    out = run(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "scrub",
+                "params": {
+                    "paths": [str(document)],
+                    "output_dir": str(tmp_path / "out"),
+                    "detectors": "l1",
+                    "map": str(tmp_path / "keys"),
+                    "map_passphrase": PASSPHRASE,
+                },
+            },
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "restore",
+                "params": {
+                    "path": str(tmp_path / "out" / "scheda.txt"),
+                    "map": str(tmp_path / "keys" / "scheda.fdmap"),
+                    "passphrase": PASSPHRASE,
+                    "output_dir": str(tmp_path / "back"),
+                },
+            },
+        ]
+    )
+    stages = [
+        json.loads(line)["params"]
+        for line in out.getvalue().splitlines()
+        if line and json.loads(line).get("method") == "stage"
+    ]
+    restore_stages = [item["stage"] for item in stages if item["count"] == 5]
+    assert restore_stages[0] == "router"
+    assert restore_stages[-1] == "verify"
+    assert "match" in restore_stages
+    # Same guard as the scrub's: there is no honest overall fraction here either.
+    assert not any("percent" in item for item in stages)

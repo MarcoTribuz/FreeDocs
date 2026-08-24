@@ -72,7 +72,24 @@ FLOOR_VENV = ".venv-310"
 #: without it, and detection quality is measured by `freedocs benchmark` rather
 #: than asserted here. The build adds it, because a bundle whose smoke test
 #: cannot load the model fails on its first real document.
-EXTRAS = ["uv", "sync", "--extra", "dev", "--extra", "pdf", "--extra", "ooxml"]
+#:
+#: `restore` is present for the opposite reason. It is one small wheel, and the
+#: checks it enables are not quality measurements that skip harmlessly: the key
+#: file is the only artifact this tool writes that could hand back every value it
+#: removed, and a gate that skipped "no value is readable in the key file" would
+#: be skipping the one assertion that makes the feature safe.
+EXTRAS = [
+    "uv",
+    "sync",
+    "--extra",
+    "dev",
+    "--extra",
+    "pdf",
+    "--extra",
+    "ooxml",
+    "--extra",
+    "restore",
+]
 
 GREEN, RED, YELLOW, DIM, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 #: Move up one line and erase it, so a running step is replaced by its result

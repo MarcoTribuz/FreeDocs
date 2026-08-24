@@ -36,6 +36,10 @@ German documents are not. A Tauri app in `app/` drives it
 over a JSON pipe, and an opt-in local-LLM pass reviews the output. After reading
 the preview a caller can excuse one occurrence or name a value the detectors
 missed, through `core/overrides.py`, and stage 6 verifies the result either way.
+There is also an opt-in reverse path: `scrub --map` writes an encrypted key file
+and `freedocs restore` puts the values back into whatever came back from the
+model. Off by default, because it is the one thing that makes a scrub reversible —
+see *The reverse path*.
 Anything further is new work, not a remaining milestone.
 
 **The window was rebuilt.** Three steps, a design system of its own, the
@@ -52,7 +56,7 @@ All Python work happens in `engine/`.
 
 ```bash
 cd engine
-uv sync --extra dev --extra pdf --extra ooxml --extra ner   # Python 3.12, pinned
+uv sync --extra dev --extra pdf --extra ooxml --extra ner --extra restore   # Python 3.12, pinned
 
 uv run pytest -q                       # full suite (~675 tests, ~30s with model+OCR)
 uv run pytest -q -m "not slow"         # skip the model-backed tests (~1s)
@@ -63,6 +67,8 @@ uv run ruff check . && uv run ruff format --check .
 
 uv run freedocs inspect FILE           # report findings, write nothing
 uv run freedocs scrub FILE -o out/     # write a scrubbed copy
+uv run freedocs scrub FILE -o out/ --map keys/   # ... plus an encrypted key file
+uv run freedocs restore FILE --map keys/FILE.fdmap -o back/   # put the values back
 uv run freedocs entities               # list supported entity types
 uv run freedocs countries              # list countries and what each one gets
 uv run freedocs doctor                 # what this machine can actually do
@@ -1167,6 +1173,118 @@ matched in the handler — the detectors already know what an email looks like.
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.
 Only ever added, never removed.
+
+## The reverse path
+
+`scrub --map` writes an encrypted key file and `freedocs restore` puts the values
+back into whatever came back from the model. `core/mapping.py` owns the file,
+`restore.py` owns five stages of its own — `router -> extract -> match ->
+write-back -> verify`. Off by default, an optional `restore` extra for the cipher,
+and `docs/restore.md` is the long version.
+
+**The default did not change and neither did the allocator.**
+`SurrogateAllocator` gains no accessor and `pipeline.py` does not import
+`core/mapping.py`. The key file is built from a finished `ScrubResult`, whose
+`Decision` rows still carry the original in `finding.text` and the placeholder in
+`replacement` after `allocator.close()` has run in the `finally`. So the reverse
+direction is a front-end decision about a finished result, not a branch inside the
+pipeline — and if this ever needs a method on the allocator, the design has gone
+wrong.
+
+**Restore's verification asks two questions, and the second is the load-bearing
+one.** Placeholder gone *and* value present. `PdfTextHandler.write_back` stamps a
+redaction annotation rather than splicing, and PyMuPDF silently drops a
+replacement that does not fit — and a real value is almost always longer than the
+token it replaces. So on a PDF the common failure is the token removed and the
+value never written, which a one-directional check reads as success. Same class as
+`harden_for_verification()`, and the reason PDF is the weak format here while
+plaintext and the three OOXML formats round-trip cleanly.
+
+**An incomplete restore writes its file, which is the opposite of stage 6.** A
+scrub that leaks must write nothing, because a nearly-clean document gets sent. A
+restore that left one `[IBAN_1]` behind has produced the caller's best artifact and
+its defect is visible in it. `EXIT_INCOMPLETE`/`INCOMPLETE_RESTORE` are both `5` by
+intent — as `3` already matches — and a test pins the pair. Do not "fix" this into
+consistency.
+
+**Matching is literal, and the unknown list is the honest half.** A translated stem
+(`[PERSONA_1]` out of an English scrub), an invented number, a reformatted token:
+each is reported through `PLACEHOLDER_SHAPE` and left alone. Guessing which entry a
+damaged token meant would write somebody else's value into a position nobody chose,
+which is worse than a visible placeholder. No tolerant mode, not even behind a
+flag. `[PERSON_1]` cannot prefix-match `[PERSON_11]` because the closing bracket
+ends the token, which is the one place the brackets earn their keep and is pinned
+by a test.
+
+**The round trip is lossy on spelling, and it says so.** `policy._normalise`
+casefolds and collapses whitespace, so `Mario Rossi`, `MARIO ROSSI` and
+`Mario  Rossi` share one placeholder. `key_map_from` keeps the **first in document
+order** — `_decide` walks findings in span order — and `MapEntry.variants` counts
+the collapse so both the write and the restore warn about it.
+
+**The matcher is not a detector and must not move into `detect/`.** It produces no
+`Finding`, enters no registry, resolves no overlaps by precedence. It is closer to
+`core/overrides.py`: a mechanism acting on what a caller already decided. Under
+`detect/` it would eventually be given a confidence and a precedence, and then it
+is a detector nobody measured.
+
+**Restore does not call `scrub_hidden()` and must not use the RPC extraction
+cache.** There is nothing to strip, and the returned document's metadata belongs to
+whoever produced it — so restore cannot reuse `Scrubber.read`, which calls it, and
+must not be routed through `rpc.Session.extraction`, whose cache holds extractions
+taken *with* hidden content already deleted. Both are stated in the code so nobody
+unifies them.
+
+**No exception in `core/mapping.py` may quote the passphrase or a value.**
+`rpc.handle` renders an unexpected exception as `f"{type(exc).__name__}: {exc}"`
+straight into a response, so a message that carried either would be the leak this
+tool exists to prevent. Same discipline as `Leak.describe()`, and
+`test_rpc.py::test_a_wrong_passphrase_leaks_neither_it_nor_a_value` is the proof.
+
+**There is no plaintext form of the key file and no `--map-passphrase` argument.**
+A `--map` that degraded when the extra was missing would write the key in the clear
+at the moment nobody was watching; a passphrase on a command line is in the shell
+history and visible through `ps`. Three sources — a file, `FREEDOCS_MAP_PASSPHRASE`,
+an interactive prompt — and no terminal with neither of the first two set is a
+usage error rather than a silent skip.
+
+**The key file is refused inside `--output-dir`** without `--map-in-output-dir`.
+The realistic accident is not theft: it is zipping the output folder and sending
+the scrubbed document with the key to undo it. `refuse_inside` lives in
+`core/mapping.py` so the CLI and the pipe cannot disagree, and the check runs
+before the first file is read.
+
+**`mapping_unavailable_reason()` is the single authority**, exactly as
+`ocr_unavailable_reason()` is: `capabilities` publishes it, `doctor` renders it,
+and both write and read raise from it. And **`packaging/build.py`'s smoke test must
+round-trip a real key file** — `find_spec` is true of a bundle whose cipher never
+made it in, which is verbatim the bug the NER half of that smoke test was written
+after.
+
+**The report says a key file exists and never where it is.** `build_report` takes
+`key_file: bool`; the *path* goes only in the RPC response, which travels down a
+local pipe to the process that chose the location. A report may be attached to a
+ticket.
+
+**The window gained a mode, not a fourth step, and still holds no rules.** A
+returned document arrives days after the scrub, so there is nothing to continue
+from; each mode owns its own step order in `ORDER` and reachability stays derived.
+The key-file controls sit with the *scrub* options because the engine writes the
+file inside the `scrub` request — which is what keeps the mapping from ever
+crossing the pipe into the window. Neither passphrase touches `localStorage`: they
+live in `session` for one call and are cleared in a `finally`, mode changes
+included. `MIN_PASSPHRASE` in the window exists only so the engine's refusal is not
+the first the user hears of it; the engine wins.
+
+**Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
+entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
+of this feature entirely — read the note under *The desktop app* before adding a
+"show me where" affordance.
+
+**The `restore` extra is in the CI extras and `ner` still is not.** It is one small
+wheel, and the checks it enables are not quality measurements that skip harmlessly:
+a gate that skipped "no value is readable in the key file" would be skipping the
+one assertion that makes the feature safe.
 
 ## Conventions
 

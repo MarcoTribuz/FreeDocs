@@ -82,6 +82,24 @@
 				</ul>
 			{/if}
 
+			{#if result.key_file}
+				<!-- Said again here, after the fact, because this is the screen the
+				     reader is on when they go looking for the file. The warning is not
+				     repeated: it was made at the moment of the decision, which is where
+				     a warning belongs. -->
+				<p class="path">
+					<span class="keylabel">{m.keyFileWritten()}</span>
+					<span class="mono">{result.key_file}</span>
+					<Button
+						variant="link"
+						icon="folder-open"
+						onclick={() => revealItemInDir(result.key_file!)}
+					>
+						{m.openFolder()}
+					</Button>
+				</p>
+			{/if}
+
 			{#if result.hidden_removed?.length}
 				<!-- What the user never saw in the first place, which is where the leaks
 				     they do not expect actually live. -->
@@ -188,6 +206,11 @@
 	.hint {
 		font-size: var(--text-sm);
 		color: var(--text-3);
+	}
+
+	.keylabel {
+		font-size: var(--text-sm);
+		font-weight: var(--weight-medium);
 	}
 
 	.path {

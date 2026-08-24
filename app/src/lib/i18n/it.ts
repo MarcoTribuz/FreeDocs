@@ -232,6 +232,7 @@ export const it = {
 		policy: () => 'decido',
 		'write-back': () => 'scrivo la copia',
 		verify: () => 'cerco nella copia',
+		match: () => 'cerco i segnaposto',
 		review: () => 'seconda opinione'
 	},
 	stageOf: ({ name, index, count }) => `${name} — passo ${index} di ${count}`,
@@ -242,6 +243,74 @@ export const it = {
 	 * mai nel tipo, perché uno stem sta per dodici paesi e un nome nazionale
 	 * sarebbe sbagliato su undici. Quindi "Numero IVA", non "Partita IVA".
 	 */
+	// ---- il percorso inverso ------------------------------------------------
+	modeLabel: () => 'Cosa fare',
+	modeScrub: () => 'Rimuovere',
+	modeRestore: () => 'Rimettere',
+	modeAnnounce: ({ name }) => `Passato a ${name}`,
+
+	keyFileTitle: () => 'File chiave',
+	keyFileHint: () =>
+		'Scrive un file cifrato che permette di rimettere i valori rimossi in ciò ' +
+		'che il modello restituisce. Senza, questa pulizia non è annullabile da nessuno.',
+	keyFileEnable: () => 'Scrivi anche un file chiave',
+	keyFileWhere: () => 'Dove metterlo',
+	keyFileChooseWhere: () => 'Scegli una cartella',
+	keyFilePassphrase: () => 'Passphrase',
+	keyFileConfirm: () => 'Ripeti la passphrase',
+	keyFileUnavailable: () => 'Questa build non può scrivere un file chiave.',
+	keyFileNeedsDirectory: () => 'Scegli una cartella fuori da quella di destinazione.',
+	keyFileNeedsPassphrase: ({ min }) => `Almeno ${min} caratteri.`,
+	keyFileMismatch: () => 'Le due passphrase non corrispondono.',
+	keyFileDanger: () =>
+		'Questo file è riservato quanto il documento originale. Tienilo lontano ' +
+		'dalla copia pulita, e non spedire mai i due insieme.',
+	keyFileWritten: () => 'File chiave',
+	chooseKeyDirectory: () => 'Dove mettere il file chiave',
+	chooseKeyFile: () => 'Scegli un file chiave',
+	keyFileFilter: () => 'File chiave FreeDocs',
+
+	stepRestoreFile: () => 'Documento e chiave',
+	restoreTitle: () => 'Rimetti i valori',
+	restoreHint: () =>
+		'Scegli ciò che è tornato dal modello, e il file chiave della pulizia che lo ha prodotto.',
+	restoreDocument: () => 'Documento tornato dal modello',
+	restoreChooseDocument: () => 'Scegli un documento',
+	restoreKey: () => 'File chiave',
+	restoreChooseKey: () => 'Scegli un file chiave',
+	restorePassphrase: () => 'Passphrase',
+	restoreNeedsDocument: () => 'Scegli il documento che è tornato.',
+	restoreNeedsKey: () => 'Scegli il file chiave di quella pulizia.',
+	restoreNeedsPassphrase: () => 'Scrivi la passphrase di quel file chiave.',
+	restoreRun: () => 'Rimetti i valori',
+	restoring: () => 'Rimetto i valori…',
+	restoreAgain: () => 'Rimetti in un altro',
+
+	restoreResultTitle: () => 'Cosa è tornato',
+	restoredSummary: ({ values, occurrences }) =>
+		`${values} ${values === 1 ? 'valore rimesso' : 'valori rimessi'}, in ` +
+		`${occurrences} ${occurrences === 1 ? 'punto' : 'punti'}`,
+	restoreNothingMatched: () =>
+		'Nessun segnaposto di questo file chiave era nel documento.',
+	restoreNotPresentTitle: () => 'Non in questo documento',
+	restoreNotPresentHint: () =>
+		'Erano nel file chiave e non in ciò che è tornato: di solito testo che il modello ha eliminato.',
+	restoreUnknownTitle: () => 'Lasciati stare',
+	restoreUnknownHint: () =>
+		'Sembrano segnaposto e questo file chiave non li conosce. Indovinare quale ' +
+		'valore intendessero metterebbe i dati sbagliati nel documento, quindi sono stati lasciati così.',
+	restoreProblemsTitle: () => 'Non sono tornati',
+	restoreVerified: () => 'Il documento è stato riaperto, e ogni valore è arrivato.',
+	restoreIncomplete: ({ count }) =>
+		`${count} ${count === 1 ? 'valore non è' : 'valori non sono'} tornato. ` +
+		'Il documento è stato scritto comunque: ciò che manca è visibile dentro.',
+	restoreCaveatsTitle: () => 'Cosa rimettere i valori non fa',
+
+	announceRestored: ({ count }) =>
+		`Finito. ${count} ${count === 1 ? 'valore rimesso' : 'valori rimessi'}.`,
+	announceRestoredWithProblems: ({ count }) =>
+		`Finito, ma ${count} ${count === 1 ? 'valore non è' : 'valori non sono'} tornato.`,
+
 	entity: {
 		PERSON: () => 'Persona',
 		ORGANISATION: () => 'Azienda',
