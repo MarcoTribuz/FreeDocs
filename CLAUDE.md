@@ -1261,6 +1261,17 @@ round-trip a real key file** — `find_spec` is true of a bundle whose cipher ne
 made it in, which is verbatim the bug the NER half of that smoke test was written
 after.
 
+**A handler's warning quotes a value in this direction, so the restore report
+carries a count instead.** PyMuPDF's "does not fit the space its original occupied"
+names a *placeholder* during a scrub and the *original value* during a restore,
+because in the second case the value is what is being written. So
+`build_restore_report` emits `handler_warnings: N` rather than the prose, and the
+warnings themselves stay on the console and the local pipe — the channel
+`inspect` already sends matched text over. `verification.problems` carries the
+actionable half value-free. Found by writing the PDF test: a plaintext round trip
+cannot show it, because plaintext never warns, and
+`test_the_restore_report_carries_no_values` passed over the hole.
+
 **The report says a key file exists and never where it is.** `build_report` takes
 `key_file: bool`; the *path* goes only in the RPC response, which travels down a
 local pipe to the process that chose the location. A report may be attached to a

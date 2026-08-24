@@ -244,7 +244,15 @@ def build_restore_report(result: RestoreResult) -> dict[str, Any]:
         },
         "not_present": list(result.unused),
         "unknown_placeholders": list(result.unknown),
-        "warnings": list(result.warnings),
+        # Deliberately **not** `result.warnings`. In this direction a handler's
+        # own prose quotes the text it was writing, and the text it was writing is
+        # the original value: PyMuPDF's "does not fit the space its original
+        # occupied" warning names the IBAN it dropped. That is fine on the console
+        # and down the local pipe - the same channel `inspect` sends matched text
+        # over - and it is not fine in a file that may be attached to a ticket.
+        # The count says a compromise happened; `verification.problems` names which
+        # value failed, value-free, which is the part a reader can act on.
+        "handler_warnings": len(result.warnings),
         "verification": {
             "passed": result.ok,
             "problems": [
