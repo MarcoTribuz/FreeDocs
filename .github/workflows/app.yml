@@ -35,8 +35,19 @@ on:
 # PyInstaller cannot cross-compile — so an Intel bundle needs an Intel machine,
 # paid for or self-hosted. Until there is one, x86_64 macOS is untested rather
 # than quietly built from the wrong architecture.
+# Read-only by default. The one job here needs more - `tauri-action` opens a
+# draft release on a tag - so it raises `contents: write` on itself, which is
+# the point of declaring the floor here: the elevated scope is visible at the
+# job that uses it instead of being the silent default for everything.
+permissions:
+  contents: read
+
 jobs:
   bundle:
+    # Raised from the workflow's read-only default because `tauri-action` creates
+    # the draft release. Nothing else in this job writes to the repository.
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -61,7 +72,7 @@ jobs:
     env:
       BUNDLES: ${{ matrix.runner == 'ubuntu-22.04' && '--bundles deb' || '' }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # Tauri needs the system webview and its build dependencies. macOS and
       # Windows ship one; Linux does not.
@@ -73,22 +84,22 @@ jobs:
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf \
             tesseract-ocr
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
         with:
           targets: ${{ matrix.target }}
 
       # Shared by the test compile below and the release build after it, so the
       # cargo test step costs a dev-profile link rather than a cold dependency
       # tree on every run.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: app/src-tauri
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           enable-cache: true
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 22
           cache: npm
@@ -96,7 +107,7 @@ jobs:
 
       - name: Install the engine
         working-directory: engine
-        run: uv sync --extra dev --extra pdf --extra ooxml --extra ner --extra restore
+        run: uv sync --locked --extra dev --extra pdf --extra ooxml --extra ner --extra restore
 
       # The engine's own tests gate the bundle: shipping an app around a broken
       # engine wastes everyone's time downloading it.
@@ -144,7 +155,7 @@ jobs:
       # This repository has no secrets at all (`gh api .../actions/secrets` ->
       # `total_count: 0`), so signing has nothing to do yet. Restoring it means
       # adding the certificate *and* these variables together, in that order.
-      - uses: tauri-apps/tauri-action@v1
+      - uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -153,7 +164,7 @@ jobs:
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
           releaseDraft: true
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: freedocs-${{ matrix.target }}
           path: |
@@ -261,7 +272,7 @@ jobs:
         if: vars.BUILD_PORTABLE == 'true'
         run: python app/packaging/portable.py
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: vars.BUILD_PORTABLE == 'true'
         with:
           name: freedocs-portable-${{ matrix.target }}
@@ -275,3 +286,30 @@ jobs:
           # Already compressed. Re-deflating 1.5 GB of incompressible weights
           # costs minutes and saves nothing.
           compression-level: 0
+
+      # -- what was built, and what it is made of -------------------------------
+      #
+      # Additive, and placed last for the reason the portable steps above give:
+      # a failure here must not cost artifacts that have already been uploaded.
+      #
+      # The installers are unsigned by decision, so a checksum and an SBOM are
+      # what a person downloading one can actually check. One job per platform
+      # means one bundle per run, which is what keeps `provenance.py`'s duplicate
+      # check quiet here — locally it fires, because two `target/` trees can hold
+      # two builds of the same version.
+      #
+      # `--rust` is deliberately absent. It needs `cargo install cargo-cyclonedx`,
+      # which is a multi-minute compile on three runners for a manifest of a tree
+      # `Cargo.lock` already pins — and a cost of that shape on three runners is
+      # precisely what emptied this repository's allowance twice. Same reason
+      # `cargo audit` stays in `scripts/ci.py` and is not here.
+      - name: Checksums and SBOM
+        run: python scripts/provenance.py
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: freedocs-provenance-${{ matrix.target }}
+          path: dist/*
+          # One per job, like the portable bundle: absent means the step above
+          # found no artifact to describe, which is a broken build.
+          if-no-files-found: error

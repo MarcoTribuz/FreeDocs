@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
 
+# The default token is read-write on every scope unless a workflow says
+# otherwise, and nothing in this one needs to write anything. Declared at the
+# workflow level so a job added later inherits the narrow set rather than the
+# broad one.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ${{ matrix.os }}
@@ -38,9 +45,9 @@ jobs:
     env:
       UV_PYTHON: ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
         with:
           enable-cache: true
 
@@ -50,7 +57,7 @@ jobs:
         # that skip harmlessly. The key file is the only artifact this tool
         # writes that could hand back every value it removed, so "no value is
         # readable in the key file" has to actually run.
-        run: uv sync --extra dev --extra pdf --extra ooxml --extra restore
+        run: uv sync --locked --extra dev --extra pdf --extra ooxml --extra restore
 
       - name: Lint
         run: uv run ruff check .
@@ -75,3 +82,21 @@ jobs:
       # number meaningless, so its consistency is checked on every push.
       - name: Corpus integrity
         run: uv run pytest -q tests/test_corpus.py
+
+      # The audit `scripts/ci.py check` runs, here so that re-enabling this
+      # workflow does not lose it. Two things about the shape.
+      #
+      # One matrix entry, not three. An advisory is a property of the locked
+      # dependency set, not of the interpreter or the platform, so the other two
+      # would spend minutes to print the same answer.
+      #
+      # The **lockfile**, not the installed environment. The install step above
+      # deliberately omits the `ner` extra, so an environment audit would skip
+      # torch — by a distance the largest dependency here and the one an advisory
+      # is most likely to name. `--all-extras` covers what a release ships.
+      - name: Dependency audit
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
+        run: |
+          uv export --format requirements-txt --no-hashes --all-extras \
+            --no-emit-project -o .audit-requirements.txt
+          uv run --with pip-audit pip-audit --strict -r .audit-requirements.txt
