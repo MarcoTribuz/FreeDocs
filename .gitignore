@@ -7,6 +7,10 @@ venv/
 # The Python-floor environment `scripts/ci.py` builds beside .venv, so running
 # the 3.10 pass does not delete the 3.12 one every other command uses.
 .venv-310/
+# A derived view of `uv.lock`, written by the audit step and read by the next
+# one. Not committed: a second copy of a dependency set is a second thing that
+# can be out of date, and this one would be silently wrong rather than loudly.
+.audit-requirements.txt
 dist/
 build/
 .pytest_cache/

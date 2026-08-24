@@ -133,6 +133,20 @@ def cargo() -> str | None:
     return str(fallback) if fallback.is_file() else None
 
 
+def cargo_audit() -> str | None:
+    """Where `cargo audit` is, when it is anywhere.
+
+    A separate binary from `cargo`, installed by `cargo install cargo-audit` and
+    absent by default, so it is looked for rather than assumed. Same two places
+    as :func:`cargo`, for the same reason.
+    """
+    found = shutil.which("cargo-audit")
+    if found:
+        return found
+    fallback = Path.home() / ".cargo" / "bin" / "cargo-audit"
+    return str(fallback) if fallback.is_file() else None
+
+
 def cargo_path_env() -> dict[str, str]:
     """Put cargo's directory on PATH, not just its absolute path in a command.
 
@@ -201,6 +215,82 @@ def engine_steps(python: str, *, sync: bool, venv: str | None) -> list[Step]:
         ),
     ]
     return steps
+
+
+#: Written by the export step and read by the audit step. Gitignored: it is a
+#: derived view of `uv.lock`, and a second checked-in copy of a dependency set is
+#: a second thing that can be out of date.
+AUDIT_REQUIREMENTS = ".audit-requirements.txt"
+
+
+def audit_steps() -> list[Step]:
+    """Is anything this depends on known to be vulnerable?
+
+    The check CI never had, and the one whose absence is least visible: lint and
+    tests fail loudly when they regress, while an advisory published against a
+    pinned dependency changes nothing at all about a green run. It fails rather
+    than warning, because an advisory printed on every run is an advisory nobody
+    reads - the reasoning `.github/dependabot.yml` opens with.
+
+    **The Python half audits the lockfile, not the installed environment.** The
+    checks deliberately omit the `ner` extra, so an environment audit would skip
+    torch - by a distance the largest dependency here and the one most likely to
+    be named. `--all-extras` on the export covers what `build` installs as well
+    as what `check` does, which is the set a release actually ships.
+
+    No ignore list, and that was measured rather than assumed. `cargo audit`
+    separates vulnerabilities from *warnings* and fails only on the first: this
+    tree reports zero vulnerabilities and seventeen warnings, which are the
+    unmaintained GTK3 bindings and the `glib` unsoundness `dependabot.yml`
+    explains cannot be fixed from this repository. So the default behaviour is
+    already the right one, and `-D warnings` would turn a standing, unfixable
+    fact into a red gate. The `cookie` advisory is dev-only, which is what
+    `--omit=dev` is for. If a real vulnerability ever does surface here it
+    belongs in an ignore list with its sentence, not silenced.
+    """
+    audit = cargo_audit()
+    return [
+        Step(
+            "audit: export the locked dependency set",
+            [
+                "uv",
+                "export",
+                "--format",
+                "requirements-txt",
+                "--no-hashes",
+                "--all-extras",
+                # The project itself is not on PyPI, so leaving it in makes
+                # `--strict` fail on a package that could never be audited.
+                "--no-emit-project",
+                "-o",
+                AUDIT_REQUIREMENTS,
+            ],
+            ENGINE,
+        ),
+        Step(
+            "audit: python dependencies",
+            # `--strict`: a dependency the database has nothing to say about and
+            # one it could not look up at all are different answers, and only the
+            # first is reassuring.
+            ["uv", "run", "--with", "pip-audit", "pip-audit", "--strict", "-r", AUDIT_REQUIREMENTS],
+            ENGINE,
+        ),
+        Step(
+            # Every JavaScript dependency here is a devDependency: the app is
+            # built by `adapter-static` into an SPA served from the webview, so
+            # nothing in `node_modules` ships. This reports zero today and is the
+            # guard for the day a runtime dependency is added.
+            "audit: frontend dependencies",
+            ["npm", "audit", "--omit=dev"],
+            APP,
+        ),
+        Step(
+            "audit: rust dependencies",
+            [audit or "cargo-audit", "audit"],
+            TAURI,
+            skip=None if audit else "cargo-audit is not installed (cargo install cargo-audit)",
+        ),
+    ]
 
 
 def frontend_steps(*, sync: bool) -> list[Step]:
@@ -336,6 +426,10 @@ def main(argv: list[str] | None = None) -> int:
             steps += engine_steps(FLOOR, sync=True, venv=FLOOR_VENV)
         steps += frontend_steps(sync=args.sync)
         steps += rust_steps()
+        # Last in `check`, because it is the step most likely to fail for a
+        # reason nobody in this repository can fix, and a lint error found after
+        # a five-minute audit is a lint error found late.
+        steps += audit_steps()
     if args.target in ("build", "all"):
         steps += build_steps()
 
