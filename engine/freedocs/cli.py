@@ -342,7 +342,26 @@ PASSPHRASE_ENV = "FREEDOCS_MAP_PASSPHRASE"
 
 
 def _passphrase(args: argparse.Namespace, *, confirm: bool) -> str:
-    """The key file's passphrase, from a file, the environment, or a prompt.
+    """The key file's passphrase, checked whichever of the three sources it came from.
+
+    The check used to sit inside the ``getpass`` branch, so a passphrase from
+    ``--map-passphrase-file`` or from the environment was returned unexamined.
+    Nothing weak was ever written - ``write_key_map`` checks again - but it raises
+    ``ValueError`` from inside the per-file loop, which ``_cmd_scrub`` does not
+    catch, so the run died on a traceback with the scrubbed copy already on disk.
+    That is verbatim the failure the comment above ``_map_target`` says this
+    resolution order prevents, so the check belongs here, once, for everything.
+    """
+    value = _passphrase_source(args, confirm=confirm)
+    try:
+        check_passphrase(value)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    return value
+
+
+def _passphrase_source(args: argparse.Namespace, *, confirm: bool) -> str:
+    """Where the passphrase comes from, in order, with no opinion on its strength.
 
     There is no ``--map-passphrase VALUE`` and there must not be one. An argument
     lands in the shell history and is visible in ``ps`` to every other user on the
@@ -355,6 +374,7 @@ def _passphrase(args: argparse.Namespace, *, confirm: bool) -> str:
     """
     named = getattr(args, "map_passphrase_file", None)
     if named is not None:
+        _warn_if_others_can_read(named)
         try:
             first = named.read_text(encoding="utf-8").splitlines()
         except OSError as exc:
@@ -367,7 +387,11 @@ def _passphrase(args: argparse.Namespace, *, confirm: bool) -> str:
             raise SystemExit(f"{named} is empty; it should hold the passphrase on its first line")
         return value
 
-    from_env = os.environ.get(PASSPHRASE_ENV)
+    # Popped rather than read. PyMuPDF shells out to Tesseract on every scanned
+    # page, so anything left here is inherited by a subprocess that has no
+    # business holding the key to every value in the document. Not a cross-user
+    # leak - /proc/<pid>/environ is owner-only - just an unnecessary copy.
+    from_env = os.environ.pop(PASSPHRASE_ENV, None)
     if from_env:
         return from_env
 
@@ -379,11 +403,30 @@ def _passphrase(args: argparse.Namespace, *, confirm: bool) -> str:
     value = getpass.getpass("Key file passphrase: ")
     if confirm and value != getpass.getpass("Again: "):
         raise SystemExit("the two passphrases do not match; nothing was written")
-    try:
-        check_passphrase(value)
-    except ValueError as exc:
-        raise SystemExit(str(exc)) from exc
     return value
+
+
+def _warn_if_others_can_read(path: Path) -> None:
+    """Say so when the passphrase file is group- or world-readable.
+
+    ``ssh`` refuses a private key in this state, and this file opens every value
+    in the document. A warning rather than a refusal, because the mode may belong
+    to a shared checkout or a mount the user does not control, and breaking a
+    working setup over it would be answering a question nobody asked. The mode
+    bits mean nothing on Windows, so nothing is claimed there.
+    """
+    if os.name == "nt":
+        return
+    try:
+        mode = path.stat().st_mode
+    except OSError:  # pragma: no cover - the read below reports it properly
+        return
+    if mode & 0o077:
+        print(
+            f"warning: {path} is readable by other accounts on this machine "
+            f"(mode {mode & 0o777:04o}); it holds the key to every value the scrub removes",
+            file=sys.stderr,
+        )
 
 
 def _map_target(args: argparse.Namespace) -> Path | None:

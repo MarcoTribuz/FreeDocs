@@ -19,6 +19,7 @@ line is not.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
@@ -337,6 +338,89 @@ def test_no_passphrase_and_no_terminal_is_a_usage_error(document, tmp_path, monk
         cli.main(
             ["scrub", *L1, str(document), "-o", str(tmp_path / "out"), "--map", str(tmp_path / "k")]
         )
+
+
+def test_a_weak_passphrase_from_the_environment_leaves_nothing_on_disk(
+    document, tmp_path, monkeypatch
+):
+    """The rule has to hold for every source, not only for the prompt.
+
+    `write_key_map` checks again, so nothing weak was ever written - but it
+    raises from inside the per-file loop, so the run died on a traceback with the
+    scrubbed copy already on disk. That is verbatim the failure `_cmd_scrub` says
+    it prevents by resolving the passphrase before anything is read.
+    """
+    monkeypatch.setenv(cli.PASSPHRASE_ENV, "corto")
+    out_dir = tmp_path / "out"
+    with pytest.raises(SystemExit):
+        cli.main(["scrub", *L1, str(document), "-o", str(out_dir), "--map", str(tmp_path / "keys")])
+    assert list(tmp_path.rglob("*.fdmap")) == []
+    assert list(out_dir.glob("*")) == [], "the scrubbed copy must not be written either"
+
+
+def test_a_weak_passphrase_file_leaves_nothing_on_disk(document, tmp_path):
+    weak = tmp_path / "pass.txt"
+    weak.write_text("corto\n", encoding="utf-8")
+    out_dir = tmp_path / "out"
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "scrub",
+                *L1,
+                str(document),
+                "-o",
+                str(out_dir),
+                "--map",
+                str(tmp_path / "keys"),
+                "--map-passphrase-file",
+                str(weak),
+            ]
+        )
+    assert list(tmp_path.rglob("*.fdmap")) == []
+    assert list(out_dir.glob("*")) == []
+
+
+def test_the_passphrase_variable_is_not_left_for_subprocesses(document, tmp_path, monkeypatch):
+    """Read once and removed, because PyMuPDF shells out to Tesseract.
+
+    Not a cross-user leak - `/proc/<pid>/environ` is owner-only - but an
+    unnecessary copy of the key to every value in the document, in processes that
+    have no business holding it.
+    """
+    import os
+
+    monkeypatch.setenv(cli.PASSPHRASE_ENV, "correct horse battery staple")
+    status = cli.main(
+        ["scrub", *L1, str(document), "-o", str(tmp_path / "out"), "--map", str(tmp_path / "keys")]
+    )
+    assert status == cli.EXIT_OK
+    assert cli.PASSPHRASE_ENV not in os.environ
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not meaningful here")
+def test_a_passphrase_file_others_can_read_is_reported(document, tmp_path, capsys):
+    """A warning, not a refusal. `ssh` refuses a world-readable private key; this
+    file is the key to every value in the document, but refusing would break a
+    working setup over a mode the user may not control, so it is said out loud and
+    the run continues."""
+    loose = tmp_path / "pass.txt"
+    loose.write_text("correct horse battery staple\n", encoding="utf-8")
+    loose.chmod(0o644)
+    status = cli.main(
+        [
+            "scrub",
+            *L1,
+            str(document),
+            "-o",
+            str(tmp_path / "out"),
+            "--map",
+            str(tmp_path / "keys"),
+            "--map-passphrase-file",
+            str(loose),
+        ]
+    )
+    assert status == cli.EXIT_OK
+    assert "readable" in capsys.readouterr().err
 
 
 def test_scrub_then_restore_returns_the_document(document, tmp_path, passphrase_file):
