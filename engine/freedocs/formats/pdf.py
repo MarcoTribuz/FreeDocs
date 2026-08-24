@@ -39,14 +39,16 @@ before changing anything here:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import shutil
 import sys
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from ..core.errors import MalformedDocument, MissingDependency
+from ..core.errors import InputTooLarge, MalformedDocument, MissingDependency
 from ..core.limits import refuse_too_many_pages
 from ..core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from .base import FormatHandler, HiddenItem
@@ -334,6 +336,44 @@ class PdfSpanLocator:
     font_size: float
 
 
+#: Exceptions this module refuses to let escape as themselves. PyMuPDF raises
+#: `FzErrorBase` subclasses for a malformed file and plain `RuntimeError` through
+#: some of its older paths, and both mean "the document is broken" rather than
+#: "FreeDocs is broken" - which is what they read as when they reach a caller.
+#:
+#: Not `except Exception`: that would file a genuine bug in this code as a bad
+#: document, which is the worse diagnosis. Our own errors are re-raised first,
+#: because `MissingDependency` and `ModelNotFound` are `RuntimeError` subclasses.
+_OURS = (MalformedDocument, InputTooLarge, MissingDependency, ScannedPdfNotSupported)
+
+
+@contextlib.contextmanager
+def _translating(name: str, doing: str) -> Iterator[None]:
+    """Turn a library's account of a broken PDF into this engine's.
+
+    Wrapped around every entry point rather than only the constructor, which is
+    where the first version of this stopped. `scripts/fuzz.py` found the rest in
+    its first four hundred cases: twenty escapes from `scrub()`, twelve from
+    reading a page's contents, one from loading a page at all. Same class of
+    defect each time, and none of them reachable by reasoning about which inputs
+    to try.
+    """
+    try:
+        yield
+    except _OURS:
+        raise
+    except Exception as exc:
+        if not _is_library_error(exc):
+            raise
+        raise MalformedDocument(f"{name}: PyMuPDF could not {doing}: {exc}") from exc
+
+
+def _is_library_error(exc: BaseException) -> bool:
+    """Whether this came out of MuPDF rather than out of us."""
+    module = type(exc).__module__ or ""
+    return module.startswith(("pymupdf", "fitz")) or type(exc) is RuntimeError
+
+
 class PdfTextHandler(FormatHandler):
     name = "pdf-text"
     extensions = (".pdf",)
@@ -377,6 +417,10 @@ class PdfTextHandler(FormatHandler):
     # -- extraction ------------------------------------------------------------
 
     def extract(self) -> TextStream:
+        with _translating(self.path.name, "read this PDF"):
+            return self._extract()
+
+    def _extract(self) -> TextStream:
         builder = TextStreamBuilder()
         #: Pages that were machine-read. Reported, because an OCR misreading is a
         #: character this tool cannot detect.
@@ -503,6 +547,10 @@ class PdfTextHandler(FormatHandler):
     # -- hidden content --------------------------------------------------------
 
     def scrub_hidden(self) -> list[HiddenItem]:
+        with _translating(self.path.name, "strip this PDF's hidden content"):
+            return self._scrub_hidden()
+
+    def _scrub_hidden(self) -> list[HiddenItem]:
         """Strip everything the reader never sees, and say what went.
 
         Inventory first, then remove: the library's ``scrub()`` reports nothing
@@ -622,6 +670,10 @@ class PdfTextHandler(FormatHandler):
     # -- write-back ------------------------------------------------------------
 
     def write_back(self, edits: list[AnchorEdit]) -> bytes:
+        with _translating(self.path.name, "write this PDF back"):
+            return self._write_back(edits)
+
+    def _write_back(self, edits: list[AnchorEdit]) -> bytes:
         touched_pages: set[int] = set()
 
         for edit in edits:

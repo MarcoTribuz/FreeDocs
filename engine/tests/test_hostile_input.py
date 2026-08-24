@@ -418,3 +418,116 @@ def test_the_pipe_answers_with_a_code_rather_than_a_traceback(tmp_path: Path, mo
     failure = response["result"]["results"][0]
     assert failure["error"]["code"] == INPUT_TOO_LARGE
     assert "huge.txt" in failure["error"]["message"]
+
+
+# --- what the fuzzer found ------------------------------------------------------
+#
+# `scripts/fuzz.py` is not part of the gate: a run that finds nothing proves
+# nothing, and a run that finds something has found a case for this file. These
+# are those cases, pinned deterministically so a regression is caught by the
+# suite rather than by somebody remembering to fuzz.
+#
+# Every one of them is a library saying "this container is not one I read", in a
+# way nobody had enumerated. That is the argument for the fuzzer in a sentence:
+# none of the four is something anyone would have thought to write.
+
+
+def _patch_zip_fields(raw: bytes, *, flags: int | None = None, method: int | None = None) -> bytes:
+    """Rewrite the flag and method fields in both zip headers.
+
+    Both, because `zipfile` reads the central directory to list entries and the
+    local header to extract one, and a file that disagrees with itself is a
+    different bug from the one under test.
+    """
+    out = bytearray(raw)
+    for signature, flag_at, method_at in ((b"PK\x03\x04", 6, 8), (b"PK\x01\x02", 8, 10)):
+        start = 0
+        while (start := out.find(signature, start)) != -1:
+            if flags is not None:
+                out[start + flag_at : start + flag_at + 2] = struct.pack("<H", flags)
+            if method is not None:
+                out[start + method_at : start + method_at + 2] = struct.pack("<H", method)
+            start += 4
+    return bytes(out)
+
+
+def test_a_damaged_compressed_stream_is_reported(tmp_path: Path):
+    """A flipped bit *inside* a deflate stream, which is the most ordinary way a
+    file gets damaged.
+
+    Deeper than `BadZipFile`: it surfaces as `zlib.error` or `EOFError` out of the
+    decompressor, which the container's original guard did not claim.
+    """
+    pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+    raw = bytearray(_zip({**MINIMAL_DOCX, "word/blob.bin": bytes(range(256)) * 200}))
+    # Well past the last header and well before the central directory.
+    middle = len(raw) // 2
+    for offset in range(middle, middle + 64):
+        raw[offset] ^= 0xFF
+
+    path = tmp_path / "damaged.docx"
+    path.write_bytes(bytes(raw))
+    with pytest.raises(MalformedDocument):
+        handler_for(path).extract()
+
+
+def test_a_container_claiming_a_compression_method_we_do_not_have_is_reported(tmp_path: Path):
+    """`zipfile` answers with `NotImplementedError`, which reads as a gap in this
+    build rather than a property of the file - and a corrupted header claims an
+    unknown method routinely."""
+    pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+    path = tmp_path / "odd-method.docx"
+    path.write_bytes(_patch_zip_fields(_zip(MINIMAL_DOCX), method=99))
+    with pytest.raises(MalformedDocument):
+        handler_for(path).extract()
+
+
+def test_a_container_that_says_it_is_encrypted_is_reported(tmp_path: Path):
+    """Bit 0 of the general-purpose flags. `zipfile` raises a bare `RuntimeError`
+    asking for a password, which is the least informative thing a caller could be
+    handed about a document."""
+    pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+    path = tmp_path / "encrypted.docx"
+    path.write_bytes(_patch_zip_fields(_zip(MINIMAL_DOCX), flags=0x0001))
+    with pytest.raises(MalformedDocument):
+        handler_for(path).extract()
+
+
+def test_a_pdf_that_breaks_while_its_hidden_content_is_stripped_is_reported(tmp_path: Path):
+    """The entry point the first version of the PDF translation missed.
+
+    `__init__` and `extract` were wrapped and `scrub_hidden` was not — and it is
+    where twenty of the fuzzer's first twenty-nine escapes came from, MuPDF
+    raising `RuntimeError: code=8: invalid key in dict` from inside `scrub()`.
+
+    Built by hand rather than by damaging a real file, because the property that
+    matters is *where* it fails: the document has to open and read cleanly, so
+    that the only stage left to fail in is the one under test. A dangling key at
+    the end of a page dictionary does exactly that.
+    """
+    pytest.importorskip("pymupdf", reason="PyMuPDF is required for PDF support")
+
+    objects = {
+        1: b"<< /Type /Catalog /Pages 2 0 R >>",
+        2: b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        3: b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /X >>",
+    }
+    out = bytearray(b"%PDF-1.4\n")
+    offsets: dict[int, int] = {}
+    for number in sorted(objects):
+        offsets[number] = len(out)
+        out += f"{number} 0 obj\n".encode() + objects[number] + b"\nendobj\n"
+    start = len(out)
+    out += f"xref\n0 {len(objects) + 1}\n0000000000 65535 f \n".encode()
+    for number in sorted(objects):
+        out += f"{offsets[number]:010d} 00000 n \n".encode()
+    out += (
+        f"trailer\n<< /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{start}\n%%EOF\n"
+    ).encode()
+
+    path = tmp_path / "broken.pdf"
+    path.write_bytes(bytes(out))
+    handler = handler_for(path)
+    handler.extract()
+    with pytest.raises(MalformedDocument):
+        handler.scrub_hidden()

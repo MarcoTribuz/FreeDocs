@@ -138,6 +138,20 @@ way around the limit.
 **Two rules in the plan did not survive being tested.** See
 [what was measured away](#what-was-measured-away).
 
+**And a fuzzer found five more places it escaped from.** `scripts/fuzz.py`
+damages real seeds and reports anything whose *type* is outside the declared set.
+Its first four hundred cases produced **twenty-nine escapes**: twenty from
+`scrub_hidden` calling MuPDF's `scrub()`, twelve from reading a page's contents,
+one from loading a page — the translation below had been applied to `__init__` and
+`extract` only — plus `zlib.error` and `EOFError` out of the decompressor, deeper
+than `BadZipFile`, which is what a flipped bit inside a deflate stream produces.
+Two more appeared at 1500 cases: `zipfile` answers an unknown compression method
+with `NotImplementedError` and an encrypted entry with a bare `RuntimeError`. Not
+one of the five is something anyone would have thought to write a test for, which
+is the argument for the fuzzer in a sentence. All four shapes are deterministic
+tests now, because the fuzzer is deliberately not in the gate. After the fixes:
+7500 cases across five seeds, zero escapes.
+
 **A second finding fell out of writing those tests**: a parser's own exception
 escaped untranslated. MuPDF answers a page tree whose kids are all one object with
 `RuntimeError: code=7: Invalid number of pages`; `zipfile` answers a lying header
@@ -506,10 +520,6 @@ signing. The shape that works is the same one M7 needs. `core/sandbox.py` carrie
 the full reasoning and `freedocs doctor` prints what is and is not enforced, so the
 absence cannot be read as presence.
 
-**Fuzzing** of the format handlers and of `read_key_map`. `tests/test_hostile_input.py`
-covers the classes of input that were reasoned about; fuzzing covers the ones that
-were not.
-
 **Signing.** Unsigned installers stay unsigned. `SHA256SUMS` and an SBOM are what
 is offered instead, and SECURITY.md says plainly what that does and does not
 prove.
@@ -521,9 +531,10 @@ gate cannot change that — say "builds", not "works".
 ## Reproducing the verification
 
 ```bash
-python3 scripts/ci.py check          # the whole gate, including the audit
+python3 scripts/ci.py check           # the whole gate, including the audit
+python3 scripts/fuzz.py --cases 5000  # deliberately not in the gate; see M2
 cd engine && uv run pytest -q -m leak # the standing questions
-uv run freedocs doctor --hashes      # what this machine enforces, and the payload
+uv run freedocs doctor --hashes       # what this machine enforces, and the payload
 ```
 
 The by-hand checks are quoted in each finding above, and each of the nineteen

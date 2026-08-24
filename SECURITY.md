@@ -82,9 +82,28 @@ confidential data must not go with it. Everything below follows from that.
   single-threaded with no cancel — so a `.fdmap` declaring an absurd scrypt work
   factor would have been a denial of service against the whole session. Outside
   the accepted band it is refused as malformed, before any derivation runs.
+- **A document that cannot be read safely is refused, not attempted.** Every
+  input is hostile by definition — this tool exists to be pointed at files from
+  outside, and it parses them with C libraries. There are ceilings on the input's
+  size, on one Office part, on a container's parts added up (an embedded workbook
+  spends the same budget) and on a PDF's page count, all in one module. Breaching
+  one names the file and stops that file; the rest of the batch continues. A
+  parser's own error is translated too, so a document built to break the reader
+  produces a refusal rather than a traceback.
 - **The engine is a pipe, never a socket.** It reads and writes files named by
   whoever is on the other end, so its only safe caller is a parent process that
   already has the user's permission. Do not expose it on a port.
+
+  Being explicit about the consequence, because it is the one thing here that is
+  defence in depth rather than a defence: the desktop shell forwards a method and
+  its parameters to that engine, so a compromised webview is a compromised
+  filesystem. The renderer is clean — no `@html`, no `eval`, a tightened CSP —
+  and the honest fix is architectural rather than a permission list. See
+  [docs/security-review.md](docs/security-review.md).
+- **The engine can be told to forget.** One process serves the whole session, and
+  the extracted text it caches is a *superset* of the findings: it holds whatever
+  no layer detected. The desktop app releases it whenever a document leaves the
+  screen.
 - **The extracted document text is opt-in and never written anywhere.**
   `inspect` returns it only when a caller asks (`include_text`), because it is a
   *superset* of the findings: it contains the confidential text no layer detected.
