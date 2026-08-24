@@ -461,19 +461,28 @@ export function keyFileAvailable(): boolean {
 export function keyFileBlocker(): 'directory' | 'passphrase' | 'mismatch' | null {
 	if (!session.keyWanted) return null;
 	if (!session.keyDir) return 'directory';
-	if (session.keyPassphrase.length < MIN_PASSPHRASE) return 'passphrase';
+	if (session.keyPassphrase.length < passphraseMinimum()) return 'passphrase';
 	if (session.keyPassphrase !== session.keyConfirm) return 'mismatch';
 	return null;
 }
 
 /**
- * The engine's floor, restated here only to disable a button before the request.
+ * The engine's floor, asked for rather than restated.
  *
- * The engine refuses a shorter one and its refusal is the authority; this exists
- * so the refusal is not the first the user hears of it. If the two ever disagree
- * the engine wins, which is why the button being enabled is not a promise.
+ * This was `const MIN_PASSPHRASE = 8`, and it was the one rule this window held.
+ * Raising the floor in `core/mapping.py` left the window still accepting eight
+ * characters: the engine refused inside the `scrub` request and the failure
+ * arrived after the scrubbed copies were written. Published by `capabilities` the
+ * way `preview_max_characters` is, for the same reason.
+ *
+ * `Infinity` with no answer yet is deliberate, and it is not a second copy of the
+ * rule: it leaves the button disabled rather than promising a run the engine
+ * would refuse. It is unreachable in practice - the passphrase field lives behind
+ * `keyFileAvailable()`, which is false until capabilities arrive.
  */
-export const MIN_PASSPHRASE = 8;
+export function passphraseMinimum(): number {
+	return session.caps?.passphrase_min_characters ?? Infinity;
+}
 
 export async function pickKeyDirectory(): Promise<void> {
 	const chosen = await open({

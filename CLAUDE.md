@@ -1315,8 +1315,15 @@ The key-file controls sit with the *scrub* options because the engine writes the
 file inside the `scrub` request — which is what keeps the mapping from ever
 crossing the pipe into the window. Neither passphrase touches `localStorage`: they
 live in `session` for one call and are cleared in a `finally`, mode changes
-included. `MIN_PASSPHRASE` in the window exists only so the engine's refusal is not
-the first the user hears of it; the engine wins.
+included. The passphrase floor is **read from `capabilities`**
+(`passphrase_min_characters`) and exists in the window only so the engine's
+refusal is not the first the user hears of it; the engine wins. It used to be a
+`const MIN_PASSPHRASE = 8` in `app.svelte.ts`, which was the one rule this window
+held: raising the floor in `core/mapping.py` left the window accepting eight
+characters, the engine refusing inside the `scrub` request, and the failure
+arriving after the scrubbed copies were written. With no capabilities answer yet
+the window treats *no* passphrase as long enough, which disables the button rather
+than restating the number.
 
 **Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
 entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
