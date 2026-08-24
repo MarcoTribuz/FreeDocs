@@ -10,6 +10,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import sys
 from itertools import pairwise
 from pathlib import Path
 
@@ -1166,6 +1167,55 @@ def test_capabilities_publishes_the_passphrase_floor(session: Session):
 
     caps = result_of(session, "capabilities")
     assert caps["passphrase_min_characters"] == MIN_PASSPHRASE
+
+
+def test_a_packaged_build_keeps_its_tracebacks_off_the_system_log(
+    session: Session, monkeypatch, capsys
+):
+    """stderr is not a private channel for a packaged app.
+
+    `engine.rs` inherits it deliberately so a Python traceback reaches the
+    terminal a developer is watching. In a bundled `.app` there is no terminal:
+    the parent is launchd, and everything written there goes to the operating
+    system's unified log, on disk, for anyone who can read the machine's logs.
+    An exception's own message is part of a traceback, and a parser's message can
+    quote the document it was reading - so this was a disk channel nobody had
+    audited, in a tool whose central rule is that values reach the pipe and never
+    the disk.
+
+    The caller loses nothing: the full message still travels the response, which
+    is local.
+    """
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    # A handler made to fail unexpectedly, because the sink is what is under test
+    # and not which bug reaches it. The message carries a name, which is what a
+    # parser quoting the document it was reading would look like.
+    monkeypatch.setattr(
+        Session,
+        "inspect",
+        lambda self, params: (_ for _ in ()).throw(RuntimeError("while reading Mario Rossi")),
+    )
+    error = error_of(session, "inspect", path="/tmp/whatever.txt")
+    captured = capsys.readouterr()
+
+    assert "Traceback" not in captured.err, captured.err
+    assert "Mario Rossi" not in captured.err, captured.err
+    assert "FREEDOCS_DEBUG" in captured.err
+    # And the response still says what happened, because it is not a disk channel.
+    assert error["message"]
+
+
+def test_a_development_build_still_prints_the_whole_thing(session: Session, capsys, monkeypatch):
+    """The other half, and the reason the sink exists at all: a developer watching
+    a terminal is exactly who a traceback is for."""
+    assert not getattr(sys, "frozen", False), "this test is about an unfrozen build"
+    monkeypatch.setattr(
+        Session,
+        "inspect",
+        lambda self, params: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+    error_of(session, "inspect", path="/tmp/whatever.txt")
+    assert "Traceback" in capsys.readouterr().err
 
 
 def test_capabilities_says_whether_the_network_is_blocked(session: Session):
