@@ -257,6 +257,14 @@ export interface RestoreResult {
 	 * loosely is how somebody else's value lands in the document.
 	 */
 	unknown_placeholders: string[];
+	/**
+	 * The handler's own prose about compromises it had to make — and in *this*
+	 * direction it can quote an original value: PyMuPDF's "does not fit the space
+	 * its original occupied" names the text it dropped, which is the real value
+	 * rather than a placeholder. Safe to render, for the same reason the review
+	 * pane renders every value; **never log these, and never write them to a
+	 * file.** The engine's own restore report deliberately carries a count instead.
+	 */
 	warnings: string[];
 	problems: { placeholder: string; entity: string; kind: string }[];
 	report?: Record<string, unknown>;

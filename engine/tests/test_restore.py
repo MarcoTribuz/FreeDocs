@@ -431,3 +431,77 @@ def test_the_lossy_round_trip_is_stated_in_the_warnings(tmp_path: Path):
     source = _write(tmp_path, "in.txt", "[PERSON_1] and [PERSON_1].\n")
     result = Restorer(key_map=key_map).restore(source)
     assert any("more than one" in message for message in result.warnings)
+
+
+# -- the weak format -----------------------------------------------------------
+#
+# A real value is almost always longer than the token it replaces, and PyMuPDF
+# replaces text by stamping a redaction annotation rather than splicing. So the PDF
+# path is where both of this module's safety properties are actually exercised.
+
+
+@pytest.fixture
+def pdf_placeholders(tmp_path: Path) -> Path:
+    pymupdf = pytest.importorskip("pymupdf", reason="PyMuPDF is required for PDF support")
+    path = tmp_path / "in.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((60, 80), "Cliente [PERSON_1], conto [IBAN_1].", fontname="helv", fontsize=11)
+    doc.save(str(path), garbage=4, clean=True, deflate=True)
+    doc.close()
+    return path
+
+
+def test_a_value_that_does_not_fit_a_pdf_is_caught_and_named(pdf_placeholders: Path):
+    """The load-bearing case, on a real file rather than a monkeypatch.
+
+    `Mario Rossi` fits the space `[PERSON_1]` occupied. The IBAN does not fit the
+    space `[IBAN_1]` occupied even at MIN_FONT_SIZE, so PyMuPDF removes the token
+    and writes nothing — and a check that only asked "is the placeholder gone"
+    would call that a success.
+    """
+    key_map = _map(
+        ("[PERSON_1]", "Mario Rossi", EntityType.PERSON),
+        ("[IBAN_1]", CANARIES["IBAN"], EntityType.IBAN),
+    )
+    result = Restorer(key_map=key_map).restore(pdf_placeholders)
+
+    assert not result.ok
+    (problem,) = result.problems
+    assert problem.placeholder == "[IBAN_1]"
+    assert problem.kind == "value-missing"
+    # The one that fitted did arrive, so this is not a blanket failure.
+    assert any(entry.placeholder == "[PERSON_1]" for entry in result.restored)
+    # And the handler said so through its own channel rather than silently.
+    assert any("does not fit" in warning for warning in result.warnings)
+
+
+def test_the_restore_report_carries_no_value_even_when_a_handler_quotes_one(
+    pdf_placeholders: Path,
+):
+    """The leak this test was written after.
+
+    In the scrub direction a handler's "does not fit" warning quotes a
+    *placeholder*, which is harmless. In this direction it quotes the text being
+    written, which is the original value — so PyMuPDF's warning names the IBAN it
+    dropped. Those warnings reach the console and the local pipe, like `inspect`'s
+    matched text, and must not reach a report that may be attached to a ticket.
+
+    A plaintext round trip cannot show this: it never warns.
+    """
+    key_map = _map(
+        ("[PERSON_1]", "Mario Rossi", EntityType.PERSON),
+        ("[IBAN_1]", CANARIES["IBAN"], EntityType.IBAN),
+    )
+    result = Restorer(key_map=key_map).restore(pdf_placeholders)
+
+    # The warning does carry it - that is the handler being honest on its channel.
+    assert any(CANARIES["IBAN"] in warning for warning in result.warnings)
+    # The report must not.
+    serialised = repr(build_restore_report(result))
+    leaked = [name for name, value in CANARIES.items() if value in serialised]
+    assert not leaked, f"restore report exposes {leaked}"
+    # And it still says a compromise happened, and which value failed.
+    report = build_restore_report(result)
+    assert report["handler_warnings"] > 0
+    assert report["verification"]["problems"][0]["placeholder"] == "[IBAN_1]"

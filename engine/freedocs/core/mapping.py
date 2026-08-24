@@ -218,14 +218,18 @@ def key_map_from(result: ScrubResult, *, placeholder_language: str) -> KeyMap:
     in span order, so the first decision naming a placeholder is the first
     occurrence in the document, and ``setdefault`` on that is a definition rather
     than an accident.
-    """
-    from ..pipeline import _REWRITING_ACTIONS
 
+    The gate is ``replacement is not None``, which is exactly the set
+    ``pipeline._REWRITING_ACTIONS`` describes: a decision gets a placeholder if and
+    only if the policy chose to rewrite it. Read from the decision rather than
+    imported from there, so this module does not reach across for a private name
+    and does not keep a second copy of the set either.
+    """
     first: dict[str, MapEntry] = {}
     spellings: dict[str, set[str]] = {}
     counts: dict[str, int] = {}
     for decision in result.decisions:
-        if decision.action not in _REWRITING_ACTIONS or decision.replacement is None:
+        if decision.replacement is None:
             continue
         placeholder = decision.replacement
         finding = decision.finding

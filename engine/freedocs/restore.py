@@ -247,6 +247,12 @@ class Restorer:
         earn their keep, and ``test_restore.py`` pins it.
         """
         entries = self.key_map.entries
+        if not entries:
+            # `done`/`of` only where a stage has a real unit. Zero entries is not a
+            # unit of nothing, it is no unit - and `0 of 0` renders as a bar stuck
+            # at empty rather than as a stage with nothing to do.
+            self._announce("match")
+            return [], (), ()
         claimed: list[tuple[int, int]] = []
         edits: list[Edit] = []
         restored: list[Restored] = []

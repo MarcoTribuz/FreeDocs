@@ -152,6 +152,18 @@ none: the message travels to stderr, into a JSON report and through the RPC laye
   replacement was dropped rather than written
 ```
 
+**A handler's own warning is the exception, and the report drops it for that
+reason.** In the scrub direction PyMuPDF's "does not fit the space its original
+occupied" quotes a *placeholder*, which is harmless. Here it quotes the text being
+written — the real value. So those warnings go to the console and down the local
+pipe, the same channel `inspect` sends matched text over, and
+`build_restore_report` carries `handler_warnings` as a **count** instead: a report
+may be attached to a ticket. `verification.problems` names which value failed,
+value-free, which is the part a reader can act on.
+
+A plaintext round trip cannot show that, because it never warns. The test that
+does is a PDF.
+
 ## An incomplete restore still writes its file
 
 This is the opposite of a scrub, on purpose. A scrub that fails verification writes
