@@ -279,3 +279,31 @@ def test_the_report_does_not_name_an_attachment(tmp_path: Path):
     assert CANARIES["IT_CODICE_FISCALE"] not in serialised
     kinds = {item.kind for item in result.hidden_removed}
     assert "embedded-files" in kinds, "the attachment must still be reported"
+
+
+def test_a_stale_override_never_reaches_the_report(tmp_path: Path):
+    """A `StaleOverride` quotes the document as it is *now* — which the caller has
+    by definition not seen, since that is why the check fired.
+
+    Quoted deliberately, and the reason is the channel rather than the value: it
+    travels the local pipe, which already carries matched text and, on request,
+    the whole extracted document. The rule it must obey is the one this file is
+    about, so this pins the two directions it must never take. `rpc` catches it
+    into a per-file failure, so no report is built for that file at all; and the
+    frozen-build traceback sink is `test_rpc.py`'s question.
+    """
+    from freedocs.core.overrides import KeptSpan, Override, StaleOverride
+
+    path = tmp_path / "cambiato.txt"
+    path.write_text(f"IBAN {CANARIES['IBAN']}\n", encoding="utf-8", newline="")
+
+    # A decision taken against a document that has since changed underneath it.
+    scrubber = l1_scrubber()
+    scrubber.overrides = Override(keep=(KeptSpan(start=5, end=26, text="qualcosa che non c'e"),))
+    with pytest.raises(StaleOverride) as caught:
+        scrubber.scrub_file(path)
+
+    # It names the decision, which is what a caller can act on.
+    assert "re-inspect" in str(caught.value)
+    # And nothing was written, so there is no report and no output to leak into.
+    assert list(tmp_path.glob("*")) == [path]

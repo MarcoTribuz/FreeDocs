@@ -27,6 +27,7 @@ reach a report, a warning or an error's ``data`` block.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import traceback
 from collections.abc import Callable, Iterator
@@ -1033,13 +1034,45 @@ def handle(session: Session, line: str) -> dict[str, Any] | None:
         return _error_response(request_id, exc.code, str(exc), exc.data)
     except Exception as exc:
         # A crash in one request must not take down a session the app is relying
-        # on. The traceback goes to stderr, which the app can surface as a bug
-        # report; the caller gets an error it can render.
-        traceback.print_exc(file=sys.stderr)
+        # on. The caller gets an error it can render; where the *traceback* goes
+        # depends on who is watching, which is what `_report_crash` decides.
+        _report_crash()
         return _error_response(request_id, INTERNAL_ERROR, f"{type(exc).__name__}: {exc}")
     finally:
         session.current = None
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
+
+
+#: Restores the full traceback in a packaged build, for a user who has been asked
+#: for one. Not a debug mode in any wider sense - it changes this and nothing else.
+DEBUG_VARIABLE = "FREEDOCS_DEBUG"
+
+
+def _report_crash() -> None:
+    """Print the traceback where a person can see it, and nowhere else.
+
+    **stderr is not a private channel for a packaged app.** `engine.rs` inherits
+    it deliberately, so a Python traceback reaches the terminal a developer is
+    watching - and in a bundled `.app` there is no terminal. The parent is
+    launchd, and everything written there goes to the operating system's unified
+    log, on disk, readable by anyone who can read this machine's logs. An
+    exception's own message is part of a traceback, and a parser's message can
+    quote the document it was reading. That made this a disk channel nobody had
+    audited, in a tool whose central rule is that values may reach the pipe and
+    must not reach the disk.
+
+    So a frozen build prints the exception's *type* and how to ask for more. The
+    caller loses nothing either way: the full message travels the response, which
+    is local, and `Session` is the only reader.
+    """
+    if not getattr(sys, "frozen", False) or os.environ.get(DEBUG_VARIABLE):
+        traceback.print_exc(file=sys.stderr)
+        return
+    kind = type(sys.exc_info()[1]).__name__
+    print(
+        f"engine: {kind} while handling a request; set {DEBUG_VARIABLE}=1 for the traceback",
+        file=sys.stderr,
+    )
 
 
 def _error_response(request_id: Any, code: int, message: str, data: Any = None) -> dict[str, Any]:

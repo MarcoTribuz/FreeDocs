@@ -174,9 +174,17 @@ class Override:
                 )
             actual = text[kept.start : kept.end]
             if actual != kept.text:
-                # The values are the caller's own and already came from this
-                # channel, so naming them here reveals nothing new — and a caller
-                # cannot fix this without being told which decision went stale.
+                # Both halves are quoted, and the old justification for that was
+                # only half true. `kept.text` is the caller's own and came from
+                # this channel, so naming it reveals nothing new. `actual` is a
+                # slice of the document *as it is now*, which the caller has by
+                # definition not seen - that is the whole reason this check
+                # fired. It is quoted anyway, and the reason is the channel
+                # rather than the value: this travels the local pipe, which
+                # already carries matched text and, on request, the entire
+                # extracted document. What it must never do is reach a report or
+                # the traceback sink, and `rpc.scrub` catches it into a per-file
+                # failure for exactly that.
                 raise StaleOverride(
                     f"kept span [{kept.start}, {kept.end}) covers {actual!r}, "
                     f"but the caller saw {kept.text!r}; re-inspect the file"
