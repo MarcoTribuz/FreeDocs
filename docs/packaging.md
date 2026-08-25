@@ -144,3 +144,10 @@ of bug that motivated the bundle on PRs is still caught early.
 Do not add a `paths` filter to it: the same filter would apply to the tag trigger,
 and a release tag whose commit touches nothing under `app/` would silently skip
 the build that makes the release.
+
+The tag is now checked before it can leave the machine. `app.yml` hands `tagName`
+to `tauri-action` verbatim and compares it against nothing, so `v0.3.0` on a tree
+whose `tauri.conf.json` says `0.2.0` would have produced a release named one
+thing and installers named another. The `pre-push` hook refuses that pairing, and
+refuses a tag pointing at a development version at all. How a version is set and
+where the tag comes from is [docs/gitflow.md](gitflow.md).

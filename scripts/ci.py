@@ -180,6 +180,20 @@ def cargo_path_env() -> dict[str, str]:
     return {"PATH": directory + os.pathsep + current}
 
 
+def version_steps() -> list[Step]:
+    """The version authority, checked and tested.
+
+    Nine lines in eight files carry the version and three of them are lockfile
+    entries, so a bump that missed one does not look wrong — it looks fine until
+    `uv sync --locked` or `npm ci` fails on somebody else's machine, which in
+    this repository means the engine job of a workflow nobody can currently run.
+    """
+    return [
+        Step("version: authority", [sys.executable, "scripts/version.py", "check"], ROOT),
+        Step("version: test", ["uv", "run", "pytest", "-q", "../scripts/test_version.py"], ENGINE),
+    ]
+
+
 def engine_steps(python: str, *, sync: bool, venv: str | None) -> list[Step]:
     """One matrix entry of `engine.yml`, for one interpreter.
 
@@ -454,6 +468,10 @@ def main(argv: list[str] | None = None) -> int:
 
     steps: list[Step] = []
     if args.target in ("check", "all"):
+        # First, and it is the mirror of why `audit_steps()` is last: this costs
+        # milliseconds, and a version that would break `--locked` should be
+        # reported before a ninety-second dependency audit, not after it.
+        steps += version_steps()
         steps += engine_steps("3.12", sync=args.sync, venv=None)
         if not args.no_floor:
             # Always synced: the floor environment is not the one day-to-day work

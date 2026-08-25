@@ -166,7 +166,13 @@ discussing in a public issue — just not as security reports.
 
 ## Supported versions, and verifying a build
 
-Pre-1.0, so: the current `main`. There are no maintained release branches yet.
+Pre-1.0, so: the current `main`, which is where the newest release tag lives.
+Development happens on `develop` and its `feature/*` branches, which carry a
+`-dev.N` version and are not supported; a `release/*` or `hotfix/*` branch is
+short-lived and exists only to reach the next tag. See
+[docs/gitflow.md](docs/gitflow.md). There is no long-term maintenance branch
+for an older minor version, so a fix ships in the next release rather than
+being backported.
 
 **The installers are unsigned**, and that is a decision rather than an oversight:
 an Apple Developer ID and a Windows code-signing certificate are both annual

@@ -1,3 +1,6 @@
+<!-- Base branch: `develop`. Only a release/* or a hotfix/* targets `main`.
+     See docs/gitflow.md. -->
+
 # What this changes
 
 <!-- One paragraph. What was wrong or missing, and what the change does about it. -->
@@ -15,6 +18,7 @@
 - [ ] `uv run pytest -q` with the `ner` extra installed, or a note on why not
 - [ ] `npm run check && npm test` in `app/`, if the app was touched
 - [ ] No real document, and no real personal data, in any file added
+- [ ] `python3 scripts/version.py check`, and no version edited by hand
 
 ## If a detector changed
 

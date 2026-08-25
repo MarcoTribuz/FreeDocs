@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuse a push whose version sites disagree, a development version on main,
+# or a v* tag that does not match the tree it points at. See scripts/hooks.py.
+exec python3 "$(git rev-parse --show-toplevel)/scripts/hooks.py" pre-push "$@"

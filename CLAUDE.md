@@ -101,6 +101,9 @@ which is the shape of cost that emptied the allowance twice.
 ```bash
 python3 scripts/ci.py check       # the pull-request gate, ~90s
 python3 scripts/ci.py build       # sidecar, desktop bundle, and its manifest
+python3 scripts/version.py show -v   # the nine version sites and what each says
+python3 scripts/version.py check     # first step of the gate; never edit a version by hand
+python3 scripts/version.py install-hooks   # once per clone: git ships no hooks
 gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true
 ```
 
@@ -174,6 +177,93 @@ covers Windows so the class of bug that motivated the bundle on PRs is still
 caught early. Do not add a `paths` filter to it: the same filter would apply to
 the tag trigger, and a release tag whose commit touches nothing under `app/`
 would silently skip the build that makes the release.
+
+## The branching model
+
+Gitflow, with one version authority under it. `docs/gitflow.md` is the runbook;
+what follows is why it is shaped this way.
+
+**Every artifact this project ever produced said `0.1.0`,** and that was the
+absence of a mechanism rather than a stale bump: zero tags, zero releases, and
+the version written by hand in **nine lines across eight files** that nothing
+compared. `scripts/provenance.py`'s `refuse_duplicates()` was already tripping
+over it, because two builds of one version put two hashes under one name.
+
+**Three of the nine are lockfile entries, and that is what makes a partial bump
+dangerous.** `engine/uv.lock`, `app/package-lock.json` (twice) and
+`app/src-tauri/Cargo.lock` each record the local package's own version, and
+`uv sync --locked` and `npm ci` *fail* when a manifest and its lock disagree —
+so a bump that edits five files and not nine does not look wrong, it looks fine
+until the gate breaks in somebody else's checkout. `scripts/version.py` writes
+all nine and reads them back afterwards, because a regex that finds *something*
+writes *somewhere* and says nothing.
+
+**Lockfiles are edited in place, never regenerated.** `uv lock` and
+`npm install --package-lock-only` can reach the network, and a project whose
+premise is that it works offline must not need a registry to change its own
+version number. The anchors are exact — the `version =` line of the
+`[[package]]` block naming this project, and `package-lock.json`'s two — and an
+anchor matching zero times or twice is an error rather than a best-effort write.
+
+**One value, two spellings, and that is not cosmetic.** PEP 440 normalises
+`0.2.0-dev.1` to `0.2.0.dev1`. `diagnostics.engine_version()` prefers
+`importlib.metadata.version("freedocs")` and falls back to `__init__.__version__`
+when frozen, so writing the SemVer spelling into the Python files makes a
+checkout and a bundle report **different strings** — verbatim the split that
+function was written to unify. So the three Python sites get PEP 440, the five
+JavaScript/Rust sites get SemVer, and `version.py check` compares the *parsed*
+value so the difference is not read as drift.
+
+**The ordering is the whole reason develop may run ahead.** `0.3.0-dev.7` <
+`0.3.0` < `0.3.1`. A development counter sorts below the release it leads to, so
+`develop` can spend a whole cycle above `main` without ever reaching a number a
+hotfix wants. `bump major|minor|patch` therefore always ends in `-dev.0`: a
+version reached by bumping is never a version anything ships, and the release
+number is settled by `release`, on the release branch.
+
+**`Identity` still carries no version, and must not gain one.** `engine.rs` and
+`lib.rs` argue that path and mtime are the distinguishing facts because two
+bundles a day apart both say `0.1.0`. A real version does not retire that — two
+bundles of `0.3.0-dev.4` still exist.
+
+**The hooks are a seatbelt, not a gate, and saying otherwise would be false.**
+Branch protection is unavailable here: `/branches/main/protection` answers HTTP
+403, *"Upgrade to GitHub Pro or make this repository public"*, and every branch
+reports `protected: false`. Nothing server-side can require a base branch, a
+review or a status check, and Actions is off besides.
+
+- **`post-merge` cannot fail a merge** — git ignores its exit status — so it does
+  not try to. It bumps only when the branch is `develop`, `HEAD` is a merge
+  commit, and the subject names a `feature/` branch. That last guard is why an
+  ordinary `git pull`, whose subject is `Merge branch 'develop' of https://...`,
+  does not inflate the counter on every fetch. When it cannot commit it puts the
+  files back, because eight modified files nobody edited is a worse state to
+  hand somebody than no bump.
+- **The bump commit is built with plumbing, and two simpler ways were tried
+  first.** Git runs `post-merge` *before* it clears the merge state, so
+  `MERGE_HEAD` still exists: a partial commit is refused outright
+  (`fatal: cannot do a partial commit during a merge`) and a full `git commit`
+  would read `MERGE_HEAD` and give the bump a second parent, quietly making it
+  another merge commit. Staging the bump earlier from `prepare-commit-msg` does
+  not work either — git has already written the merge tree by then and ignores
+  the index change, so the merge lands without the version in it. `write-tree` +
+  `commit-tree` + `update-ref` consults none of that state.
+- **`pre-push` can refuse, so it is where the enforcement went**: a drifted tree,
+  a `main` carrying a development version, and a `v*` tag whose name does not
+  match the commit it points at. The last one closes a real hole — `app.yml`
+  hands `tagName` to `tauri-action` verbatim and checks it against nothing.
+- **A merge in the GitHub web interface runs neither.** Stated in
+  `docs/gitflow.md` rather than papered over; `pre-push` catches the drift on the
+  next push whoever did the merge.
+
+**The hook makes no network call, and the milestone is documentation.** Same
+reasoning as `core/egress.py`: asking the GitHub API which milestone a pull
+request carried would make a merge fail on a train. The trigger is the merge.
+
+**Windows installers reject a prerelease version** — WiX needs a numeric
+`X.Y.Z` — so `ci.py build` on Windows from a `develop` checkout fails in the
+bundler. It does not affect CI, which bundles only on `main`, a `v*` tag or a
+dispatch. A stated limitation, not a blocker.
 
 ## The desktop app
 

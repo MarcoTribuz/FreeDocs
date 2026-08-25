@@ -132,6 +132,41 @@ less than everything for speed, override `harden_for_verification()` — that ho
 exists because a redacted scan carries enough placeholder text to look ordinary,
 and verification was inspecting the placeholders instead of the pixels.
 
+## Branching
+
+Gitflow, and the full runbook is [docs/gitflow.md](docs/gitflow.md). The short
+version: cut `feature/*` from `develop`, merge it back with `--no-ff`, and open
+a pull request against `develop` — `main` receives only a `release/*` or a
+`hotfix/*`.
+
+**Run this once per clone**, because git does not distribute hooks:
+
+```bash
+python3 scripts/version.py install-hooks
+```
+
+That points `core.hooksPath` at `.githooks/`. `post-merge` advances the
+development counter when a feature lands on `develop`; `pre-push` refuses a tree
+whose nine version sites have drifted, a `main` carrying a development version,
+and a `v*` tag that does not match the tree it points at.
+
+They are a seatbelt rather than a gate, and for a reason worth knowing before
+you rely on them: branch protection is not available on this repository —
+`/branches/main/protection` answers HTTP 403, *"Upgrade to GitHub Pro or make
+this repository public"* — so nothing server-side can require a base branch or a
+review. A pull request merged in the browser also runs no local hook and so
+lands without a bump; finish features locally, and if one slips through,
+`python3 scripts/version.py bump dev` puts it right.
+
+Never edit a version by hand. Nine lines in eight files carry it, three of them
+lockfile entries, and a bump that misses one breaks `uv sync --locked` or
+`npm ci` for everybody else:
+
+```bash
+python3 scripts/version.py show -v     # the nine sites and what each says
+python3 scripts/version.py check       # also the first step of `ci.py check`
+```
+
 ## Pull requests
 
 Small, one subject, and green:

@@ -14,6 +14,7 @@ measurement that disagrees with itself after the next benchmark run.
 | [hidden-content.md](hidden-content.md) | What Word, Excel and PowerPoint files keep where reading the document does not reveal it |
 | [scanned-pdfs.md](scanned-pdfs.md) | OCR setup, redacting pixels instead of glyphs, and why a scan is verified differently |
 | [desktop-app.md](desktop-app.md) | The Tauri window: how it is built, what it shows, and what it deliberately refuses to decide |
+| [gitflow.md](gitflow.md) | The branching model, the one version authority, and what the two git hooks can and cannot enforce |
 | [packaging.md](packaging.md) | Building the sidecar and the installers, and the honest multi-platform status |
 | [portable.md](portable.md) | The unzip-and-run bundle: why it needs no writable state, and what does not travel with it |
 | [restore.md](restore.md) | The reverse path: the opt-in encrypted key file, and putting the values back into what the model returned |
