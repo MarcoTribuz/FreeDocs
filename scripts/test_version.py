@@ -175,11 +175,15 @@ def test_a_write_round_trips_through_both_spellings(tmp_path: Path) -> None:
 
 
 def test_a_tree_whose_sites_disagree_refuses_to_name_a_version(tmp_path: Path) -> None:
+    # Derived from the tree, never a literal: a hard-coded "0.1.0" here stopped
+    # matching the moment the project bumped itself, and the test then failed
+    # while the code it covers was fine.
     root = _tree(tmp_path)
-    conf = root / "app/src-tauri/tauri.conf.json"
-    conf.write_text(
-        conf.read_text(encoding="utf-8").replace('"version": "0.1.0"', '"version": "0.5.0"', 1),
-        encoding="utf-8",
-    )
+    site = next(s for s in V._SITES if s.path.endswith("tauri.conf.json"))
+    conf = root / site.path
+    odd_one_out = V.bump(V.current(root), "major")  # different from whatever the tree says
+    conf.write_text(site.write(conf.read_text(encoding="utf-8"), odd_one_out), encoding="utf-8")
+    assert site.read(conf.read_text(encoding="utf-8")) == odd_one_out.semver()
+
     with pytest.raises(V.VersionError, match="disagree"):
         V.current(root)
