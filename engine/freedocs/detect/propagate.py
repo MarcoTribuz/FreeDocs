@@ -29,7 +29,8 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 
-from ..core.findings import Finding, Span
+from ..core.findings import PROPAGATED_SUFFIX, Finding, Span
+from ..core.policy import REPORT_ONLY
 from .suppress import LEGAL_FORMS
 
 #: Values shorter than this are not propagated, measured rather than assumed. The
@@ -57,8 +58,54 @@ MIN_PROPAGATION_LENGTH = 3
 _EXCLUDED_VALUES = frozenset(form.casefold() for form in LEGAL_FORMS)
 
 #: Propagated findings are marked with this suffix, so a report can distinguish
-#: "the model saw this" from "we inferred this from an earlier mention".
-DETECTOR_SUFFIX = "+propagated"
+#: "the model saw this" from "we inferred this from an earlier mention". Defined
+#: in :mod:`freedocs.core.findings` because ``suppress`` reads it too and this
+#: module already imports from ``suppress``.
+DETECTOR_SUFFIX = PROPAGATED_SUFFIX
+
+
+def value_occurrences(text: str, value: str) -> list[tuple[int, int]]:
+    """Every place ``value`` occurs as a whole value, up to case.
+
+    One definition of that boundary, because two would be two answers to the
+    same question - and both callers act on it: this module copies a finding
+    onto each occurrence, and ``registry.displace_report_only`` decides whether
+    a flagged finding is standing on one.
+
+    ``[^\\W_]`` is a word character that is not an underscore, so a letter or a
+    digit either side refuses and an underscore does not. That last part is what
+    plain ``\\w`` got wrong: a filename is a sequence of words and ``_`` is what
+    separates them, so ``SWICA`` sat inside
+    ``2022-03-23_swica_resume_etude.pdf`` on a real document, removed everywhere
+    else, and stage 6 counts substrings so it found the survivor and was right
+    to. ``.`` and ``-`` were never the problem, being outside ``\\w`` already,
+    and ``Zug`` still does not match inside ``Zugang``.
+    """
+    pattern = re.compile(rf"(?<![^\W_]){re.escape(value.strip())}(?![^\W_])", re.IGNORECASE)
+    return [(match.start(), match.end()) for match in pattern.finditer(text)]
+
+
+def _placement_order(template: Finding, key: str) -> tuple[int, int, str]:
+    """Which template gets first refusal on a stretch of characters.
+
+    Placement settles a contest, so the order may not be the alphabet - which is
+    what it was, for determinism, and determinism was the only requirement it
+    met. On a real document ``employeur`` was a JOB_TITLE template and
+    ``Etat-employeur`` an ORGANISATION one. ``employeur`` sorts first, took the
+    characters, and the removable copy then found the span occupied and skipped
+    it - so the company name stayed in the document with a flagged job title
+    sitting on it. :func:`resolve_overlaps` would have settled that pair the
+    other way, by span length, but it never saw the pair: the copy it would have
+    preferred was never made.
+
+    Two criteria and one tie-break. A ``REPORT_ONLY`` template never takes
+    characters from a removable one, which is the rule already written down for
+    overlaps - a flagged finding winning one stops a real value being removed.
+    Then the longer value, which is what makes this order agree with the
+    resolution that follows it rather than contradict it. The key last, so two
+    runs still produce identical output.
+    """
+    return (1 if template.entity in REPORT_ONLY else 0, -len(key), key)
 
 
 def propagate_known_values(
@@ -79,7 +126,7 @@ def propagate_known_values(
     occupied = [(f.span.start, f.span.end) for f in findings]
 
     # One entry per distinct value, keeping the most confident sighting as the
-    # template. Sorted for determinism: two runs must produce identical output.
+    # template.
     templates: dict[str, Finding] = {}
     for finding in findings:
         value = finding.text.strip()
@@ -92,11 +139,9 @@ def propagate_known_values(
         if best is None or finding.confidence > best.confidence:
             templates[key] = finding
 
-    for key in sorted(templates):
+    for key in sorted(templates, key=lambda k: _placement_order(templates[k], k)):
         template = templates[key]
-        pattern = re.compile(rf"(?<!\w){re.escape(template.text.strip())}(?!\w)", re.IGNORECASE)
-        for match in pattern.finditer(text):
-            span = (match.start(), match.end())
+        for span in value_occurrences(text, template.text):
             if any(span[0] < end and start < span[1] for start, end in occupied):
                 continue
             occupied.append(span)
@@ -104,7 +149,7 @@ def propagate_known_values(
                 Finding(
                     span=Span(*span),
                     entity=template.entity,
-                    text=text[match.start() : match.end()],
+                    text=text[span[0] : span[1]],
                     layer=template.layer,
                     detector=f"{template.detector}{DETECTOR_SUFFIX}",
                     confidence=template.confidence,

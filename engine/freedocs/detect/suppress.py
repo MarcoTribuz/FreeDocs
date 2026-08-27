@@ -21,9 +21,42 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 
 from ..core.findings import EntityType, Finding
 from ..core.text import fold_diacritics as _fold
+
+#: Names of the two rules below, as they reach the report. A closed vocabulary
+#: rather than prose, for the reason the stage names are: the window translates
+#: them by key, and a sentence assembled in Python would have to be translated
+#: four times or quoted in English for something that is an enum.
+NON_IDENTIFYING = "non_identifying"
+JURISDICTION = "jurisdiction"
+
+
+@dataclass(frozen=True)
+class Suppression:
+    """A finding this module dropped, and which rule dropped it.
+
+    Both passes here judge an *occurrence* while stage 6 searches for a *value*,
+    so a value removed in one place and suppressed in another reads as a
+    survivor of the removal. Verification already knows how to be told about
+    that - it is the same allowance a human override uses - and this is what
+    tells it.
+
+    The whole finding is carried rather than its text, and both halves are load
+    bearing. The span is how one occurrence dropped by two passes grants one
+    allowance instead of two, and the entity is what lets the report say what
+    was left behind without naming it.
+    """
+
+    rule: str
+    finding: Finding
+
+
+#: What the two passes return: what survives, and what was dropped with the
+#: reason. Named because the alternative is repeating the tuple in four places.
+Suppressing = tuple[list[Finding], list["Suppression"]]
 
 #: Types a suppression rule may look at. Everything else is checksum-backed, and
 #: a rule that second-guesses a check digit on contextual grounds is a bug: the
@@ -378,8 +411,18 @@ def _is_lowercase_common_noun(finding: Finding) -> bool:
     A legal form anywhere in the span vetoes the rule. ``sp. z o.o. Nordwind``
     is written that way in some registers, and a lowercase first letter is much
     weaker evidence than an explicit legal form.
+
+    A **propagated** finding is not judged here at all, and that exemption was
+    paid for. This rule answers "did the model claim a common noun is a
+    company?", and a copy is not a claim: its evidence is the template it came
+    from, which was confirmed at its own spelling. ``SWICA`` was confirmed as an
+    organisation, propagation reached the lowercase ``swica`` inside
+    ``2022-03-23_swica_resume_etude.pdf``, and this rule then dropped the copy -
+    after which the drop granted stage 6 an allowance and the insurer's name
+    shipped inside a document whose verification said "no leak". That is the
+    allowance hiding a leak, which is the one failure widening it could cause.
     """
-    if finding.entity is not EntityType.ORGANISATION:
+    if finding.entity is not EntityType.ORGANISATION or finding.is_propagated:
         return False
     stripped = finding.text.lstrip()
     if not stripped:
@@ -390,14 +433,61 @@ def _is_lowercase_common_noun(finding: Finding) -> bool:
     return not _has_legal_form(stripped)
 
 
-def drop_non_identifying(findings: Iterable[Finding]) -> list[Finding]:
+def _is_lowercase_place(finding: Finding) -> bool:
+    """`canton` and `administration cantonale` are not places.
+
+    A LOCATION false positive on a real document: GLiNER2 returned the French
+    common noun `canton` at 0.52, just above `Policy.min_confidence`. It was
+    removed - the output read `le seul [LOCATION_4] qui garantit 730 jours` -
+    and stage 6 then counted `cantonale` and `cantonal` as survivors of the
+    value, so a scrub with nothing confidential left in it wrote no file at all.
+
+    The argument is the one the organisation arm above uses: a place name is a
+    proper noun, capitalised in all four languages the model reads, German
+    included. The **test** is not the same one, and the difference is the whole
+    safety of this rule. `_is_lowercase_common_noun` looks at the first
+    character; here that would drop `la Chaux-de-Fonds`, `le Locle` and `les
+    Diablerets`, which are towns whose article is lowercase mid-sentence. So the
+    span must contain no capitalised word anywhere.
+
+    ADDRESS is deliberately not judged this way. `detect/addresses.py` builds its
+    span from a postal code outwards and starts it at the street name, and a
+    street type is lowercase in French and Italian - `rue`, `via`, `chemin` - so
+    the one finding here assembled from structure rather than from a model's
+    guess would be the one this rule threw away.
+
+    The accepted cost, stated rather than hidden: a city written entirely in
+    lowercase is dropped. That is the same trade the organisation arm already
+    makes, and no document in the corpus writes a place name that way. A
+    propagated copy is exempt for the reason given there - the evidence for a
+    copy is its template, not its spelling.
+    """
+    if finding.entity is not EntityType.LOCATION or finding.is_propagated:
+        return False
+    words = [word for word in re.split(r"[\s\u00a0]+", finding.text.strip()) if word]
+    if not words:
+        return False
+    return not any(word[:1].isupper() for word in words)
+
+
+def drop_non_identifying(findings: Iterable[Finding]) -> Suppressing:
     """Drop findings whose *value* identifies nobody, wherever it appears.
 
     Safe to run before propagation as well as after: a country name is not
     wanted anywhere in the document, so removing it early only stops it from
     spreading itself across every heading.
+
+    The three rules underneath are not all the same kind, which shows in how
+    they treat a propagated copy. The country arm judges the **value** and
+    applies to a copy exactly as to an original: ``Suisse`` narrows a population
+    by millions whoever found it. The two lowercase arms judge a **claim** - the
+    model called this word a company, this word a place - and a copy is not a
+    claim, so they skip it. Getting that wrong left a confirmed organisation in
+    a document with a clean verification in front of it; see
+    :func:`_is_lowercase_common_noun`.
     """
     kept: list[Finding] = []
+    dropped: list[Suppression] = []
     for finding in findings:
         if finding.entity not in _FREE_TEXT:
             kept.append(finding)
@@ -405,11 +495,13 @@ def drop_non_identifying(findings: Iterable[Finding]) -> list[Finding]:
         if finding.entity in (EntityType.LOCATION, EntityType.ADDRESS) and _is_country(
             finding.text
         ):
+            dropped.append(Suppression(NON_IDENTIFYING, finding))
             continue
-        if _is_lowercase_common_noun(finding):
+        if _is_lowercase_common_noun(finding) or _is_lowercase_place(finding):
+            dropped.append(Suppression(NON_IDENTIFYING, finding))
             continue
         kept.append(finding)
-    return kept
+    return kept, dropped
 
 
 def drop_jurisdiction_mentions(findings: Iterable[Finding], text: str) -> list[Finding]:
@@ -429,7 +521,14 @@ def drop_jurisdiction_mentions(findings: Iterable[Finding], text: str) -> list[F
     clause mention took the template with it. Filtering last removes the clause
     mention and keeps the address.
     """
-    return [finding for finding in findings if not _in_jurisdiction_clause(finding, text)]
+    kept: list[Finding] = []
+    dropped: list[Suppression] = []
+    for finding in findings:
+        if _in_jurisdiction_clause(finding, text):
+            dropped.append(Suppression(JURISDICTION, finding))
+        else:
+            kept.append(finding)
+    return kept, dropped
 
 
 def country_names() -> Sequence[str]:

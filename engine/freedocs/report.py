@@ -17,9 +17,11 @@ scrubbed document already published; the value behind it never appears here.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from .core.policy import Action
+from .detect.suppress import Suppression
 from .pipeline import ScrubResult
 from .restore import RestoreResult
 
@@ -120,6 +122,12 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
             for item in result.hidden_removed
         ],
         "warnings": list(result.warnings),
+        # Occurrences the detection layer left in place on purpose, so nobody
+        # reads a clean verification as "the value is gone from the document".
+        # Entity, rule and count and nothing else: this file reaches disk and
+        # gets attached to tickets, and the rule name is a closed vocabulary for
+        # the same reason the stage names are.
+        "suppressed": suppressed_section(result.suppressed),
         # The review quotes the *scrubbed* text, so its quotes are not
         # confidential values — they are what survived redaction, which is the
         # whole point of showing them. Absent entirely when no review was asked
@@ -143,6 +151,24 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
         "key_file_written": key_file,
         "caveats": [*CAVEATS, KEY_FILE_CAVEAT] if key_file else CAVEATS,
     }
+
+
+def suppressed_section(entries: Sequence[Suppression]) -> list[dict[str, Any]]:
+    """What was deliberately left behind, counted per entity and rule.
+
+    A count rather than the occurrences themselves, and never the text. The
+    value is confidential in the sentence it was removed from - that is why it
+    was removed there - so naming it here would put it back on disk through the
+    one channel that is meant to be safe to forward.
+    """
+    counts: dict[tuple[str, str], int] = {}
+    for entry in entries:
+        key = (entry.finding.entity.value, entry.rule)
+        counts[key] = counts.get(key, 0) + 1
+    return [
+        {"entity": entity, "rule": rule, "occurrences": count}
+        for (entity, rule), count in sorted(counts.items())
+    ]
 
 
 def _review_section(result: ScrubResult) -> dict[str, Any] | None:
@@ -182,6 +208,15 @@ def format_console(result: ScrubResult) -> str:
         )
 
     lines.extend(f"  warning: {message}" for message in result.warnings)
+    # Said out loud, and before the verification line. A clean verify now means
+    # "nothing survived that was meant to go", which is not the same as "none of
+    # these words is in the output" — and the difference is invisible unless the
+    # decision is printed.
+    for entry in suppressed_section(result.suppressed):
+        lines.append(
+            f"  left in place: {entry['occurrences']} {entry['entity']} "
+            f"occurrence(s) judged {entry['rule']}"
+        )
     lines.append(f"  verify: {result.verify.summary()}")
 
     if result.review is not None:

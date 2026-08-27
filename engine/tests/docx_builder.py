@@ -128,6 +128,11 @@ class DocxSpec:
     footer: str | None = None
     #: ``(link text, target)`` rendered as an external relationship.
     hyperlink: tuple[str, str] | None = None
+    #: A run following the hyperlink *inside the same paragraph*. Word writes
+    #: this whenever a link sits mid-sentence, and the two texts then meet with
+    #: no structural element between them - which is how ``Malakoff Humanis``
+    #: and ``consulte`` arrived in one stream as ``Malakoff Humanisconsulte``.
+    hyperlink_tail: str | None = None
     #: Text inside a table cell, to exercise cell boundaries.
     table_cell: str | None = None
     #: Text inside a text box, which nests a paragraph inside a run.
@@ -163,9 +168,12 @@ def _document_xml(spec: DocxSpec) -> str:
         )
     if spec.hyperlink:
         text, _ = spec.hyperlink
+        tail = (
+            f"<w:r><w:t>{_escape(spec.hyperlink_tail)}</w:t></w:r>" if spec.hyperlink_tail else ""
+        )
         body.append(
             f'<w:p><w:hyperlink r:id="rId90"><w:r><w:t>{_escape(text)}</w:t></w:r>'
-            "</w:hyperlink></w:p>"
+            f"</w:hyperlink>{tail}</w:p>"
         )
     if spec.table_cell:
         body.append(

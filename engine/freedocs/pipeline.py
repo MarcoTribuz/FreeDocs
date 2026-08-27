@@ -37,6 +37,7 @@ from .core.policy import Action, Policy, SurrogateAllocator, placeholder_labels
 from .core.stream import Edit, TextStream
 from .detect.llm_review import LlmReviewer, ReviewOutcome
 from .detect.registry import DetectorRegistry
+from .detect.suppress import Suppression
 from .detect.validators import ValidatorDetector
 from .formats.base import FormatHandler, HiddenItem
 from .formats.router import handler_for
@@ -87,6 +88,12 @@ class Inspection:
     #: preview and short for a scrub. Merging them here dropped three of those,
     #: and the tests said so.
     notes: list[str]
+    #: Occurrences the detection layer dropped on purpose and which therefore
+    #: stay in the output: a city in a governing-law clause, a lowercase word
+    #: that is also a company name. Carried out of the registry rather than
+    #: recomputed, because stage 6 has to be told about exactly these and a
+    #: second opinion about which they are would be a second rule.
+    suppressed: list[Suppression] = field(default_factory=list)
 
     @property
     def stream(self) -> TextStream:
@@ -112,6 +119,11 @@ class ScrubResult:
     #: The optional review of the scrubbed text. ``None`` when nobody asked for
     #: one, which is not the same as a review that found nothing.
     review: ReviewOutcome | None = None
+    #: Occurrences left in the output on purpose. Reported rather than merely
+    #: allowed: without this the change that stopped these failing verification
+    #: would have turned a loud refusal into a silence, and a reader who is told
+    #: nothing believes the city is gone from the document when it is not.
+    suppressed: list[Suppression] = field(default_factory=list)
 
     @property
     def removed(self) -> list[Finding]:
@@ -471,10 +483,12 @@ class Scrubber:
         """
         self._announce(plan, "detect")
         text = extraction.stream.text
-        findings = self.overrides.apply(text, self.registry.detect(text))
+        detected, suppressed = self.registry.detect_with_suppressions(text)
+        findings = self.overrides.apply(text, detected)
         return Inspection(
             extraction=extraction,
             findings=findings,
+            suppressed=suppressed,
             notes=[
                 *self.registry.notes,
                 # "Removed" and "was not there" look identical in the output, and
@@ -520,7 +534,17 @@ class Scrubber:
             handler.path,
             output,
             removed,
-            kept=[kept.text for kept in self.overrides.keep],
+            # Two sources, one mechanism, and the discipline is the same for
+            # both: an allowance is a count granted by something that named the
+            # occurrence. A person naming one in the preview is the original
+            # case; the suppression passes are the second, and they name spans
+            # too. Nothing else may add to this list - see
+            # `DetectorRegistry.detect_with_suppressions` for the three places
+            # that drop a finding without leaving anything behind.
+            kept=[
+                *(kept.text for kept in self.overrides.keep),
+                *(entry.finding.text for entry in inspection.suppressed),
+            ],
         )
 
         result = ScrubResult(
@@ -536,6 +560,7 @@ class Scrubber:
             # that say a placeholder did not fit or a sheet was renamed.
             warnings=[*handler.warnings, *inspection.notes],
             review=self._review(verify, plan),
+            suppressed=inspection.suppressed,
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)
