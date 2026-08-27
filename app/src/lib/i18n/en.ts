@@ -212,6 +212,29 @@ export const en = {
 	openFolder: () => 'Open the folder',
 	scrubAgain: () => 'Start again',
 
+	diagnosticsRecheck: () => 'Check again',
+	announceRechecked: () => 'Checked again.',
+	copyFix: () => 'Copy',
+	copied: () => 'Copied',
+	copyUnavailable: () => 'Select and copy',
+	locateTesseract: () => 'Locate Tesseract…',
+	locateTesseractHint: () =>
+		'If Tesseract is installed somewhere unusual, point this build at it. The engine checks the file before using it.',
+	chooseTesseract: () => 'Choose the Tesseract executable',
+	tesseractAccepted: () => 'Tesseract accepted.',
+	tesseractRefusal: {
+		not_executable: () => 'That file cannot be run. Choose the Tesseract program itself.',
+		wrong_name: () => 'That file must be named ‘tesseract’, because that is the name the PDF reader looks for.'
+	},
+	tesseractRefusalOther: () => 'The engine refused that file.',
+	engineBuild: () => 'Engine',
+	engineSource: {
+		override: () => 'chosen with FREEDOCS_ENGINE',
+		bundled: () => 'bundled with the app',
+		checkout: () => 'from the source tree'
+	},
+	engineBuiltOn: (a) => `built ${a.when}`,
+	engineBuildDateUnknown: () => 'build date unknown',
 	diagnosticsTitle: () => 'What this machine can do',
 	diagnosticsOk: () => 'Everything this build needs is here.',
 	diagnosticsFix: () => 'Fix',

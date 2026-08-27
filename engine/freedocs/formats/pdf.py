@@ -140,6 +140,13 @@ _SYSTEM_BINARIES = (
 )
 
 
+#: What PyMuPDF will actually look for on ``PATH``. Not this module's choice:
+#: nothing here runs Tesseract, and the process that does resolves it by bare name
+#: and takes no argument for it. So a candidate whose filename is not this cannot
+#: be adopted, however runnable it is - see :func:`_resolvable_by_name`.
+_BINARY_NAME = "tesseract.exe" if os.name == "nt" else "tesseract"
+
+
 def _tessdata_candidates() -> list[str]:
     return [
         candidate
@@ -197,8 +204,14 @@ def tesseract_binary() -> str | None:
         return found
     for candidate in _SYSTEM_BINARIES:
         path = Path(candidate)
-        if _is_executable(path):
-            return _adopt(path)
+        if not _is_executable(path):
+            continue
+        # Bound and tested rather than returned, because `_adopt` can refuse: a
+        # `return _adopt(path)` would let one unadoptable leftover in an early
+        # location end the scan and hide a real install in a later one.
+        adopted = _adopt(path)
+        if adopted is not None:
+            return adopted
     return None
 
 
@@ -226,8 +239,40 @@ def _is_executable(path: Path) -> bool:
     return path.suffix.upper() in known
 
 
-def _adopt(candidate: Path) -> str:
+def _resolvable_by_name(candidate: Path) -> bool:
+    """Would PyMuPDF find *this* file when it looks up ``tesseract``?
+
+    :func:`_adopt` puts a candidate's **directory** on ``PATH`` and PyMuPDF then
+    resolves the bare name, so the file that gets executed is whichever one in
+    that directory is called ``tesseract``. For every caller that existed before
+    a person could choose the path that was the same file by construction:
+    ``_SYSTEM_BINARIES`` names it, and ``FREEDOCS_TESSERACT`` is set by a script
+    that knows the name.
+
+    A file picker breaks that assumption, and it breaks it in the worst
+    direction. ``/opt/mine/tesseract-5.3.4`` is runnable, so it passes
+    :func:`_is_executable`; ``tesseract_binary`` returns it and
+    :func:`ocr_unavailable_reason` therefore says OCR is available - and PyMuPDF
+    then resolves ``tesseract`` in that directory, finds a different build or
+    nothing, and the first scan fails. That is the capability and the refusal
+    disagreeing, which is the one thing this module exists to prevent.
+
+    Compared case-insensitively on Windows for the same reason
+    :func:`_is_executable` branches there: ``PATH`` lookup is case-insensitive on
+    that platform and is not on this one.
+    """
+    if os.name == "nt":
+        return candidate.name.casefold() == _BINARY_NAME.casefold()
+    return candidate.name == _BINARY_NAME
+
+
+def _adopt(candidate: Path) -> str | None:
     """Report a binary found off ``PATH``, having first put it on ``PATH``.
+
+    None when the candidate is not named what PyMuPDF looks for, decided
+    *before* the side effect - see :func:`_resolvable_by_name`. Refusing here
+    rather than at each call site is the same argument the side effect itself
+    carries: two copies of a load-bearing rule is one copy that gets forgotten.
 
     The side effect is the point, and reporting the path without it would be the
     lie this function exists to avoid: nothing here runs Tesseract.
@@ -244,6 +289,8 @@ def _adopt(candidate: Path) -> str:
 
     Idempotent: called from a getter that several callers reach on every page.
     """
+    if not _resolvable_by_name(candidate):
+        return None
     directory = str(candidate.parent)
     path = os.environ.get("PATH") or ""
     if directory not in path.split(os.pathsep):
@@ -260,6 +307,57 @@ def _adopted_override() -> str | None:
     if not _is_executable(candidate):
         return None
     return _adopt(candidate)
+
+
+#: Why a Tesseract somebody chose was not adopted. Enum-shaped, unlike
+#: :func:`ocr_unavailable_reason`, which is a sentence: a caller can translate
+#: these, and the two values are kept apart because the next move differs - pick a
+#: different file, versus rename or symlink this one.
+TESSERACT_NOT_EXECUTABLE = "not_executable"
+TESSERACT_WRONG_NAME = "wrong_name"
+
+
+def adopt_tesseract(candidate: Path) -> str | None:
+    """Point this process at a Tesseract somebody chose. None when it took.
+
+    Writes ``FREEDOCS_TESSERACT`` rather than adopting the path directly, because
+    :func:`_adopted_override` reads that variable on *every* call: the variable is
+    what makes a choice survive the next question instead of the next line, and it
+    means there is no second place holding "which Tesseract" - the override
+    already was that place.
+
+    Restores the previous value when the choice is refused. A rejected path left
+    in the environment is state nobody chose, and it would leave ``doctor``
+    naming an override that is not being used.
+
+    This is the one function in this module a caller on the other end of a pipe
+    can reach, so the authority it grants is worth stating rather than implying.
+    :func:`_adopt` puts a directory on this process's ``PATH`` and PyMuPDF
+    executes ``tesseract`` out of it, so this is exec-adjacent: it is strictly
+    less than the arbitrary file read and write ``rpc`` already hands its caller
+    by design, and it is a different class beside it. Two facts bound it. The
+    target must already carry the executable bit - :func:`_is_executable` decides,
+    and nothing here ever chmods - and it must already be *named* ``tesseract``,
+    which is :func:`_resolvable_by_name` and is why that check is not optional
+    politeness. Nothing reachable over the pipe writes a file satisfying both.
+    """
+    previous = os.environ.get("FREEDOCS_TESSERACT")
+    if not _is_executable(candidate):
+        return TESSERACT_NOT_EXECUTABLE
+    if not _resolvable_by_name(candidate):
+        return TESSERACT_WRONG_NAME
+    os.environ["FREEDOCS_TESSERACT"] = str(candidate)
+    if _adopted_override() is None:  # pragma: no cover - both refusals above
+        # Belt and braces, and it restores rather than leaving the variable set:
+        # the two checks above are the same ones `_adopted_override` applies, so
+        # reaching here means they disagreed and the environment must not keep a
+        # path this function did not vouch for.
+        if previous is None:
+            del os.environ["FREEDOCS_TESSERACT"]
+        else:
+            os.environ["FREEDOCS_TESSERACT"] = previous
+        return TESSERACT_NOT_EXECUTABLE
+    return None
 
 
 def ocr_unavailable_reason() -> str | None:

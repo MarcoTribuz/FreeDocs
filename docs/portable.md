@@ -96,10 +96,23 @@ PyMuPDF does not link Tesseract, it shells out to it, so the **binary cannot be
 bundled** — it is a platform package. The language data can be and is.
 
 A portable copy therefore reports OCR unavailable on a machine with no Tesseract,
-and `doctor` names which half is missing. Two ways out, both the user's:
+and `doctor` names which half is missing. Three ways out, all the user's:
 
-- install Tesseract with a package manager, which brings its own `.traineddata`;
-- drop a binary at `<root>/bin/tesseract` and the app will find it.
+- install Tesseract with a package manager — `doctor` and the window now name the
+  exact command for the manager this machine has, language data included, because
+  the base package ships English only and an English-only install reads as OCR
+  working. See [scanned-pdfs.md](scanned-pdfs.md);
+- drop a binary at `<root>/bin/tesseract` and the app will find it — this route
+  needs a restart, because `portable_env` is read once when the sidecar starts;
+- point the window at one with **Locate Tesseract…**, which needs no restart:
+  `FREEDOCS_TESSERACT` is re-read on every call, so the running engine adopts it
+  immediately.
+
+The third route is why `_adopt` now refuses a candidate not *named* `tesseract`.
+Before a person could choose the file, every caller supplied a path that already
+was — `_SYSTEM_BINARIES` names it, and a script sets the variable — so a runnable
+`tesseract-5.3.4` would have been reported as working while PyMuPDF resolved the
+bare name and found something else.
 
 The first route no longer depends on the launch context: `_SYSTEM_BINARIES` in
 `formats/pdf.py` lists where each package manager puts the executable, so a

@@ -500,13 +500,73 @@ export function forget(paths?: string[]): void {
 	void request<{ released: number }>('forget', paths ? { paths } : {}).catch(() => {});
 }
 
-export async function engineStatus(): Promise<string | null> {
+/** Which of `locate`'s three routes named the engine executable. */
+export type EngineSource = 'override' | 'bundled' | 'checkout';
+
+/**
+ * Which engine this session is talking to, as the shell that started it sees it.
+ *
+ * Not asked of the engine, and it cannot be: in a checkout the shell spawns
+ * `freedocs-rpc` while the engine's own `sys.executable` is the interpreter, so a
+ * build date from Python would be the mtime of Python.
+ *
+ * It exists because a sidecar from before a fix reports the missing capability
+ * perfectly correctly and therefore reads as a broken machine. Both builds call
+ * themselves the same version, so the route and the date are the only facts that
+ * tell them apart.
+ */
+export interface EngineIdentity {
+	executable: string;
+	source: EngineSource;
+	/** Seconds since the epoch. Null when unreadable — never zero, which would
+	 *  render as 1 January 1970: a wrong date rather than an absent one. */
+	modified: number | null;
+}
+
+export async function engineStatus(): Promise<{
+	identity: EngineIdentity | null;
+	problem: string | null;
+}> {
 	try {
-		await invoke('engine_status');
-		return null;
+		return { identity: await invoke<EngineIdentity>('engine_status'), problem: null };
 	} catch (raw) {
-		return String(raw);
+		return { identity: null, problem: String(raw) };
 	}
+}
+
+/**
+ * The two refusals `use_tesseract` can answer with.
+ *
+ * An enum rather than a sentence, so the window says it in the reader's language
+ * — the engine's rule is that an enum is translated and an f-string is quoted.
+ * Two values because the next move differs: pick a different file, versus rename
+ * or symlink this one.
+ */
+export type TesseractRefusal = 'not_executable' | 'wrong_name';
+
+export interface TesseractChoice {
+	accepted: boolean;
+	/** Null when the choice took. */
+	refused: TesseractRefusal | null;
+	/**
+	 * What the engine will use *now* — which on a refusal is whatever was already
+	 * answering, not the path just offered.
+	 */
+	tesseract: string | null;
+	ocr_available: boolean;
+	ocr_unavailable_reason: string | null;
+}
+
+/**
+ * Offer the engine a Tesseract, and take its answer for what is true afterwards.
+ *
+ * A refusal arrives as a field rather than a thrown error, deliberately: an error
+ * would mean the window rendered one message and then separately re-asked
+ * capabilities, and those two answers could disagree. One payload carrying both
+ * makes that impossible.
+ */
+export function useTesseract(path: string): Promise<TesseractChoice> {
+	return request<TesseractChoice>('use_tesseract', { path });
 }
 
 export function capabilities(): Promise<Capabilities> {

@@ -72,6 +72,64 @@ struct Live {
 struct Launch {
     executable: PathBuf,
     env: Vec<(&'static str, OsString)>,
+    identity: Identity,
+}
+
+/// Which of `locate`'s three routes named the executable.
+///
+/// Recorded where the choice is made and never re-derived. "Where is the engine"
+/// answered twice is two answers that can disagree, and the window would be the
+/// one guessing - from the shape of a path, which is the mistake it already made
+/// once reading a colon in a detector string as "the model".
+///
+/// A closed vocabulary on the wire, so the window translates it by key. Same
+/// treatment as the engine's stage names, and pinned by a test for the same
+/// reason.
+#[derive(Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Source {
+    Override,
+    Bundled,
+    Checkout,
+}
+
+/// The engine that is running, as the process that started it sees it.
+///
+/// This half cannot come from Python. In a checkout the app spawns
+/// `freedocs-rpc` while the engine's own `sys.executable` is the interpreter, so
+/// an engine-side build date would be the modification time of Python. The
+/// launcher owns the identity of the thing it launched.
+///
+/// It exists because a stale sidecar was indistinguishable from a machine with no
+/// Tesseract: a 23 August bundle and a 24 August one both call themselves 0.1.0,
+/// so the version cannot tell them apart and the route and the date are the only
+/// facts that can.
+///
+/// Nothing here decides that a build is *stale*. Neither half knows what the
+/// current build is, and comparing this against the app binary's own timestamp
+/// was considered and rejected - `tauri build` does not promise to preserve
+/// resource timestamps, and in a checkout the two diverge by design, so the
+/// comparison would be a verdict resting on an accident.
+#[derive(Clone, serde::Serialize)]
+pub struct Identity {
+    executable: String,
+    source: Source,
+    /// Seconds since the epoch, or null. **Null rather than zero**: a zero
+    /// renders as 1 January 1970, which is a wrong date and not an absent one.
+    modified: Option<u64>,
+}
+
+fn identify(path: &Path, source: Source) -> Identity {
+    let modified = std::fs::metadata(path)
+        .and_then(|data| data.modified())
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|since| since.as_secs());
+    Identity {
+        executable: path.to_string_lossy().into_owned(),
+        source,
+        modified,
+    }
 }
 
 pub struct Engine {
@@ -92,9 +150,14 @@ pub struct Engine {
 
 impl Engine {
     pub fn spawn(app: &AppHandle) -> Result<Arc<Self>, String> {
+        let (executable, source) = locate(app)?;
+        // Read once, at startup, with the rest of `Launch`: a session that began
+        // against one engine must not later report a different one.
+        let identity = identify(&executable, source);
         let launch = Launch {
-            executable: locate(app)?,
+            executable,
             env: portable_env(resource_root(app).as_deref()),
+            identity,
         };
         let handle = app.clone();
         Engine::start(
@@ -103,6 +166,14 @@ impl Engine {
                 let _ = handle.emit(NOTIFY_EVENT, message);
             }),
         )
+    }
+
+    /// Which engine this session is talking to.
+    ///
+    /// Resolved once with the rest of `Launch`, so it describes the process that
+    /// is actually serving requests rather than whatever is on disk now.
+    pub fn identity(&self) -> Identity {
+        self.launch.identity.clone()
     }
 
     fn start(
@@ -441,11 +512,11 @@ fn has_traineddata(directory: &Path) -> bool {
     })
 }
 
-fn locate(app: &AppHandle) -> Result<PathBuf, String> {
+fn locate(app: &AppHandle) -> Result<(PathBuf, Source), String> {
     if let Ok(override_path) = std::env::var("FREEDOCS_ENGINE") {
         let path = PathBuf::from(override_path);
         if path.is_file() {
-            return Ok(path);
+            return Ok((path, Source::Override));
         }
         return Err(format!("FREEDOCS_ENGINE points at {path:?}, which is not a file"));
     }
@@ -458,13 +529,13 @@ fn locate(app: &AppHandle) -> Result<PathBuf, String> {
     if let Some(resources) = resource_root(app) {
         let bundled = resources.join("freedocs-engine").join(executable);
         if bundled.is_file() {
-            return Ok(bundled);
+            return Ok((bundled, Source::Bundled));
         }
     }
 
     for candidate in dev_candidates() {
         if candidate.is_file() {
-            return Ok(candidate);
+            return Ok((candidate, Source::Checkout));
         }
     }
 
@@ -536,10 +607,12 @@ done
     }
 
     fn engine(executable: PathBuf) -> Arc<Engine> {
+        let identity = super::identify(&executable, super::Source::Checkout);
         Engine::start(
             Launch {
                 executable,
                 env: Vec::new(),
+                identity,
             },
             Box::new(|_| {}),
         )
@@ -668,7 +741,7 @@ mod tests {
     //! decision in it. Everything around it needs a running `AppHandle`, and a
     //! test that builds one tests Tauri.
 
-    use super::{has_traineddata, portable_env};
+    use super::{has_traineddata, identify, portable_env, Source};
     use std::fs;
     use std::path::Path;
     use std::sync::{Mutex, MutexGuard};
@@ -779,5 +852,46 @@ mod tests {
         let env = portable_env(Some(root.path()));
         std::env::remove_var("FREEDOCS_NER_MODEL");
         assert!(value(&env, "FREEDOCS_NER_MODEL").is_none());
+    }
+
+    #[test]
+    fn an_engine_that_is_not_there_has_no_build_date() {
+        // None rather than zero, and asserted as the decision it is: a zero
+        // renders as 1 January 1970, which is a wrong date rather than an absent
+        // one, and the window would print it.
+        let root = tempfile::tempdir().unwrap();
+        let identity = identify(&root.path().join("absent"), Source::Bundled);
+        assert_eq!(identity.modified, None);
+        assert_ne!(identity.modified, Some(0));
+    }
+
+    #[test]
+    fn a_build_date_is_read_once_when_the_session_starts() {
+        // `Launch` is resolved once on purpose, so the reported identity must
+        // describe the process that is serving requests, not whatever is on disk
+        // by the time somebody asks.
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("freedocs-engine");
+        fs::write(&path, "one").unwrap();
+        let identity = identify(&path, Source::Bundled);
+        let first = identity.modified;
+        assert!(first.is_some());
+
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        fs::write(&path, "two").unwrap();
+        assert_eq!(identity.modified, first);
+        assert_ne!(identify(&path, Source::Bundled).modified, first);
+    }
+
+    #[test]
+    fn the_three_routes_are_three_different_words() {
+        // A closed vocabulary the window translates by key, pinned so a rename
+        // cannot silently leave one locale rendering nothing. Same reasoning as
+        // the engine's stage names.
+        let words: Vec<String> = [Source::Override, Source::Bundled, Source::Checkout]
+            .iter()
+            .map(|source| serde_json::to_string(source).unwrap())
+            .collect();
+        assert_eq!(words, vec!["\"override\"", "\"bundled\"", "\"checkout\""]);
     }
 }

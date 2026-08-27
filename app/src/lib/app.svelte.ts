@@ -4,6 +4,7 @@ import {
 	type Capabilities,
 	type CountryCoverage,
 	type Doctor,
+	type EngineIdentity,
 	type EntityInfo,
 	type Finding,
 	type Inspection,
@@ -13,6 +14,7 @@ import {
 	type RemovedValue,
 	type RestoreResult,
 	type ScrubResult,
+	type TesseractRefusal,
 	MISSING_DEPENDENCY,
 	NEEDS_OCR,
 	UNSUPPORTED_FORMAT,
@@ -20,6 +22,7 @@ import {
 	countries as fetchCoverage,
 	doctor as fetchDoctor,
 	engineStatus,
+	useTesseract,
 	entities,
 	forget as forgetExtractions,
 	inspect,
@@ -93,6 +96,23 @@ export const session = $state({
 	coverage: null as CountryCoverage | null,
 	/** What this machine can do, and how to repair what it cannot. */
 	diagnostics: null as Doctor | null,
+	/**
+	 * Which engine is answering. From the shell, not the engine — see
+	 * `EngineIdentity`. Shown always, not only on a failure: a stale sidecar is
+	 * not a failing check, it is the wrong engine answering correctly.
+	 */
+	engineIdentity: null as EngineIdentity | null,
+	/** A re-check in flight, so the button can say so without leaving the tab order. */
+	rechecking: false,
+	/** Why the engine refused a chosen Tesseract. An enum, so it is translated. */
+	tesseractRefusal: null as TesseractRefusal | null,
+	/**
+	 * The engine's code for `problem`, when it had one.
+	 *
+	 * Held so the failure callout can offer the repair for a refused scan. It
+	 * decides which controls appear, never what the message says.
+	 */
+	problemCode: null as number | null,
 
 	files: [] as string[],
 	inspections: {} as Record<string, Inspection>,
@@ -218,10 +238,24 @@ export function describe(error: unknown): string {
 	return message;
 }
 
-/** A failure the user must not miss: said once, shown until it is replaced. */
-function fail(message: string): void {
+/**
+ * A failure the user must not miss: said once, shown until it is replaced.
+ *
+ * The code is kept beside the message because one failure has a repair the window
+ * can offer. A refused scan is the moment the user cares about OCR, and until now
+ * that message was a dead end with the fix behind a disclosure on another screen.
+ * `describe` still returns the engine's sentence untouched — the code decides
+ * which controls appear beneath it, never what it says.
+ */
+function fail(message: string, code: number | null = null): void {
 	session.problem = message;
+	session.problemCode = code;
 	announce(message, { assertive: true });
+}
+
+/** The engine's code for a failure, when it carried one. */
+function codeOf(error: unknown): number | null {
+	return (error as { code?: number | null })?.code ?? null;
 }
 
 /**
@@ -234,7 +268,9 @@ function fail(message: string): void {
 export async function start(): Promise<() => void> {
 	const unsubscribes: (() => void)[] = [];
 
-	session.engineProblem = await engineStatus();
+	const status = await engineStatus();
+	session.engineProblem = status.problem;
+	session.engineIdentity = status.identity;
 	if (session.engineProblem) return () => {};
 
 	unsubscribes.push(
@@ -269,10 +305,14 @@ export async function start(): Promise<() => void> {
 
 	try {
 		adoptCaps(await capabilities());
+		// Before `refreshDiagnostics`, so the doctor is asked once and after the
+		// adoption. The badge may paint "OCR missing" for a few milliseconds first;
+		// that is honest — it is what the engine said at that moment.
+		await applyRememberedTesseract();
 		session.entityList = (await entities(session.placeholderLanguage)).entities;
 		await Promise.all([refreshCoverage(), refreshDiagnostics()]);
 	} catch (error) {
-		fail(describe(error));
+		fail(describe(error), codeOf(error));
 	}
 
 	unsubscribes.push(
@@ -330,6 +370,166 @@ export async function refreshCoverage(): Promise<void> {
 	}
 }
 
+/**
+ * Where a chosen Tesseract is remembered, and why here.
+ *
+ * `localStorage`, like the theme and the locale, with the same limit stated the
+ * same way: it lives in the webview profile, so it is not portable. A path is a
+ * preference and a machine-specific one at that; passphrases stay out of here for
+ * the opposite reason.
+ *
+ * Not in `Launch.env` on the Rust side. That is resolved once at startup on
+ * purpose, and a store there would be a second place deciding where Tesseract is
+ * — holding the choice *before* anything validated it, which is Rust holding a
+ * rule about what counts as a Tesseract.
+ *
+ * What is remembered is the user's **choice**, never the engine's verdict. The
+ * path goes back through `use_tesseract` on the next launch and is validated
+ * again, so a Tesseract since uninstalled is refused rather than silently
+ * trusted.
+ */
+const TESSERACT_KEY = 'freedocs.tesseract';
+
+/**
+ * Re-apply the remembered choice, but only where the engine says it is needed.
+ *
+ * The guard is `caps.ocr_available` — the engine's own answer, not a rule about
+ * Tesseract — and it is what preserves the precedence `portable_env`'s `set()`
+ * establishes. A `FREEDOCS_TESSERACT` from the launcher, a binary on `PATH`, or
+ * one of the usual install locations all resolve before this runs, and a path
+ * remembered from a previous session must not overrule any of them: a current
+ * statement beats a memory.
+ *
+ * Startup only. `recheck()` deliberately does not call this — a user who has just
+ * installed Tesseract and pressed Re-check must not have last month's choice
+ * reasserted over it.
+ */
+async function applyRememberedTesseract(): Promise<void> {
+	if (!browserStorage()) return;
+	if (session.caps?.ocr_available !== false) return;
+	const remembered = safeRead(TESSERACT_KEY);
+	if (!remembered) return;
+	try {
+		const choice = await useTesseract(remembered);
+		if (choice.accepted) {
+			session.caps = { ...session.caps, ...ocrFields(choice) };
+			return;
+		}
+	} catch {
+		// Fall through: a remembered path that cannot be applied is not an error
+		// the user needs at startup.
+	}
+	// Refused, so forget it and say nothing. `ocr_unavailable_reason` already
+	// reports that nothing was found, which is true, and a warning about a
+	// dropped preference is noise on a screen whose warnings are about documents.
+	safeRemove(TESSERACT_KEY);
+}
+
+/** The two capability fields `use_tesseract` answers with, and only those. */
+function ocrFields(choice: {
+	ocr_available: boolean;
+	ocr_unavailable_reason: string | null;
+}): Pick<Capabilities, 'ocr_available' | 'ocr_unavailable_reason'> {
+	return {
+		ocr_available: choice.ocr_available,
+		ocr_unavailable_reason: choice.ocr_unavailable_reason
+	};
+}
+
+function browserStorage(): boolean {
+	try {
+		return typeof localStorage !== 'undefined';
+	} catch {
+		return false;
+	}
+}
+
+function safeRead(key: string): string | null {
+	try {
+		return localStorage.getItem(key);
+	} catch {
+		return null;
+	}
+}
+
+function safeWrite(key: string, value: string): void {
+	try {
+		localStorage.setItem(key, value);
+	} catch {
+		// A preference that cannot be stored is a preference that does not survive
+		// the session. Nothing else depends on it.
+	}
+}
+
+function safeRemove(key: string): void {
+	try {
+		localStorage.removeItem(key);
+	} catch {
+		// As above.
+	}
+}
+
+/**
+ * Ask the engine again what this machine can do.
+ *
+ * Both questions, because the window shows both: `capabilities` drives the OCR
+ * badge and the reason callout, `doctor` drives the pane. Until this existed the
+ * only way to see a machine that had gained Tesseract was to restart the app —
+ * and a *stale sidecar* looked identical to a machine with no Tesseract, which is
+ * the defect this whole change is about.
+ *
+ * Cheap to ask: neither call loads the model.
+ */
+export async function recheck(): Promise<void> {
+	session.rechecking = true;
+	try {
+		adoptCaps(await capabilities());
+		await refreshDiagnostics();
+	} catch (error) {
+		fail(describe(error), codeOf(error));
+	} finally {
+		session.rechecking = false;
+	}
+}
+
+/**
+ * Let the user point the window at a Tesseract, and let the engine judge it.
+ *
+ * No filters on the dialog, deliberately. What counts as runnable differs by
+ * platform — a permission bit here, a `PATHEXT` suffix on Windows — and the
+ * engine already owns that question. A filter would be the window holding a rule
+ * about what a Tesseract looks like, and on macOS an `exe` filter would hide the
+ * only file that works.
+ *
+ * The window re-asks rather than merging the response into `session.caps`
+ * wholesale: one code path shared with the Re-check button, and no chance of a
+ * half-updated capabilities object.
+ */
+export async function locateTesseract(): Promise<void> {
+	const picked = await open({ multiple: false, directory: false, title: i18n.m.chooseTesseract() });
+	if (typeof picked !== 'string') return;
+	session.rechecking = true;
+	try {
+		const choice = await useTesseract(picked);
+		session.tesseractRefusal = choice.refused;
+		if (!choice.accepted) return;
+		if (browserStorage()) safeWrite(TESSERACT_KEY, picked);
+		// A NEEDS_OCR failure from before this adoption is now stale. That
+		// staleness is window state, not an engine judgement, so clearing it here
+		// is a control and not a rule.
+		if (session.problemCode === NEEDS_OCR) {
+			session.problem = null;
+			session.problemCode = null;
+		}
+		announce(i18n.m.tesseractAccepted());
+	} catch (error) {
+		fail(describe(error), codeOf(error));
+	} finally {
+		session.rechecking = false;
+		await recheck();
+	}
+}
+
 export async function refreshDiagnostics(): Promise<void> {
 	try {
 		session.diagnostics = await fetchDoctor(session.reviewHost || undefined);
@@ -351,7 +551,7 @@ export async function setPlaceholderLanguage(locale: string): Promise<void> {
 	try {
 		session.entityList = (await entities(locale)).entities;
 	} catch (error) {
-		fail(describe(error));
+		fail(describe(error), codeOf(error));
 	}
 }
 
@@ -574,7 +774,7 @@ export async function runRestore(): Promise<void> {
 			{ assertive: !result.ok }
 		);
 	} catch (error) {
-		fail(describe(error));
+		fail(describe(error), codeOf(error));
 	} finally {
 		session.busy = null;
 		session.stage = null;
@@ -615,7 +815,7 @@ export async function loadInspection(path: string): Promise<void> {
 			})
 		);
 	} catch (error) {
-		fail(i18n.m.errorInFile({ file: basename(path), message: describe(error) }));
+		fail(i18n.m.errorInFile({ file: basename(path), message: describe(error) }), codeOf(error));
 	} finally {
 		session.busy = null;
 		session.stage = null;
@@ -758,7 +958,7 @@ export async function runScrub(): Promise<void> {
 			{ assertive: failed > 0 }
 		);
 	} catch (error) {
-		fail(describe(error));
+		fail(describe(error), codeOf(error));
 	} finally {
 		session.busy = null;
 		session.progress = null;

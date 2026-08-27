@@ -58,6 +58,67 @@ something that reads as "not required" is four chances to ship a build that
 quietly finds less. The rule is **if it came from an enum, translate it; if it
 came from an f-string, quote it.**
 
+## What this machine can do, and what the window can do about it
+
+The pane lists every `Check` the engine reports and, until recently, could only
+render them. It now carries three controls, and each is a control rather than a
+rule.
+
+**Which engine is answering, shown always.** The version comes from the engine;
+the route it was found by, the path and its build date come from the shell that
+started it. That split is not tidiness: in a checkout the shell spawns
+`freedocs-rpc` while the engine's own `sys.executable` is the interpreter, so a
+build date asked of Python would be the modification time of Python. The launcher
+owns the identity of the thing it launched.
+
+It exists because of a failure this window could not express. A sidecar built
+before a fix reports the missing capability *perfectly correctly*, so it reads as
+a broken machine rather than an old engine — and both builds call themselves
+`0.1.0`, which is why the version alone could not tell them apart. Nothing here
+calls a build stale: there is no reference point to compare against, and acquiring
+one would mean the network call this tool refuses to make. It states the facts and
+the reader draws the conclusion.
+
+**Check again**, which re-asks `capabilities` and `doctor`. Both, because the
+window shows both — the first drives the OCR badge, the second the pane. It works
+with no restart because the engine resolves Tesseract on every call, so installing
+it in a terminal and pressing the button is enough. Before this the only way to
+see a machine that had gained Tesseract was to relaunch the app, and a stale
+sidecar looked identical to a machine that never had it.
+
+**Copy**, beside each fix. The command is quoted English in a `<code>` and copied,
+never run — see `docs/scanned-pdfs.md` for why the window does not spawn a package
+manager. No clipboard plugin: the Web Clipboard API needs no permission and no CSP
+change, `execCommand` is the fallback for the two platforms this app has been
+built for and never launched on, and the element was always selectable text
+anyway.
+
+**Locate Tesseract…** appears only when the engine says OCR is unavailable — on
+`caps.ocr_available`, never on a name match against a check, because reading
+`check.name === 'OCR'` would be the window holding a rule about the engine's
+wording. The dialog carries no file filter: what counts as runnable differs by
+platform and the engine already owns that question.
+
+The engine judges the choice and answers with a **refusal in the response, not a
+thrown error**. That shape is load-bearing. An error would mean the window
+rendered one message and then separately re-asked capabilities, and those two
+answers could disagree — one payload carrying the refusal *and* the resulting
+state makes that impossible. The refusal is an enum, so it is said in the reader's
+language; the reason OCR is unavailable stays an English sentence, quoted.
+
+The remembered path lives in `localStorage` beside the theme and the locale, with
+the same limit: it does not travel. It is re-applied at startup **only when the
+engine says OCR is unavailable**, so a `FREEDOCS_TESSERACT` from the launcher, a
+binary on `PATH`, or one of the usual install locations all win — a current
+statement beats a memory. And it is validated again every time, because what is
+remembered is the user's choice and never the engine's verdict.
+
+The same **Locate** control appears under a refused scan. That is the moment the
+user cares about OCR, and it used to be a dead end with the fix behind a
+disclosure on another screen. The engine's sentence is still passed through
+untouched; the error's code decides which controls appear beneath it, never what
+it says.
+
 ## Two directions, as a mode rather than a fourth step
 
 The rail carries a switch — remove values, or put them back — above the steps

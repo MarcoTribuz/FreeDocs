@@ -1,8 +1,8 @@
 # Security review
 
 A source review of the whole project, and the record of what was done about it.
-Sixteen findings, thirteen closed, two closed in part, one deliberately left open
-with its reasoning. Everything below names the file, the failure, the fix and how
+Seventeen findings, thirteen closed, two closed in part, one deliberately left
+open with its reasoning and one bounded by decision. Everything below names the file, the failure, the fix and how
 the fix was checked.
 
 Read against `bc50560`, so the line numbers are that commit's; the fixes moved
@@ -50,6 +50,7 @@ The full threat model, what is in scope and what is not, is in
 | M14 | Output writes followed symlinks | Low | A01 | Fixed |
 | M15 | CSP and capability breadth | Low | A05 | Fixed in part, by decision |
 | M16 | Nothing let a user verify a download, and no dependency audit | Medium | A08 | Fixed |
+| M17 | A chosen Tesseract is an exec-adjacent primitive, and an in-app installer was refused | Low | A05 | Bounded, by decision |
 
 ---
 
@@ -539,3 +540,113 @@ uv run freedocs doctor --hashes       # what this machine enforces, and the payl
 
 The by-hand checks are quoted in each finding above, and each of the nineteen
 commits on this work names the one it was verified with.
+
+---
+
+### M17 — A chosen Tesseract, and the installer that was refused
+
+**Low · A05 · Bounded, by decision**
+
+Two related questions, raised by giving the window a way to repair a missing OCR
+layer.
+
+#### What `use_tesseract` actually grants
+
+`_adopt()` in `formats/pdf.py` prepends a chosen binary's **directory** to this
+process's `PATH`, and PyMuPDF then executes `tesseract` by bare name out of it. So
+the RPC method that hands the engine a path is not an ordinary setting: it is
+exec-adjacent for the engine process.
+
+**M7 does not cover this, and citing it would be the mistake.** `engine_request`
+gives the webview arbitrary file read and write as the user, which is strictly
+more reachable but a *different class* — read and write is not execute. The
+argument that a missing door licenses new windows proves too much.
+
+What bounds it is not a permission list. Two facts do, and both are checks the
+environment variable route already had to pass:
+
+- The target must already carry the executable bit, decided by `_is_executable`.
+  Nothing in the engine ever chmods.
+- It must already be **named** `tesseract`, decided by `_resolvable_by_name`.
+
+Nothing reachable over the pipe writes a file satisfying both: `scrub` writes
+documents at the umask with the input's extension. The second check was added by
+this work and is the more interesting one — see below.
+
+**A file picker created the first reachable path to a real defect.** Before it,
+every caller of `_adopt` supplied a path already named `tesseract`:
+`_SYSTEM_BINARIES` names it literally, and `FREEDOCS_TESSERACT` is set by a script
+that knows the name. A person choosing from a dialog does not. `tesseract-5.3.4`
+is runnable, so it passed `_is_executable`, `tesseract_binary()` returned it and
+`ocr_unavailable_reason()` therefore reported OCR **available** — while PyMuPDF
+resolved `tesseract` in that directory and found a different build or nothing. The
+capability and the refusal disagreeing is the one thing that module exists to
+prevent, and it would have surfaced as a scan failing inside Tesseract after the
+window promised otherwise. `_adopt` now returns None instead of adopting, before
+the side effect.
+
+**A refusal is a field in the response, not a raised error.** Raising was the
+obvious shape and it is the wrong one: the window would render an error and then
+separately re-ask `capabilities`, and those two answers could disagree. One
+payload carrying the refusal *and* the resulting state makes that impossible by
+construction — the two state fields are the same two expressions `capabilities`
+publishes, read from the same process after the attempt. There is no `force` or
+`trust` parameter, because one would restore exactly the disagreement being
+designed out.
+
+The generalisation is refused outright: **no `set_env`, no `configure`.** A method
+that set an arbitrary variable would let injected JavaScript set `FREEDOCS_DEBUG`,
+which `_report_crash` reads per crash — restoring full tracebacks to a stderr the
+shell inherits, on a packaged build, which is verbatim the regression `7afeb24`
+closed. It would also let it repoint `FREEDOCS_NER_MODEL`, clear
+`HF_HUB_OFFLINE`, or set `PATH` directly. A dispatch-table test asserts no method
+changes the environment except the one that says so in its name.
+
+#### Why the app does not run a package manager
+
+An in-app "install Tesseract for me" was designed and then refused. The reasoning
+is recorded because the request will come again.
+
+**`core/egress.py` is structurally blind to it.** It patches
+`socket.socket.connect` inside the *engine*; an installer spawned by the shell is
+a sibling process. So the app would gain a network path its own enforcement cannot
+observe, while `capabilities.network_blocked` kept reporting `true` and
+`core/sandbox.describe()` kept rendering "outbound network off except loopback".
+That is worse than an unenforced claim — it is an enforced-*looking* claim with
+the hole next door.
+
+**The honest correction has nowhere to live.** It could only come from the shell,
+while `network_blocked` and `hardening` come from Python. Two sources of truth
+about hardening is the "two answers that can disagree" shape refused everywhere
+else in this codebase, and there is no clean place to put the sentence.
+
+**Elevation is not a subset of the existing primitive.** `engine_request` is
+bounded by the user's own authority. `sudo apt` or an elevated `winget` is not, and
+teaching users to elevate for a document anonymiser is a net negative even when it
+works.
+
+**It cannot work where it is most needed.** The incident that prompted all of this
+was a Finder launch with launchd's `PATH` — where `brew` is not on `PATH` either.
+The app would have to hardcode `/opt/homebrew/bin/brew`, `/usr/local/bin/brew`,
+MacPorts: a second copy of the `_SYSTEM_BINARIES` table, in the shell, about the
+host.
+
+**And only one platform branch survived review.** Debian's `deb.depends` already
+makes the package manager the installer; anything else on Linux needs root.
+Windows would ship untested on a platform this project says "builds" and not
+"works" for. A feature with one live branch is not worth a new exec surface.
+
+What ships instead is a *guided* install, which is a complete path from "OCR
+missing" to "OCR available" without leaving the window except to paste one line:
+the engine detects which package manager is present and names the exact command,
+language data included; the window offers Copy and Check again; and Locate skips
+the install for a Tesseract already on the machine. `docs/scanned-pdfs.md` has the
+detail.
+
+**Also fixed while here, and it is the same failure one step out.**
+`_layers_check` composed its own `"uv sync --extra ner"` instead of going through
+`_sync_fix`, so it was the one check still printing advice a packaged user cannot
+act on — the defect the window's own comment documented as known. The replacement
+test loops over every check rather than naming that one, so the next hardcoded fix
+fails too.
+

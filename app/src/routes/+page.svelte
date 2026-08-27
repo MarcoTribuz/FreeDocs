@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { ORDER, goTo, session, start, type Step } from '$lib/app.svelte';
+	import { ORDER, goTo, locateTesseract, session, start, type Step } from '$lib/app.svelte';
+	import { NEEDS_OCR } from '$lib/engine';
+	import Button from '$lib/components/Button.svelte';
 	import { announce } from '$lib/announce.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
@@ -138,6 +140,30 @@
 			{#if session.problem}
 				<Callout tone="danger" live verbatim>
 					<p>{session.problem}</p>
+					{#if session.problemCode === NEEDS_OCR}
+						<!--
+							The repair, offered where the failure happened. A refused scan is
+							the moment the user cares about OCR, and until now this message
+							was a dead end with the fix behind a disclosure on another
+							screen.
+
+							The code decides that the controls appear; it never touches what
+							the message says. `describe()` still passes the engine's sentence
+							through untouched, because that sentence already names the pages
+							and what to install — a preamble in front of it would be the
+							window competing with a complete answer.
+						-->
+						<div class="repair">
+							<Button
+								variant="secondary"
+								size="sm"
+								loading={session.rechecking}
+								onclick={locateTesseract}
+							>
+								{i18n.m.locateTesseract()}
+							</Button>
+						</div>
+					{/if}
 				</Callout>
 			{/if}
 
@@ -213,6 +239,12 @@
 {/if}
 
 <style>
+	/* The repair sits under the engine's sentence, which is quoted English; the
+	   button's own label is in the reader's language and is outside that region. */
+	.repair {
+		margin-top: var(--space-2);
+	}
+
 	.shell {
 		display: grid;
 		grid-template-columns: 15rem minmax(0, 1fr);

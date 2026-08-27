@@ -125,10 +125,21 @@ pub fn run() {
 /// Held in state when the engine could not be started, so the window can explain.
 struct EngineError(String);
 
+/// Whether the engine started, and — since it did — which one.
+///
+/// The identity half cannot come from the engine. In a checkout this process
+/// spawns `freedocs-rpc` while the engine's own `sys.executable` is the
+/// interpreter, so a build date asked of Python would be the mtime of Python.
+/// The launcher owns the identity of the thing it launched, which is the same
+/// split `diagnostics._sync_fix` already makes one fact over.
+///
+/// It answers a failure this window could not previously express: a sidecar from
+/// before a fix reports the missing capability perfectly correctly, and reads as
+/// a broken machine rather than an old engine.
 #[tauri::command]
-fn engine_status(app: tauri::AppHandle) -> Result<(), String> {
-    if app.try_state::<Arc<Engine>>().is_some() {
-        return Ok(());
+fn engine_status(app: tauri::AppHandle) -> Result<engine::Identity, String> {
+    if let Some(engine) = app.try_state::<Arc<Engine>>() {
+        return Ok(engine.identity());
     }
     Err(app
         .try_state::<EngineError>()

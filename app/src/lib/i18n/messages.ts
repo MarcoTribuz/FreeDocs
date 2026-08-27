@@ -126,18 +126,6 @@ export interface Messages {
 	stageOf(a: { name: string; index: number; count: number }): string;
 	stagePages(a: { done: number; of: number }): string;
 
-	// ---- what this machine can do ------------------------------------------
-	diagnosticsTitle(): string;
-	diagnosticsOk(): string;
-	diagnosticsFix(): string;
-	/** A layer that is absent: this build does less, not nothing. */
-	diagnosticsDegraded(): string;
-	/** Something this build needs and does not have. */
-	diagnosticsBroken(): string;
-	countryModelOnly(): string;
-	rulesSilenced(a: { count: number }): string;
-	placeholderExample(a: { example: string }): string;
-
 	// ---- the result ---------------------------------------------------------
 	resultTitle(): string;
 	removedAndFlagged(a: { removed: number; flagged: number }): string;
@@ -213,6 +201,40 @@ export interface Messages {
 	detectorSpecHint(): string;
 
 	// ---- what this machine can do ------------------------------------------
+	/** The pane's re-ask control. */
+	diagnosticsRecheck(): string;
+	announceRechecked(): string;
+	copyFix(): string;
+	copied(): string;
+	copyUnavailable(): string;
+	locateTesseract(): string;
+	locateTesseractHint(): string;
+	/** The file dialog's own title, like `chooseKeyFile`. */
+	chooseTesseract(): string;
+	/**
+	 * Worded about the *binary*, never about OCR.
+	 *
+	 * An accepted Tesseract with no language data is still an OCR this build
+	 * cannot do, and the two halves install separately — so a message saying "OCR
+	 * is ready" would be the window making a claim only the engine can.
+	 */
+	tesseractAccepted(): string;
+	/**
+	 * The engine's refusal, by key.
+	 *
+	 * A literal-union record rather than `Record<string, ...>`, so `satisfies
+	 * Messages` proves every entry present in all four catalogues. The looser
+	 * shape used by `stage` cannot see a missing one.
+	 */
+	tesseractRefusal: Record<'not_executable' | 'wrong_name', () => string>;
+	/** A refusal key added in Python later must still render as something. */
+	tesseractRefusalOther(): string;
+	engineBuild(): string;
+	/** Where the engine came from, by key. A closed vocabulary from Rust. */
+	engineSource: Record<'override' | 'bundled' | 'checkout', () => string>;
+	engineBuiltOn(a: { when: string }): string;
+	/** Absent, which is not the same as a wrong date. */
+	engineBuildDateUnknown(): string;
 	diagnosticsTitle(): string;
 	diagnosticsOk(): string;
 	diagnosticsFix(): string;
