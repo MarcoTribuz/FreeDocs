@@ -187,6 +187,21 @@ A test pins that so a second such case cannot appear silently.
 normal machine, and a health check that calls that an error teaches people to
 ignore it.
 
+Its first line is `Engine build`, which is identity rather than health — always
+`ok`, because a build is not a fault. It reports the version and whether this is a
+packaged build, and the second half is the useful one: inside a bundle every fix
+that would name a virtualenv is *withheld* rather than rewritten, and until this
+line existed that absence looked exactly like a check with nothing to suggest. It
+names no path and no build date on purpose — in a checkout the app spawns
+`freedocs-rpc` while `sys.executable` is the interpreter, so a date from here
+would be the modification time of Python. The desktop app reports that half,
+because only the process that launched the engine knows which file it launched.
+
+When Tesseract is missing, the OCR fix is the install command for the package
+manager **this machine actually has**, language data included — see
+[scanned-pdfs.md](scanned-pdfs.md). Nothing runs it for you, and that is a
+decision rather than an omission.
+
 ## `benchmark`
 
 ```bash

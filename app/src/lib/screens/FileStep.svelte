@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goTo, pickFiles, session, totalFindings } from '$lib/app.svelte';
+	import { goTo, locateTesseract, pickFiles, session, totalFindings } from '$lib/app.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -39,6 +39,38 @@
 		<Callout tone="warn" title={m.ocrReasonTitle()} verbatim>
 			<p>{session.caps.ocr_unavailable_reason}</p>
 		</Callout>
+		<!--
+			Outside the callout above, deliberately: `verbatim` puts `lang="en"` on
+			that body, and a translated button label inside it would be announced as
+			English.
+
+			Gated on the engine's own `ocr_available`, never on a name match against
+			a check — reading `check.name === 'OCR'` would be the window holding a
+			rule about the engine's wording, which is the mistake it already made
+			once reading a colon in a detector string.
+		-->
+		<div class="locate">
+			<Button
+				variant="secondary"
+				size="sm"
+				loading={session.rechecking}
+				onclick={locateTesseract}
+			>
+				{m.locateTesseract()}
+			</Button>
+			<p class="hint">{m.locateTesseractHint()}</p>
+		</div>
+		{#if session.tesseractRefusal}
+			<!-- The engine's refusal, by key. An enum, so it is said in the reader's
+			     language rather than quoted. -->
+			<Callout tone="warn" live>
+				<p>
+					{session.tesseractRefusal in m.tesseractRefusal
+						? m.tesseractRefusal[session.tesseractRefusal]()
+						: m.tesseractRefusalOther()}
+				</p>
+			</Callout>
+		{/if}
 	{/if}
 
 	{#if session.caps.limitations.length}
@@ -90,6 +122,20 @@
 		font-size: var(--text-2xl);
 		line-height: var(--lh-2xl);
 		letter-spacing: var(--tracking-tight);
+	}
+
+	.locate {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+	}
+
+	.locate .hint {
+		flex: 1 1 20rem;
+		font-size: var(--text-xs);
+		color: var(--text-3);
 	}
 
 	.lead {

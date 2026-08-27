@@ -213,6 +213,29 @@ export const it = {
 	openFolder: () => 'Apri la cartella',
 	scrubAgain: () => 'Ricomincia',
 
+	diagnosticsRecheck: () => 'Controlla di nuovo',
+	announceRechecked: () => 'Controllato di nuovo.',
+	copyFix: () => 'Copia',
+	copied: () => 'Copiato',
+	copyUnavailable: () => 'Seleziona e copia',
+	locateTesseract: () => 'Individua Tesseract…',
+	locateTesseractHint: () =>
+		'Se Tesseract è installato in una posizione insolita, indicala a questa build. Il motore verifica il file prima di usarlo.',
+	chooseTesseract: () => 'Scegli l’eseguibile Tesseract',
+	tesseractAccepted: () => 'Tesseract accettato.',
+	tesseractRefusal: {
+		not_executable: () => 'Quel file non può essere eseguito. Scegli il programma Tesseract vero e proprio.',
+		wrong_name: () => 'Quel file deve chiamarsi «tesseract», perché è il nome che cerca il lettore PDF.'
+	},
+	tesseractRefusalOther: () => 'Il motore ha rifiutato quel file.',
+	engineBuild: () => 'Motore',
+	engineSource: {
+		override: () => 'scelto con FREEDOCS_ENGINE',
+		bundled: () => 'incluso nell’app',
+		checkout: () => 'dal codice sorgente'
+	},
+	engineBuiltOn: (a) => `compilato ${a.when}`,
+	engineBuildDateUnknown: () => 'data di compilazione sconosciuta',
 	diagnosticsTitle: () => 'Cosa può fare questa macchina',
 	diagnosticsOk: () => 'Tutto ciò che serve a questa build è presente.',
 	diagnosticsFix: () => 'Rimedio',

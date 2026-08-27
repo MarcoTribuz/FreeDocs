@@ -220,6 +220,29 @@ export const fr = {
 	openFolder: () => 'Ouvrir le dossier',
 	scrubAgain: () => 'Recommencer',
 
+	diagnosticsRecheck: () => 'Vérifier à nouveau',
+	announceRechecked: () => 'Vérifié à nouveau.',
+	copyFix: () => 'Copier',
+	copied: () => 'Copié',
+	copyUnavailable: () => 'Sélectionner et copier',
+	locateTesseract: () => 'Localiser Tesseract…',
+	locateTesseractHint: () =>
+		'Si Tesseract est installé à un endroit inhabituel, indiquez-le à cette version. Le moteur vérifie le fichier avant de l’utiliser.',
+	chooseTesseract: () => 'Choisir l’exécutable Tesseract',
+	tesseractAccepted: () => 'Tesseract accepté.',
+	tesseractRefusal: {
+		not_executable: () => 'Ce fichier ne peut pas être exécuté. Choisissez le programme Tesseract lui-même.',
+		wrong_name: () => 'Ce fichier doit s’appeler « tesseract », car c’est le nom que cherche le lecteur PDF.'
+	},
+	tesseractRefusalOther: () => 'Le moteur a refusé ce fichier.',
+	engineBuild: () => 'Moteur',
+	engineSource: {
+		override: () => 'choisi avec FREEDOCS_ENGINE',
+		bundled: () => 'fourni avec l’application',
+		checkout: () => 'depuis les sources'
+	},
+	engineBuiltOn: (a) => `compilé ${a.when}`,
+	engineBuildDateUnknown: () => 'date de compilation inconnue',
 	diagnosticsTitle: () => 'Ce que cette machine sait faire',
 	diagnosticsOk: () => 'Tout ce qu\'il faut à cette version est présent.',
 	diagnosticsFix: () => 'Remède',

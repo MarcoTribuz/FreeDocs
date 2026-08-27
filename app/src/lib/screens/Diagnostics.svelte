@@ -1,11 +1,40 @@
 <script lang="ts">
-	import { session } from '$lib/app.svelte';
+	import { recheck, session } from '$lib/app.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
+	import { announce } from '$lib/announce.svelte';
+	import { copyText } from '$lib/clipboard';
+	import { buildDate } from '$lib/format';
 	import Badge from '$lib/components/Badge.svelte';
+	import Button from '$lib/components/Button.svelte';
 	import Disclosure from '$lib/components/Disclosure.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 
 	const m = $derived(i18n.m);
+
+	/**
+	 * Which fix was just copied, so one row can say so without the others doing it.
+	 *
+	 * Keyed by check name, which is already this list's `{#each}` key.
+	 */
+	let copiedFix = $state<string | null>(null);
+	let copyFailed = $state<string | null>(null);
+
+	async function copyFix(name: string, fix: string): Promise<void> {
+		const worked = await copyText(fix);
+		copyFailed = worked ? null : name;
+		copiedFix = worked ? name : null;
+		if (worked) {
+			announce(m.copied());
+			setTimeout(() => {
+				if (copiedFix === name) copiedFix = null;
+			}, 1500);
+		}
+	}
+
+	async function askAgain(): Promise<void> {
+		await recheck();
+		announce(m.announceRechecked());
+	}
 
 	/**
 	 * Open when there is something wrong, closed when there is not.
@@ -30,6 +59,50 @@
 
 {#if session.diagnostics}
 	<Disclosure bind:open summary={m.diagnosticsTitle()} count={problems || undefined}>
+		<!--
+			Which engine is answering, shown whether or not anything failed. A stale
+			sidecar is not a failing check — it is the wrong engine answering
+			correctly, which is exactly why nothing here calls it stale. Both builds
+			in the incident this was written for reported version 0.1.0; the route
+			and the date are the only facts that tell them apart, and the reader
+			draws the conclusion.
+
+			The version comes from the engine and the rest from the shell that
+			started it, because only the shell knows which file it launched.
+		-->
+		<div class="engine">
+			<p class="identity">
+				<span class="label">{m.engineBuild()}</span>
+				<span>{session.diagnostics.version}</span>
+				{#if session.engineIdentity}
+					<span class="sep">·</span>
+					<span>{m.engineSource[session.engineIdentity.source]()}</span>
+					<span class="sep">·</span>
+					<span>
+						{session.engineIdentity.modified === null
+							? m.engineBuildDateUnknown()
+							: m.engineBuiltOn({
+									when: buildDate(session.engineIdentity.modified, i18n.locale)
+								})}
+					</span>
+				{/if}
+			</p>
+			{#if session.engineIdentity}
+				<p class="where" lang="en">{session.engineIdentity.executable}</p>
+			{/if}
+			<!--
+				Inside the body rather than beside the summary: a button within the
+				disclosure's trigger button is nested interactive content.
+			-->
+			<Button
+				variant="secondary"
+				size="sm"
+				loading={session.rechecking}
+				onclick={askAgain}
+			>
+				{m.diagnosticsRecheck()}
+			</Button>
+		</div>
 		{#if problems === 0}
 			<p class="hint">{m.diagnosticsOk()}</p>
 		{/if}
@@ -61,15 +134,33 @@
 								`Check.fix` was written to tell a person what to run and, until
 								this panel, only a terminal could see it.
 
-								Known defect, stated rather than hidden: inside a packaged app
-								`uv sync --extra ner` means nothing. It is still shown verbatim,
-								because a second set of app-facing strings would be two answers
-								to one question — making the fixes aware of a frozen build is a
-								follow-up with its own test.
+								The fixes are `sys.frozen`-aware in Python: inside a packaged
+								build one that would name a virtualenv becomes *absent* rather
+								than being rewritten into advice the engine cannot know is
+								right. The OCR fix is the exception and deliberately so — a
+								system package installs the same way whatever build asked, so
+								the engine detects the package manager this machine has and
+								names the command.
+
+								Quoted in English and copyable, not run. Spawning a package
+								manager from here would put a network call outside everything
+								`core/egress.py` can see while `capabilities` went on reporting
+								that outbound connections are blocked.
 							-->
 							<p class="fix">
 								<span class="label">{m.diagnosticsFix()}</span>
 								<code lang="en">{check.fix}</code>
+								<Button
+									variant="ghost"
+									size="sm"
+									onclick={() => copyFix(check.name, check.fix ?? '')}
+								>
+									{copyFailed === check.name
+										? m.copyUnavailable()
+										: copiedFix === check.name
+											? m.copied()
+											: m.copyFix()}
+								</Button>
 							</p>
 						{/if}
 					</div>
@@ -80,6 +171,43 @@
 {/if}
 
 <style>
+	.engine {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-2);
+		margin-bottom: var(--space-3);
+		padding-bottom: var(--space-3);
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.identity {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-1);
+		font-size: var(--text-xs);
+		color: var(--text-2);
+	}
+
+	.identity .label {
+		text-transform: uppercase;
+		letter-spacing: var(--tracking-caps);
+		color: var(--text-3);
+	}
+
+	.identity .sep {
+		color: var(--text-3);
+	}
+
+	.where {
+		flex-basis: 100%;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-3);
+		overflow-wrap: anywhere;
+	}
+
 	.hint {
 		margin-bottom: var(--space-2);
 		font-size: var(--text-sm);
@@ -125,6 +253,10 @@
 	}
 
 	.fix {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-1);
 		margin-top: var(--space-1);
 		font-size: var(--text-xs);
 	}

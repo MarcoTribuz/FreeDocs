@@ -47,7 +47,7 @@ OCR needs the Tesseract binary **and** its language data, and neither is
 installable with pip. PyMuPDF does not link Tesseract, it shells out to it:
 
 ```bash
-brew install tesseract                     # or your platform's package
+brew install tesseract tesseract-lang      # or your platform's package
 mkdir -p engine/models/tessdata
 for lang in ita deu fra eng spa nld por pol swe; do
   curl -sSL -o "engine/models/tessdata/$lang.traineddata" \
@@ -66,6 +66,62 @@ every language.
 `engine/models/tessdata` is searched by default, after `FREEDOCS_TESSDATA` and
 `TESSDATA_PREFIX`, and a packaged build carries the same files beside its
 executable.
+
+**`brew install tesseract` on its own is not enough, and the shortfall is
+silent.** It ships `eng` and `osd`; this engine asks Tesseract for nine languages
+at once. `tessdata_path()` counts a directory that holds *any* `.traineddata`, so
+an English-only install makes `capabilities.ocr_available` **true** while an
+Italian or German scan reads badly — and a value OCR misreads fails its checksum,
+is never detected, and survives. That is the defining failure of this tool
+reached by a successful install.
+
+So every command the window offers names the language data too:
+`brew install tesseract tesseract-lang`, the `tesseract-ocr-*` packages on Debian,
+the `tesseract-langpack-*` ones on Fedora. `_PACKAGE_MANAGERS` in
+`diagnostics.py` is that table and a test asserts every entry names at least one
+language beyond the base package, so shortening a line fails the suite rather than
+shipping a quiet leak.
+
+Two things still open, recorded rather than fixed. `ocr_unavailable_reason()`
+naming *which* languages are missing would close the gap properly, and that
+changes the single authority's contract — it needs its own measurement of what a
+partial language set actually costs. And `tauri.conf.json`'s
+`bundle.linux.deb.depends` lists `tesseract-ocr` alone, so a `.deb` install has
+the same shortfall; widening it is a one-line change nobody here can test, because
+Linux is built and not run.
+
+## The window can act on this, and cannot install it
+
+`freedocs doctor` and the desktop app's "What this machine can do" pane both put a
+`Check.fix` beside every failure. For OCR that fix is now the command for the
+package manager **this machine actually has** — detected by looking for
+`/opt/homebrew/bin/brew`, `/usr/bin/apt` and the rest at absolute paths, for the
+same reason `_SYSTEM_BINARIES` holds absolute paths: under a Finder launch `PATH`
+is launchd's, and `shutil.which("brew")` fails on a machine that has Homebrew.
+When no manager is found the advice stays generic, because naming apt on a Fedora
+machine is advice that fails.
+
+The window shows that command with a Copy button, and a **Check again** button
+beside it. Re-checking works with no restart because `tesseract_binary()` and
+`tessdata_path()` are resolved on every call — install Tesseract in your own
+terminal, press the button, and the badge flips.
+
+**Nothing runs the command for you, and that is a decision.** Spawning a package
+manager would put a network call outside everything `core/egress.py` can observe,
+while `capabilities` went on reporting that outbound connections are blocked — an
+enforced-looking claim with the hole beside it, and the honest correction could
+only come from the shell while `network_blocked` comes from Python. Two sources of
+truth about hardening is the shape this project refuses everywhere else. You paste
+it into a shell where the process already *is* you, which is the same reasoning
+`core/sandbox.py` gives for the CLI needing no confinement.
+
+If Tesseract is installed somewhere none of the usual locations covers, the window
+also offers **Locate Tesseract…**. The engine judges the file: it must be runnable
+*and* named `tesseract`, because `_adopt()` puts its directory on `PATH` and
+PyMuPDF then resolves that bare name — a differently-named executable would be
+reported as working and then not be the file that runs. The refusal is a field in
+the response rather than an error, so the window cannot show one message while
+`capabilities` says something else.
 
 **"OCR is available" means the binary *and* the language data.** The two halves
 install separately — the `.traineddata` files can be bundled, a platform package

@@ -37,3 +37,18 @@ export function languageName(code: string, locale = 'en'): string {
 export function basename(path: string): string {
 	return path.split(/[\\/]/).pop() ?? path;
 }
+
+/**
+ * A sidecar's build date, in the reader's language.
+ *
+ * Seconds since the epoch, because that is what the shell reports and it is the
+ * one unit no locale argues about. The caller passes null through rather than
+ * calling this: an absent date has its own message, and formatting a zero would
+ * print 1 January 1970 as though it were a fact.
+ */
+export function buildDate(seconds: number, locale = 'en'): string {
+	return new Intl.DateTimeFormat(locale, {
+		dateStyle: 'long',
+		timeStyle: 'short'
+	}).format(new Date(seconds * 1000));
+}

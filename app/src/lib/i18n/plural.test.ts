@@ -100,7 +100,8 @@ describe('the catalogues', () => {
 		restoredSummary: { values: 3, occurrences: 7 },
 		restoreIncomplete: { count: 2 },
 		announceRestored: { count: 5 },
-		announceRestoredWithProblems: { count: 1 }
+		announceRestoredWithProblems: { count: 1 },
+		engineBuiltOn: { when: '23 August 2026 at 16:34' }
 	};
 
 	for (const [name, catalogue] of catalogues) {

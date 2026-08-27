@@ -9,9 +9,34 @@ the CIN algorithm rather than invented.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from freedocs.pipeline import Scrubber, build_registry
+
+
+@pytest.fixture(autouse=True)
+def _isolate_the_tesseract_choice():
+    """Undo any Tesseract adoption a test performed.
+
+    `adopt_tesseract` writes `FREEDOCS_TESSERACT` and `_adopt` prepends a
+    directory to `PATH`, both on the real process environment. That is correct in
+    production - one process serves one session, and the choice is meant to
+    survive the next request - and it leaks across tests, where a `PATH` from one
+    file decides what a later one finds. The failures it produced were
+    order-dependent and passed in isolation, which is the worst kind to chase.
+
+    Autouse rather than opt-in, because a test that adopts is exactly the test
+    that will forget.
+    """
+    before = {name: os.environ.get(name) for name in ("FREEDOCS_TESSERACT", "PATH")}
+    yield
+    for name, value in before.items():
+        if value is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = value
 
 
 def l1_scrubber(**kwargs) -> Scrubber:

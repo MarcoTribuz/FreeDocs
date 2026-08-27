@@ -86,6 +86,40 @@ def _module_present(module: str) -> bool:
         return False
 
 
+def _engine_check() -> Check:
+    """Which engine is answering, and whether it is withholding advice.
+
+    ``ok=True`` and ``required=False`` whichever way it comes out, like
+    :func:`_sandbox_check`: a build is not a fault. It is here so an absence
+    cannot be read as presence. Every fix below that names a virtualenv
+    *disappears* inside a packaged build rather than being rewritten
+    (:func:`_sync_fix`), and until this existed that absence looked exactly like a
+    check with nothing to suggest.
+
+    **Names no path and no build date, deliberately.** A build date is a property
+    of the file that was launched, and only the process that launched it knows
+    which file that is: in a checkout the app spawns ``freedocs-rpc`` while
+    ``sys.executable`` is the interpreter, so an engine-side modification time
+    would be the mtime of Python. The launcher owns the identity of the thing it
+    launched and reports it separately - the same split :func:`_sync_fix` already
+    makes, one fact over.
+
+    It also must not claim a build is *out of date*. There is no reference point
+    to compare against, and acquiring one would mean the network call this tool
+    refuses to make. It states which engine answered; the reader draws the
+    conclusion.
+    """
+    version = engine_version()
+    if _frozen():
+        detail = (
+            f"freedocs {version}, packaged - so a fix naming a virtualenv is "
+            "omitted below rather than invented"
+        )
+    else:
+        detail = f"freedocs {version}, running from a source tree"
+    return Check(name="Engine build", ok=True, detail=detail, required=False)
+
+
 def _python_check() -> Check:
     current = sys.version_info[:3]
     floor = ".".join(str(part) for part in MINIMUM_PYTHON)
@@ -200,6 +234,71 @@ def _ner_check(*, hashes: bool = False) -> Check:
     )
 
 
+#: Where each platform's package manager lives, and the one line that installs
+#: Tesseract with it.
+#:
+#: Absolute paths, for exactly the reason ``_SYSTEM_BINARIES`` in ``formats/pdf``
+#: holds absolute paths: a macOS ``.app`` opened from Finder inherits launchd's
+#: environment, so ``PATH`` is ``/usr/bin:/bin:/usr/sbin:/sbin`` and
+#: ``shutil.which("brew")`` fails on a machine that has Homebrew. Detecting the
+#: manager is the whole point - naming apt on a Fedora machine is advice that
+#: fails, which is what :func:`_sync_fix` returns None to avoid.
+#:
+#: **Every command names the language data**, and that is not tidiness.
+#: ``brew install tesseract`` ships ``eng`` and ``osd`` only, while
+#: ``DEFAULT_OCR_LANGUAGE`` asks for nine - and ``tessdata_path()`` counts a
+#: directory that holds *any* ``.traineddata``, so an English-only install makes
+#: ``ocr_available`` true and an Italian scan then reads badly. A value OCR
+#: misreads fails its checksum, is never detected, and survives. Shortening one of
+#: these lines is a quiet leak, not a shorter line.
+_PACKAGE_MANAGERS: tuple[tuple[str, str], ...] = (
+    ("/opt/homebrew/bin/brew", "brew install tesseract tesseract-lang"),
+    ("/usr/local/bin/brew", "brew install tesseract tesseract-lang"),
+    ("/opt/local/bin/port", "sudo port install tesseract tesseract-ita tesseract-deu"),
+    (
+        "/usr/bin/apt",
+        "sudo apt install tesseract-ocr tesseract-ocr-ita tesseract-ocr-deu"
+        " tesseract-ocr-fra tesseract-ocr-spa tesseract-ocr-nld tesseract-ocr-por"
+        " tesseract-ocr-pol tesseract-ocr-swe",
+    ),
+    (
+        "/usr/bin/dnf",
+        "sudo dnf install tesseract tesseract-langpack-ita tesseract-langpack-deu"
+        " tesseract-langpack-fra tesseract-langpack-spa tesseract-langpack-nld"
+        " tesseract-langpack-por tesseract-langpack-pol tesseract-langpack-swe",
+    ),
+    ("/usr/bin/pacman", "sudo pacman -S tesseract tesseract-data-ita tesseract-data-deu"),
+)
+
+
+def _install_command() -> str | None:
+    """The one line that installs Tesseract on *this* machine, or None.
+
+    Detected, never guessed, for the reason :func:`_sync_fix` exists - advice the
+    engine cannot know is right is worse than no advice.
+
+    But note where the two differ, because it is the whole justification for this
+    not being suppressed in a frozen build. ``_sync_fix`` returns None when frozen
+    because what a packaged user should do about a missing *extra* depends on
+    which build shape they have, and the engine cannot see that. A *platform* it
+    can see - :func:`_python_check` already prints it - and a system package
+    installs the same way whatever build asked for it. So this is honest exactly
+    where ``uv sync`` is not.
+
+    This is also as far as the engine goes. It says the line; it never runs one.
+    Spawning a package manager would put a network call outside everything
+    ``core/egress.py`` can observe while ``capabilities`` went on reporting that
+    outbound connections are blocked - an enforced-looking claim with the hole
+    beside it. The user pastes this into a shell where the process already *is*
+    the user, which is the same reasoning ``core/sandbox.py`` gives for the CLI
+    needing no confinement.
+    """
+    for manager, command in _PACKAGE_MANAGERS:
+        if Path(manager).is_file():
+            return command
+    return None
+
+
 def _ocr_check() -> Check:
     from .formats.pdf import ocr_unavailable_reason, tessdata_path, tesseract_binary
 
@@ -214,18 +313,21 @@ def _ocr_check() -> Check:
     # The two halves install by different routes, so naming which one is missing
     # is the whole value of the check: pip cannot install the binary and a
     # package manager will not put the .traineddata where a bundle looks.
-    fix = (
-        # Both routes, because a packaged build has no package manager. The
-        # binary cannot be bundled — PyMuPDF shells out to it — so a portable
-        # copy's only way to OCR is a binary the user supplies. The override is
-        # named first now that the usual install locations are searched: reaching
-        # this branch means the binary is either absent or somewhere unusual, and
-        # "install it" is the wrong advice for the second case.
-        "install Tesseract with your package manager, or point FREEDOCS_TESSERACT"
-        " at an existing one"
-        if tesseract_binary() is None
-        else "point FREEDOCS_TESSDATA at a directory of .traineddata files"
-    )
+    if tesseract_binary() is None:
+        # The command for the manager this machine actually has, when it has one.
+        # Falling back to the generic sentence rather than naming a manager that
+        # is not installed: both routes are still named there, because the binary
+        # cannot be bundled - PyMuPDF shells out to it - so a portable copy's only
+        # way to OCR is a binary the user supplies. The override is named first
+        # now that the usual install locations are searched: reaching this branch
+        # means the binary is either absent or somewhere unusual, and "install it"
+        # is the wrong advice for the second case.
+        fix = _install_command() or (
+            "install Tesseract with your package manager, or point FREEDOCS_TESSERACT"
+            " at an existing one"
+        )
+    else:
+        fix = "point FREEDOCS_TESSDATA at a directory of .traineddata files"
     return Check(
         name="OCR",
         ok=False,
@@ -293,7 +395,15 @@ def _mapping_check() -> Check:
 
 
 def _layers_check() -> Check:
-    """What a scrub would actually run, asked of the registry itself."""
+    """What a scrub would actually run, asked of the registry itself.
+
+    The fix goes through :func:`_sync_fix` like every other one. It used to be a
+    literal ``"uv sync --extra ner"``, which is the one advice in this module a
+    packaged user cannot act on: there is no virtualenv in a bundle to sync and no
+    ``pyproject.toml`` to read the extra from. Being the only check that skipped
+    the helper is exactly how it stayed wrong while the module around it was
+    fixed.
+    """
     from .pipeline import default_registry
 
     registry = default_registry()
@@ -302,7 +412,7 @@ def _layers_check() -> Check:
         name="Detection layers",
         ok=bool(names),
         detail=", ".join(names) if names else "no detector could be assembled",
-        fix=None if names else "uv sync --extra ner",
+        fix=None if names else _sync_fix("ner"),
     )
 
 
@@ -325,13 +435,17 @@ def _sandbox_check() -> Check:
 
 
 def run_checks(review_host: str, *, hashes: bool = False) -> list[Check]:
-    """Every check, in the order a reader wants them: floor first, extras after.
+    """Every check, in the order a reader wants them: identity, floor, extras.
 
     ``hashes`` is threaded through rather than decided here: only the weights
     check has an expensive question to ask, and whether to pay for it belongs to
     whoever ran the doctor.
     """
     return [
+        # Identity first: a reader wants to know which engine answered before
+        # reading its answers, and a stale sidecar is not a failing check - it is
+        # the wrong engine answering correctly.
+        _engine_check(),
         _python_check(),
         _extra_check(
             "PDF support",
