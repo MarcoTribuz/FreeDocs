@@ -5,7 +5,13 @@ from __future__ import annotations
 import pytest
 
 from freedocs.core.findings import EntityType, Finding, Layer, Span
-from freedocs.detect.registry import drop_unconfirmed_structured, resolve_overlaps, summarise
+from freedocs.detect.registry import (
+    DetectorRegistry,
+    displace_report_only,
+    drop_unconfirmed_structured,
+    resolve_overlaps,
+    summarise,
+)
 
 
 def make(
@@ -198,3 +204,242 @@ def test_the_country_neutral_types_still_need_no_country():
     assert drop_unconfirmed_structured([bogus]) == []
     dashed = make_text("CH93-0076-2011-6238-5295-7", EntityType.IBAN, Layer.NER)
     assert drop_unconfirmed_structured([dashed]) == [dashed]
+
+
+class TestWhatGrantsAnAllowance:
+    """Which dropped findings leave characters behind, and which do not.
+
+    Stage 6 searches for values and two passes here judge occurrences, so an
+    occurrence left in place has to be declared or it reads as a leak. The
+    declaration is dangerous in exactly one direction: every finding named here
+    becomes a value stage 6 is permitted to find in the output, so the list must
+    be the two passes that leave text behind and nothing else.
+
+    Three of the five places `detect` drops a finding must never appear:
+
+    * `drop_unconfirmed_structured` throws away a model claim a checksum
+      refused - a different value, never removed anywhere, so there is nothing
+      to allow.
+    * `resolve_overlaps` throws away the loser of a contest whose winner covers
+      the same characters, which are removed either way.
+    * `fill_address_gaps` absorbs a LOCATION inside an ADDRESS, same argument.
+
+    Widening this past the two suppression passes reopens the hole the whole
+    change exists to close.
+    """
+
+    def _registry(self, findings_for):
+        class Stub:
+            def detect(self, text: str):
+                return findings_for(text)
+
+        return DetectorRegistry(detectors=[Stub()])
+
+    def _spans(self, text: str, value: str, entity: EntityType, confidence: float = 0.9):
+        out = []
+        start = text.find(value)
+        while start != -1:
+            out.append(
+                Finding(
+                    span=Span(start, start + len(value)),
+                    entity=entity,
+                    text=value,
+                    layer=Layer.NER,
+                    detector="stub",
+                    confidence=confidence,
+                )
+            )
+            start = text.find(value, start + 1)
+        return out
+
+    def test_detect_stays_the_kept_half(self):
+        """`benchmark` and every existing caller go through `detect`.
+
+        It has to keep answering exactly what it answered before, or the measured
+        numbers move for a change that touched no detector.
+        """
+        text = "Bureau a Lugano. Les tribunaux de Lugano sont seuls competents."
+        registry = self._registry(lambda t: self._spans(t, "Lugano", EntityType.LOCATION))
+        kept, _ = registry.detect_with_suppressions(text)
+        assert registry.detect(text) == kept
+
+    def test_a_jurisdiction_mention_is_declared(self):
+        text = "Bureau a Lugano. Les tribunaux de Lugano sont seuls competents."
+        registry = self._registry(lambda t: self._spans(t, "Lugano", EntityType.LOCATION))
+        kept, suppressed = registry.detect_with_suppressions(text)
+        assert [f.span.start for f in kept] == [text.index("Lugano")]
+        assert [s.finding.span.start for s in suppressed] == [text.rindex("Lugano")]
+
+    def test_a_refused_checksum_claim_is_not_declared(self):
+        """The model's card claim is a value nothing removed. Allowing it would
+        permit that text in the output for free."""
+        pytest.importorskip("stdnum")
+        text = "Totali di riga 1500\t2300 nel grafico."
+        registry = self._registry(lambda t: self._spans(t, "1500\t2300", EntityType.CREDIT_CARD))
+        kept, suppressed = registry.detect_with_suppressions(text)
+        assert kept == []
+        assert suppressed == []
+
+    def test_an_overlap_loser_is_not_declared(self):
+        """Its characters are removed by the winner, so there is nothing to allow."""
+        text = "Contatto Mario Rossi a Milano."
+
+        def findings(t: str):
+            return [
+                Finding(
+                    span=Span(9, 20),
+                    entity=EntityType.PERSON,
+                    text="Mario Rossi",
+                    layer=Layer.NER,
+                    detector="stub",
+                    confidence=0.9,
+                ),
+                Finding(
+                    span=Span(15, 20),
+                    entity=EntityType.ORGANISATION,
+                    text="Rossi",
+                    layer=Layer.NER,
+                    detector="stub",
+                    confidence=0.8,
+                ),
+            ]
+
+        _, suppressed = self._registry(findings).detect_with_suppressions(text)
+        assert suppressed == []
+
+    def test_one_occurrence_dropped_twice_is_declared_once(self):
+        """`drop_non_identifying` runs on both sides of propagation.
+
+        A lowercase organisation is dropped before propagation, the capitalised
+        template then propagates onto the same characters, and the second pass
+        drops it again. Counting both would permit the value twice in an output
+        that contains it once - and the allowance is a count, so the second one
+        is a hole a failed write-back could hide in.
+        """
+        text = "Realise SA a livre le rapport. La societe realise les travaux."
+        registry = self._registry(
+            lambda t: (
+                self._spans(t, "Realise", EntityType.ORGANISATION)
+                + self._spans(t, "realise", EntityType.ORGANISATION)
+            )
+        )
+        _, suppressed = registry.detect_with_suppressions(text)
+        starts = [s.finding.span.start for s in suppressed]
+        assert starts == sorted(set(starts))
+        assert starts == [text.index("realise", text.index("societe"))]
+
+    def test_no_state_survives_between_calls(self):
+        """One registry serves a whole session, and a batch is more than one file.
+
+        State on the instance would check the second document against the first
+        document's suppressions - the shape `Override.for_path` exists to stop.
+        """
+        registry = self._registry(lambda t: self._spans(t, "Lugano", EntityType.LOCATION))
+        first = "Les tribunaux de Lugano sont seuls competents."
+        registry.detect_with_suppressions(first)
+        _, suppressed = registry.detect_with_suppressions("Bureau a Lugano.")
+        assert suppressed == []
+
+
+class TestReportOnlyCollision:
+    """A flagged occurrence must not shelter a value that goes everywhere else.
+
+    `REPORT_ONLY` means "say it is here, never delete it": a job title alone
+    identifies nobody, and deleting one hides residual risk instead of surfacing
+    it. That reasoning holds for a value only ever seen as a job title. It does
+    not hold when the *same characters* are a company two paragraphs down -
+    there the flagged sighting is the model having mislabelled one occurrence,
+    and leaving it is a leak with a clean verification in front of it.
+
+    Found on a real document: `Etat-employeur` came back ORGANISATION at 0.87 in
+    one sentence, and in the other the model claimed only the nine characters
+    `employeur` as a JOB_TITLE. Propagation cannot fix it - the span is occupied,
+    so the copy is skipped - and matching the two by *text* cannot either, which
+    is the version of this rule that shipped first and did not close the case.
+    The question is whether a flagged finding is standing **on an occurrence of**
+    a removable value, not whether it spells one.
+
+    `CLAUDE.md` calls the shape out in the special-categories note, from the
+    other direction: "a REPORT_ONLY finding winning an overlap against a LOCATION
+    would stop that LOCATION being removed, which is a leak".
+    """
+
+    #: `employeur` inside the first occurrence, the whole value in the second.
+    TEXT = (
+        "Le cout total direct de l'absence pour l'Etat-employeur s'eleve a 136 millions.\n"
+        "L'Etat-employeur a donc subi une hausse de 19,4% en trois ans.\n"
+    )
+
+    def at(self, text: str, value: str, entity: EntityType, confidence: float, *, last=False):
+        start = text.rindex(value) if last else text.index(value)
+        return Finding(
+            span=Span(start, start + len(value)),
+            entity=entity,
+            text=value,
+            layer=Layer.NER,
+            detector="stub",
+            confidence=confidence,
+        )
+
+    def test_a_flagged_finding_standing_on_a_removable_value_goes(self):
+        """The real case: the flagged span is *part of* the occurrence, not equal to it."""
+        flagged = self.at(self.TEXT, "employeur", EntityType.JOB_TITLE, 0.68)
+        company = self.at(self.TEXT, "Etat-employeur", EntityType.ORGANISATION, 0.87, last=True)
+        kept = displace_report_only(self.TEXT, [flagged, company])
+        assert kept == [company]
+
+    def test_the_exact_spelling_case_still_works(self):
+        flagged = self.at(self.TEXT, "Etat-employeur", EntityType.JOB_TITLE, 0.68)
+        company = self.at(self.TEXT, "Etat-employeur", EntityType.ORGANISATION, 0.87, last=True)
+        assert displace_report_only(self.TEXT, [flagged, company]) == [company]
+
+    def test_a_flagged_finding_standing_on_nothing_survives(self):
+        """The whole point of REPORT_ONLY, and it must not be collateral damage."""
+        text = "La Directrice des finances a valide le rapport de Nordwind Logistik.\n"
+        flagged = self.at(text, "Directrice des finances", EntityType.JOB_TITLE, 0.8)
+        company = self.at(text, "Nordwind Logistik", EntityType.ORGANISATION, 0.9)
+        findings = [flagged, company]
+        assert displace_report_only(text, findings) == findings
+
+    def test_the_reverse_never_happens(self):
+        """A removable finding is never displaced by a flagged value elsewhere.
+
+        This direction is the leak. Nothing in the rule may be symmetric.
+        """
+        text = "L'Etat-employeur paie. Le poste d'Etat-employeur est vacant.\n"
+        company = self.at(text, "Etat-employeur", EntityType.ORGANISATION, 0.9)
+        flagged = self.at(text, "Etat-employeur", EntityType.JOB_TITLE, 0.8, last=True)
+        assert company in displace_report_only(text, [company, flagged])
+
+    def test_the_occurrence_is_matched_the_way_propagation_matches_one(self):
+        """One definition of the boundary, or the two passes disagree.
+
+        `employeur` inside `Etat-employeur` is an occurrence of neither value;
+        what makes the flagged finding lose is that it *overlaps* an occurrence
+        of `Etat-employeur`, which is the span propagation is about to claim.
+        """
+        text = "Le sous-employeur paie. L'Etat-employeur aussi.\n"
+        flagged = self.at(text, "employeur", EntityType.JOB_TITLE, 0.7)
+        company = self.at(text, "Etat-employeur", EntityType.ORGANISATION, 0.9)
+        # `sous-employeur`: the hyphen is outside `\w`, so `employeur` there *is*
+        # a whole value - but the removable value is `Etat-employeur`, which does
+        # not occur at that offset, so the flagged finding stands.
+        assert flagged in displace_report_only(text, [flagged, company])
+
+    def test_propagation_then_puts_the_removable_label_there(self):
+        """Displacing alone would leave the characters unclaimed by anything."""
+
+        outer = self
+
+        class Stub:
+            def detect(self, text: str):
+                return [
+                    outer.at(text, "employeur", EntityType.JOB_TITLE, 0.68),
+                    outer.at(text, "Etat-employeur", EntityType.ORGANISATION, 0.87, last=True),
+                ]
+
+        kept, _ = DetectorRegistry(detectors=[Stub()]).detect_with_suppressions(self.TEXT)
+        assert [(f.span.start, f.entity) for f in kept] == [
+            (self.TEXT.index("Etat-employeur"), EntityType.ORGANISATION),
+            (self.TEXT.rindex("Etat-employeur"), EntityType.ORGANISATION),
+        ]

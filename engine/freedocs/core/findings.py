@@ -45,6 +45,14 @@ class EntityType(str, Enum):
     POSTCODE = "POSTCODE"
 
 
+#: Appended to a finding's detector name when it is a *copy* of a confirmed
+#: sighting rather than a fresh one. Lives here rather than in
+#: :mod:`freedocs.detect.propagate` because :mod:`freedocs.detect.suppress` has
+#: to read it and propagate already imports from suppress - two modules needing
+#: one fact is what a low-level module is for.
+PROPAGATED_SUFFIX = "+propagated"
+
+
 class Layer(str, Enum):
     """Which detection layer produced a finding. Drives conflict resolution."""
 
@@ -112,6 +120,18 @@ class Finding:
     #: checks the output, while putting it in the surrogate would hand the reader
     #: of the scrubbed text one more thing to re-identify with.
     country: str | None = None
+
+    @property
+    def is_propagated(self) -> bool:
+        """Is this a copy of a confirmed sighting rather than a fresh claim?
+
+        The distinction matters to :mod:`freedocs.detect.suppress`: the rules
+        there that judge a *claim* - the model called this lowercase word a
+        company - must not be applied to a copy, whose evidence is the template
+        it came from and not its own spelling. The rules that judge a *value* -
+        a country name identifies nobody - apply to both.
+        """
+        return self.detector.endswith(PROPAGATED_SUFFIX)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.confidence <= 1.0:

@@ -335,6 +335,80 @@ what lets a manual choice beat the OS in *both* directions, which a
 `prefers-color-scheme` block cannot do without a second copy of the palette.
 `system` stays a real third state: the media query is listened to.
 
+**The window can repair a missing OCR layer, and still holds no rules.** Three
+controls in the diagnostics pane — Copy beside each `Check.fix`, Check again, and
+Locate Tesseract… — plus the same Locate under a refused scan, which is the moment
+the user actually cares and used to be a dead end. Re-checking needs no restart
+because `tesseract_binary()` and `tessdata_path()` resolve on every call.
+
+Four decisions in there are load-bearing. **A refusal is a field in the
+`use_tesseract` response, not a raised error**: an error would mean the window
+rendered one message and then separately re-asked `capabilities`, and those two
+answers could disagree — one payload carrying the refusal *and* the resulting
+state makes that impossible, and there is no `force` parameter for the same
+reason. **The refusal is an enum** (`not_executable`, `wrong_name`) so it is
+translated, while the reason OCR is unavailable stays a quoted English sentence.
+**Locate is gated on `caps.ocr_available`**, never on `check.name === 'OCR'` —
+matching the engine's wording would be the window holding a rule about the
+engine's naming, the mistake it already made once reading a colon in a detector
+string. And **the remembered path is re-validated, not trusted**: it lives in
+`localStorage` beside the theme, is re-applied only when the engine says OCR is
+unavailable so a launcher's `FREEDOCS_TESSERACT` or a `PATH` binary still wins,
+and goes back through `use_tesseract` every launch.
+
+**`_adopt()` refuses a binary PyMuPDF cannot resolve by name, and the picker is
+why.** It puts the candidate's *directory* on `PATH` and PyMuPDF looks up the bare
+name, so before a person could choose the file the two were the same by
+construction — `_SYSTEM_BINARIES` names it, and a script sets the variable. A
+dialog breaks that: `tesseract-5.3.4` is runnable, so `ocr_available` went true
+while PyMuPDF resolved something else or nothing. `_resolvable_by_name` decides
+before the side effect, and the `_SYSTEM_BINARIES` loop binds rather than
+returning, or one unadoptable leftover ends the scan and hides a real install.
+Those two checks are also what bound the authority `use_tesseract` grants: the
+target must already be executable *and* already be named `tesseract`, and nothing
+reachable over the pipe writes such a file.
+
+**Which engine is answering is reported, and it is split by who knows.** Both
+builds in the incident that prompted this called themselves `0.1.0`, so the
+version cannot tell a stale sidecar from a current one — and a stale sidecar
+reports a missing capability perfectly correctly, so it reads as a broken machine.
+The engine's `Engine build` check says the version and whether it is frozen and
+*nothing else*: in a checkout the shell spawns `freedocs-rpc` while
+`sys.executable` is the interpreter, so an engine-side build date is the mtime of
+Python. The route (`override`/`bundled`/`checkout`, recorded by `locate()` where
+the choice is made), the path and the date come from Rust through `engine_status`.
+Nothing calls a build stale — there is no reference point without the network call
+this tool refuses — and comparing the sidecar's mtime against the app binary's was
+rejected because `tauri build` does not promise to preserve resource timestamps.
+
+**The engine names the install command; it never runs one.** `_PACKAGE_MANAGERS`
+in `diagnostics.py` finds the manager this machine actually has, at absolute paths
+for the `_SYSTEM_BINARIES` reason — under a Finder launch `shutil.which("brew")`
+fails on a machine with Homebrew. This is *not* suppressed when frozen, and the
+distinction from `_sync_fix` is the justification: what a packaged user should do
+about a missing *extra* depends on a build shape the engine cannot see, while a
+*platform* it can see and a system package installs the same way whatever build
+asked.
+
+Spawning a package manager was designed and refused. `core/egress.py` patches
+`socket.socket.connect` inside the engine, so an installer spawned by the shell is
+a sibling process it cannot observe — the app would gain a network path while
+`capabilities.network_blocked` kept reporting `true`, which is an enforced-looking
+claim with the hole beside it, and the honest correction could only come from Rust
+while that field comes from Python. Elevation is also not a subset of what
+`engine_request` already grants, and only the macOS branch survived review at all:
+Debian's `deb.depends` already makes the package manager the installer, and
+Windows would ship untested. See M17 in `docs/security-review.md`.
+
+**Every install command names the language data, and a test enforces it.**
+`brew install tesseract` ships `eng` and `osd`; this engine asks for nine
+languages, and `tessdata_path()` counts a directory holding *any* `.traineddata`
+— so an English-only install makes `ocr_available` true while an Italian scan
+reads badly, and a value OCR misreads fails its checksum and survives. Two related
+gaps are recorded and not fixed: `ocr_unavailable_reason()` naming *which*
+languages are missing would change the single authority's contract, and
+`tauri.conf.json`'s `deb.depends` has the same shortfall.
+
 **Python counts code points; JavaScript counts UTF-16 code units.** Inside the
 BMP they agree, which is almost every document. With an emoji or a rare CJK
 character they diverge by the number of surrogate pairs before the offset — and
@@ -1150,6 +1224,12 @@ cost three covered entities to save seventy-two over-redacted characters:
 and that sighting is the template propagation needs to reach the same city in the
 address twenty lines up. Kill the clause mention early and the address survives.
 
+**A suppressed occurrence is declared to stage 6, and only these two passes
+declare one.** Both rules below judge an occurrence and leave its characters in
+the output, which verification searches for as a value — see *Stage 6 needed an
+allowance* for the whole mechanism and for the three places that drop a finding
+without leaving anything behind.
+
 **A suppression rule needs a corpus case, and the burden of proof runs the other
 way here.** Every other rule can be wrong and merely noisy; this one can be wrong
 and turn a working scrub into a leak. The country list came from six measured
@@ -1164,6 +1244,55 @@ short version is that the nationality type would not have made the currency rule
 necessary either, because it lands on the adjective and the adjective is
 `REPORT_ONLY`.
 
+**The three arms of `drop_non_identifying` are not the same kind of rule, and a
+propagated copy is what shows it.** The country arm judges the **value** —
+`Suisse` narrows a population by millions whoever found it — so it applies to a
+copy exactly as to an original. The two lowercase arms judge a **claim**, the
+model having called this word a company or this word a place, and a copy is not a
+claim: its evidence is the template it came from, confirmed at its own spelling.
+`Finding.is_propagated` is what they read, and `PROPAGATED_SUFFIX` moved to
+`core/findings.py` because `propagate` already imports from `suppress` and a
+cycle is not worth a constant.
+
+That exemption was paid for, by the one failure widening the allowance can
+cause. `SWICA` was confirmed as an organisation; the underscore fix let
+propagation reach the lowercase `swica` inside
+`2022-03-23_swica_resume_etude.pdf`; the lowercase rule dropped the copy; the
+drop was declared to stage 6 as a decision; and the insurer's name shipped inside
+a document whose verification said "no leak". Every step a rule working as
+designed. It was found by listing what the suppression passes had left in place
+and reading the list — which is the check to run on any document this feature
+surprises you on.
+
+The accepted cost, stated rather than hidden: where a confirmed value is also an
+ordinary lowercase word, that word goes too. Over-redaction rather than a leak,
+which is the direction taken when unsure — the same reason city-states stay in.
+It has not been seen on a real document. If it is, the fix is to exempt only a
+copy sitting inside a compound token — `_swica_` has a separator beside it and a
+verb in prose does not — which needs the text passing into the pass and a
+measured case, and neither exists yet.
+
+**A place name is capitalised; the test is not the first letter.** GLiNER2
+returned the French common noun `canton` as a LOCATION at 0.52, just above
+`Policy.min_confidence`, on a real document — it was removed (`le seul
+[LOCATION_4] qui garantit 730 jours`) and stage 6 then counted `cantonale` and
+`cantonal` as survivors of the value, so a scrub with nothing confidential left
+in it wrote no file. `_is_lowercase_place` drops a LOCATION containing no
+capitalised word **anywhere**, and that is deliberately a different test from the
+organisation arm's first-character one: `la Chaux-de-Fonds`, `le Locle` and `les
+Diablerets` are towns whose article is lowercase mid-sentence. ADDRESS is not
+judged this way at all — `detect/addresses.py` starts its span at the street
+name, and `rue`, `via` and `chemin` are lowercase, so the one finding built from
+structure rather than a model's guess would be the one thrown away. The accepted
+cost is stated rather than hidden: a city written entirely in lowercase is
+dropped, which is the trade the organisation arm already makes.
+
+No corpus text was added for it, on purpose. Appending a sentence moves the NER
+chunk boundaries and that alone changes coverage — see the boundary note above —
+so the evidence is the unit case plus the document it was found on, the same
+standing this codebase already gives the digit-free identifier refusal. The
+benchmark is the control: every column unchanged.
+
 **City-states stay in.** Luxembourg, Monaco, Singapore, San Marino and Andorra
 name a city as often as a country, and the country list drops findings outright,
 so an ambiguous name in it is a leak. When the name could be either, the finding
@@ -1175,6 +1304,34 @@ documents: both were already confirmed findings elsewhere, so nothing but a leng
 test stood between them and the occurrence that survived. A sweep over 5, 4, 3 and
 2 recovers `Sion` at 4 and `Zug` at 3, moves over-redaction not one character at
 any floor, and gains nothing further at 2.
+
+**Propagation places templates in an order, and the order settles a contest.**
+It was `sorted(templates)` — the alphabet, chosen for determinism, which was the
+only requirement it met. On a real document `employeur` was a JOB_TITLE template
+and `Etat-employeur` an ORGANISATION one: `employeur` sorts first, took the
+characters, and the removable copy then found the span occupied and skipped it,
+so the company name stayed in the document with a flagged job title sitting on
+it. `resolve_overlaps` would have settled that pair the other way — longer span
+at equal precedence — but it never saw the pair, because the copy it would have
+preferred was never made. `_placement_order` puts a removable template ahead of
+a `REPORT_ONLY` one (the rule already written down for overlaps), then the longer
+value (so this order agrees with the resolution that follows instead of
+contradicting it), then the key so two runs still agree.
+
+This was the *third* form the same document's last leak took, and each earlier
+fix was correct: `displace_report_only` really does free the characters, and the
+trace shows it — a new JOB_TITLE then appears at those characters, five offsets
+in and nine long, out of propagation rather than out of any detector. Read a
+stage trace before adding a fourth rule.
+
+**The propagation boundary treats `_` as a separator, and only `_` needed
+fixing.** The pattern is `(?<![^\W_])`/`(?![^\W_])` — a letter or a digit either
+side refuses, an underscore does not. `SWICA` was removed where the model saw it
+and stayed inside `2022-03-23_swica_resume_etude.pdf` two lines down, on a real
+document; a filename is a sequence of words and `_` is what separates them, so
+the insurer's name really was in that text and stage 6 was right to count it.
+`.` and `-` were never the problem, being outside `\w` already. `Zug` still does
+not match inside `Zugang`, which is the half that must not move.
 
 The old comment justified 5 on two grounds and only one of them was true. Short
 strings do **not** match "inside unrelated words" — the pattern is bounded by
@@ -1277,8 +1434,78 @@ end-to-end run of the feature, which is the check earning its keep. `verify_outp
 now takes `kept` and permits each value exactly as many times as were kept — so a
 write-back that quietly failed on the *other* occurrence is still a hard failure,
 and `Leak.describe()` says the failure is the excess so it cannot be read as "the
-override did not work". Nothing infers an allowance; it is granted only by a
-caller naming the occurrence.
+override did not work".
+
+**Two things grant that allowance and nothing else does.** A person naming an
+occurrence in the preview was the first, and the two suppression passes are the
+second — they name spans too, and `registry.detect_with_suppressions` hands them
+to `pipeline` as a `Suppression` list rather than letting anything recompute
+which they were. That is a deliberate widening of what used to read "nothing
+infers an allowance", and it was forced by a real document: four values "still
+present in the scrubbed output" and nothing written, on a file where the engine
+removed a city from a party's address and left the same city in the
+governing-law clause, and removed a company name and left the identical
+lowercase word that is an ordinary verb. Both were correct decisions that stage
+6 had no way to hear about.
+
+The list may not grow past those two. Findings are dropped in three other places
+and none leaves characters in the output — `drop_unconfirmed_structured` throws
+away a claim a checksum refused, which is a value nothing removed anywhere;
+`resolve_overlaps` throws away the loser of a contest whose winner covers the
+same characters; `fill_address_gaps` absorbs a LOCATION into the ADDRESS
+containing it. Allowing any of them would permit text nothing accounted for, and
+`TestWhatGrantsAnAllowance` in `tests/test_registry.py` is what keeps the table
+closed. One occurrence dropped by two passes grants **one** allowance:
+`drop_non_identifying` runs on both sides of propagation by design, so
+`_first_per_span` deduplicates or the spare count becomes a hole a failed
+write-back sits in.
+
+**And it is reported, or the fix would trade a loud failure for a silence.**
+`ScrubResult.suppressed` reaches the report, the console, the `scrub` response
+and the `inspect` preview as entity, rule and count — never the text, because
+the value is confidential in the sentence it *was* removed from. A clean
+verification now means "nothing survived that was meant to go", which is not the
+same as "none of these words is in the document", and a reader told nothing
+takes it for the second.
+
+**A flagged occurrence of a value that goes everywhere else is a leak, not a
+decision.** `REPORT_ONLY` means "say it is here, never delete it", and that holds
+for a value only ever seen as one of those types — a job title alone identifies
+nobody, and deleting one hides residual risk instead of surfacing it. It stops
+holding the moment the same string is a company two paragraphs down: there the
+flagged sighting is one mislabelled occurrence, and leaving it produces a
+survivor with a clean-looking verification in front of it. `Etat-employeur` came
+back JOB_TITLE at 0.81 in one sentence and ORGANISATION at 0.87 in the next, on a
+real document. `registry.displace_report_only` drops the flagged occurrence
+**before** propagation, which is the whole mechanism — unoccupying those
+characters is what lets the copy land on them with the removable label.
+
+**The question is overlap, not spelling, and the first version got that wrong.**
+It compared the two findings' *text*, which closed nothing: on the same document
+after an unrelated fix moved the offsets by fifteen characters, the model came
+back claiming only the nine characters `employeur` as the JOB_TITLE, `employeur`
+!= `Etat-employeur`, and the survivor was still there. What matters is that the
+flagged span sits inside the stretch propagation is about to claim, so
+occurrences are located with `propagate.value_occurrences` — the same boundary
+propagation itself uses, extracted so the two passes cannot hold two definitions
+of it.
+
+It never runs the other way, and that asymmetry is the safety argument: a
+removable finding displaced by a flagged value elsewhere is the direction that
+*creates* the leak, and the same shape is already written down in the
+special-categories note ("a `REPORT_ONLY` finding winning an overlap against a
+LOCATION would stop that LOCATION being removed"). The whole flagged finding
+goes rather than the overlapping part, because a finding cannot be split; the
+cost is a lost flag where a real job title happens to contain a company name,
+and a flag is never a removal.
+
+**The case that needs no propagation to happen is the case-asymmetry one.**
+`_is_lowercase_common_noun` is case-sensitive on purpose — a company name is
+capitalised in all four languages the model reads — and verification casefolds on
+purpose. `Réalise` the company and `réalise` the verb are one value to stage 6
+and two occurrences to the suppression pass. Neither side is wrong and neither
+should be changed to match the other: making the rule case-insensitive would
+redact the verb throughout the document.
 
 **`EntityType.OTHER` is reachable only through an override.** A caller who has not
 said what a value *is* has still said it must go, and inventing a category for
@@ -1506,12 +1733,39 @@ targets are relative to the *owning part's* directory, which is why
 must go. Scrubbing every character and shipping a screenshot of the original
 achieves nothing, and no amount of reading `document.xml` reveals it.
 
+**`file://` is a URL and the rule read only `http`.** A document's footnotes
+carried three web links, all removed, beside a
+`file:///C:\Users\<account>\Downloads\...` hyperlink target that was not — so
+the scrub took the harmless addresses and left the one naming a person. It reaches
+the stream through `add_relationship_targets`, which is why no amount of reading
+the visible document reveals it. A bare `C:\Users\...` and a UNC
+`\\server\share\...` are the same disclosure and are **not** covered: neither is
+a URL, giving them a home means an entity type of its own with a label in four
+locales, and there is no corpus case yet. `formats/ooxml/common.py` already names
+UNC targets as a place usernames hide, and
+`test_a_bare_windows_path_is_not_claimed` is where that gap is pinned so it cannot
+be mistaken for coverage.
+
 **Text lives in places reading the document does not reveal.** `<w:instrText>`
 holds a HYPERLINK field's target, external relationship targets hold hyperlink
 addresses, `customXml/` holds the data behind content controls, and headers,
 footers and footnotes are separate parts. Relationship targets are exposed to the
 pipeline as ordinary anchors via `AttributeLocator` rather than being pattern-
 matched in the handler — the detectors already know what an email looks like.
+
+**A hyperlink is a text boundary, and Word writes nothing to say so.** The link's
+display text sits in `w:hyperlink` and the words around it do not, with no
+structural element between them — so the flat stream read `Malakoff Humanisconsulte`
+on a real document: the company name whole, with the next word glued on. Nothing
+shows that in Word, and it is not cosmetic. `detect/propagate.py` matches on word
+boundaries, so a second sighting that ends fused is invisible to propagation while
+stage 6 counts substrings and finds it in the output — the name stays in the
+document and the scrub fails against the occurrence that worked. `docx.py` emits a
+space when a text element crosses into or out of a link, resolved by walking up
+from the element because `iter()` is a flat pass and reports no exit. A space and
+not a newline: a link sits inside a sentence, and a break would stop
+`detect/addresses.py` assembling an address written around one. The walk is
+skipped entirely in a part with no link in it.
 
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.

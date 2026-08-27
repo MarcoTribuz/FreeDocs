@@ -131,6 +131,48 @@ def test_a_url_does_not_swallow_the_punctuation_after_it(
     assert [f.text for f in urls] == [expected]
 
 
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # The case from a real document: a footnote's hyperlink target, which
+        # `add_relationship_targets` anchors out of `word/_rels`. It carries the
+        # author's Windows account name, which no amount of reading the visible
+        # document reveals.
+        (
+            "Fonte file:///C:\\Users\\eigenheerk\\Downloads\\etude.pdf consultata",
+            "file:///C:\\Users\\eigenheerk\\Downloads\\etude.pdf",
+        ),
+        ("Vedi file:///home/mario/relazione.docx.", "file:///home/mario/relazione.docx"),
+        ("Allegato (file:///srv/dati/x.pdf) accluso", "file:///srv/dati/x.pdf"),
+    ],
+)
+def test_a_local_file_url_is_an_address_too(detector: ValidatorDetector, text: str, expected: str):
+    """`file://` is a URL scheme and the rule read only `http` and `https`.
+
+    Found on a document whose footnotes carried three web links, all removed,
+    beside a `file:///C:\\Users\\<account>\\...` target that was not - so the
+    scrub took the harmless addresses and left the one naming a person. The
+    backslashes are why this is not covered by the existing pattern by accident:
+    a Windows path has none of the characters the rule ends on.
+    """
+    urls = [f for f in detector.detect(text) if f.entity is EntityType.URL]
+    assert [f.text for f in urls] == [expected]
+
+
+def test_a_bare_windows_path_is_not_claimed(detector: ValidatorDetector):
+    """A stated gap, pinned so it cannot be mistaken for coverage.
+
+    `C:\\Users\\name\\file.pdf` with no scheme, and a UNC `\\\\server\\share\\name`,
+    both name a person as surely as the `file://` form does and neither is a
+    URL. Covering them means an entity type of their own - a new member, a label
+    in four locales, corpus annotations - and there is no corpus case for it
+    yet. `formats/ooxml/common.py` already names UNC targets as a place
+    usernames hide; this is where that gap is recorded.
+    """
+    text = "Copia in C:\\Users\\eigenheerk\\Downloads\\etude.pdf e su \\\\srv01\\share\\kolb"
+    assert [f for f in detector.detect(text) if f.entity is EntityType.URL] == []
+
+
 # -- narrowing the rule set by country ----------------------------------------
 
 

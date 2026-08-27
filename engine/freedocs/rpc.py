@@ -79,7 +79,12 @@ from .detect.llm_review import (
 )
 from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import engine_version, run_checks
-from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
+from .formats.pdf import (
+    ScannedPdfNotSupported,
+    adopt_tesseract,
+    ocr_unavailable_reason,
+    tesseract_binary,
+)
 from .formats.router import UnsupportedFormat
 from .pipeline import (
     LAYER_SPEC_NOTES,
@@ -90,7 +95,13 @@ from .pipeline import (
     country_coverage,
     default_registry,
 )
-from .report import CAVEATS, RESTORE_CAVEATS, build_report, build_restore_report
+from .report import (
+    CAVEATS,
+    RESTORE_CAVEATS,
+    build_report,
+    build_restore_report,
+    suppressed_section,
+)
 from .restore import Restorer
 from .verify import LeakDetected
 
@@ -419,6 +430,54 @@ class Session:
             ],
         }
 
+    def use_tesseract(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Take a Tesseract the caller chose, and answer with what is true now.
+
+        A control, not a rule - the same shape as :meth:`forget`. Nothing here
+        decides what counts as a Tesseract: :func:`adopt_tesseract` validates it
+        with the same two checks that govern ``FREEDOCS_TESSERACT`` and
+        ``_SYSTEM_BINARIES``, so a caller cannot be more permissive than the
+        environment variable already is. There is no ``force`` or ``trust``
+        parameter, because one would put the capability and the refusal back into
+        the disagreement ``ocr_unavailable_reason`` is the single authority to
+        prevent.
+
+        **A refusal is a field, not an error.** Raising was the obvious shape and
+        it is the wrong one: the window would render an error and then separately
+        re-ask ``capabilities``, and those two answers could disagree. One payload
+        carrying the refusal *and* the resulting state makes that impossible by
+        construction - the two state fields below are the same two expressions
+        ``capabilities`` publishes, read from the same process after the attempt.
+
+        ``refused`` is an enum rather than a sentence so the window can translate
+        it, per the rule that an enum is translated and an f-string is quoted. The
+        two values are kept apart because the next move differs: pick another
+        file, versus rename this one.
+
+        ``accepted`` and ``ocr_available`` may honestly differ - an accepted
+        binary with the language data still missing is the two halves, not a
+        contradiction - and ``tesseract`` names what will be used *now*, which on
+        a refusal is whatever was already answering. "I refused yours, and here is
+        what I am using instead" is more useful than a bare no.
+
+        Needs no cache invalidation. A document that required OCR was *refused*
+        rather than cached, so nothing in ``_extractions`` was read without it,
+        and clearing the cache here would discard extractions that cost nothing to
+        keep.
+        """
+        # `must_exist=False`: a path that is gone and a path that is not runnable
+        # are the same user mistake - picked the wrong file - so they share the
+        # refusal channel. INVALID_REQUEST stays for a malformed request.
+        candidate = _require_path(params, "path", must_exist=False)
+        refused = adopt_tesseract(candidate)
+        return {
+            "accepted": refused is None,
+            "refused": refused,
+            "tesseract": tesseract_binary(),
+            "ocr_available": ocr_unavailable_reason() is None,
+            "ocr_unavailable_reason": ocr_unavailable_reason(),
+        }
+
     def countries(self, params: dict[str, Any]) -> dict[str, Any]:
         """Which countries get what, and what narrowing to some of them costs."""
         selection = _countries_from(params)
@@ -520,6 +579,10 @@ class Session:
             # preview taken with all thirteen, and the difference is the whole
             # point of the option.
             "warnings": inspection.warnings,
+            # Occurrences the detection layer will deliberately leave behind, so
+            # the preview can say why a value it shows as confidential is still
+            # visible three lines further down.
+            "suppressed": suppressed_section(inspection.suppressed),
             # What would be dropped that is not text. `freedocs inspect` has
             # named the thumbnail, the comments and the tracked changes since
             # `15ee0e1`; this payload did not, so the window's preview was silent
@@ -654,6 +717,20 @@ class Session:
                 data={
                     "leaks": len(exc.result.leaks),
                     "entities": sorted({leak.entity for leak in exc.result.leaks}),
+                    # Per leak as well as in total. All three fields are
+                    # value-free - the entity, which layer nominated it and how
+                    # many times it survived - and without them the window can
+                    # only say "4 value(s)", which is where every diagnosis of
+                    # this error has had to start from scratch.
+                    "detail": [
+                        {
+                            "entity": leak.entity,
+                            "detector": leak.detector,
+                            "occurrences": leak.occurrences,
+                            "allowed": leak.allowed,
+                        }
+                        for leak in exc.result.leaks
+                    ],
                 },
             )
 
@@ -700,6 +777,11 @@ class Session:
                 for item in result.hidden_removed
             ],
             "review": _review_payload(result),
+            # What was left in the output on purpose. The window needs it for
+            # the same reason the report does: a clean verification now means
+            # "nothing survived that was meant to go", and without this line a
+            # reader takes it to mean the word is not in the document.
+            "suppressed": suppressed_section(result.suppressed),
             "key_file": key_file,
             "report": build_report(result, key_file=key_file is not None),
         }
@@ -1051,6 +1133,7 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "scrub": session.scrub,
         "restore": session.restore,
         "forget": session.forget,
+        "use_tesseract": session.use_tesseract,
     }
 
 

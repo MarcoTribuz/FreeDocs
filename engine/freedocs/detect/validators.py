@@ -622,7 +622,18 @@ def build_rules(countries: Sequence[str] | None = None) -> list[Rule]:
             # sentence, so the replacement ate the punctuation with the address and
             # the exact span never matched the annotation. A trailing '/' is part of
             # the URL and stays.
-            pattern=re.compile(r"\bhttps?://[^\s<>\"')]*[^\s<>\"'),.;:!?]", re.IGNORECASE),
+            #
+            # `file` is in there because a real document's footnotes carried three
+            # web links, all removed, beside a
+            # `file:///C:\\Users\\<account>\\Downloads\\...` hyperlink target that was
+            # not - so the scrub took the harmless addresses and left the one
+            # naming a person. It reaches the stream through
+            # `add_relationship_targets`, which is why no amount of reading the
+            # visible document reveals it. A bare `C:\\Users\\...` or a UNC
+            # `\\\\server\\share\\...` is the same disclosure and is *not* covered:
+            # neither is a URL, and giving them a home means an entity type of
+            # their own. See `test_a_bare_windows_path_is_not_claimed`.
+            pattern=re.compile(r"\b(?:https?|file)://[^\s<>\"')]*[^\s<>\"'),.;:!?]", re.IGNORECASE),
             validate=_always,
         ),
         Rule(
