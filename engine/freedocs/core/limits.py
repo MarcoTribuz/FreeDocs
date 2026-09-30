@@ -98,6 +98,14 @@ MAX_TERMS_BYTES = 8 * 1024 * 1024
 #: generous: an export from a CRM carries columns this reader ignores.
 MAX_TERMS_IMPORT_BYTES = 16 * 1024 * 1024
 
+#: Pasted text, in characters. The pipe is not what bounds it: a request is one
+#: JSON line, and ``json.loads`` of a 5 MB line costs 0.01 s. Detection is.
+#: Measured on the densest realistic paste, one IBAN a line: 1 MB is 8 s and
+#: 47 MB resident, 5 MB is 14 s and 121 MB. Two million characters is about six
+#: hundred pages - past anything anyone pastes - and a wait a person will sit
+#: through. A document that size belongs in a file, where the preview is cached.
+MAX_TEXT_CHARS = 2_000_000
+
 
 def refuse_oversized_input(name: str, size: int) -> None:
     """Refuse a file too large to be a document, before it is read."""
@@ -145,6 +153,15 @@ def refuse_too_many_terms(name: str, count: int) -> None:
     if count > MAX_TERMS:
         raise InputTooLarge(
             f"{name} holds {count} entries; this build reads a term list of up to {MAX_TERMS}"
+        )
+
+
+def refuse_oversized_text(count: int) -> None:
+    """Refuse a paste longer than any paste, naming only its length."""
+    if count > MAX_TEXT_CHARS:
+        raise InputTooLarge(
+            f"the pasted text is {count} characters and this build reads up to "
+            f"{MAX_TEXT_CHARS}; save it as a file and scrub that instead"
         )
 
 

@@ -395,6 +395,23 @@ and the passphrase the window holds.
 
 ## G2: text mode
 
+**Status: engine and CLI implemented** on `feature/text-mode`; the window is the
+second branch. What changed from the design below, each for a reason found while
+building it:
+
+- Measuring `MAX_TEXT_CHARS` found three quadratic overlap scans in detection
+  (1 MB of dense text: 178 s and 14 GB). Fixed first, on its own branch
+  (`feature/dense-documents`), with the benchmark byte-identical. The ceiling is
+  2 000 000 characters, bounded by detection time and not by the pipe.
+- `forget {text_maps}` alone does not clear the file cache, and a plain `forget`
+  does not release held mappings.
+- `restore_text` also takes `map` and `passphrase`, so a reply pasted tomorrow
+  restores from the key file option B wrote.
+- `scrub_text` writes the key file itself (`map`, `map_passphrase`), rather than
+  a separate call writing a held map later; `pasted.fdmap` inside a directory.
+- A leak holds nothing, as well as returning no text.
+- `Restorer.restore` announces `router` only for a path, like `Scrubber.read`.
+
 This is the loop Cedreon closes and FreeDocs leaves to the user, and it can be
 closed without a network call:
 

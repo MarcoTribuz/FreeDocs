@@ -44,11 +44,12 @@ span, which is how a surprising finding gets traced to one place.
 
 ```bash
 uv run freedocs scrub FILE [FILE ...] -o DIR
+pbpaste | uv run freedocs scrub - | pbcopy      # text on stdin, scrubbed text on stdout
 ```
 
 | Flag | What it does |
 |---|---|
-| `-o, --output-dir DIR` | required; scrubbed copies keep their filename |
+| `-o, --output-dir DIR` | required for files, refused with `-`; scrubbed copies keep their filename |
 | `--report PATH` | machine-readable JSON summary — counts and positions, never values |
 | `--min-confidence F` | ignore findings below this confidence (default 0.5) |
 | `--keep ENTITY` | leave an entity type untouched everywhere; repeatable |
@@ -126,12 +127,13 @@ line is in the shell history and visible through `ps`. Read
 
 ```bash
 uv run freedocs restore FILE [FILE ...] --map KEYFILE -o DIR
+pbpaste | uv run freedocs restore - --map keys/pasted.fdmap   # a pasted reply
 ```
 
 | Flag | What it does |
 |---|---|
 | `--map PATH` | required; the key file written by `scrub --map` |
-| `-o, --output-dir DIR` | required; restored copies keep their filename |
+| `-o, --output-dir DIR` | required for files, refused with `-`; restored copies keep their filename |
 | `--map-passphrase-file PATH` | read the passphrase from the first line of this file |
 | `--report PATH` | machine-readable JSON summary — placeholders and counts, never values |
 
@@ -161,6 +163,17 @@ somebody else's data in the document.
 Runs no detector and loads no model, so it works the same on a build without the
 `ner` extra. Needs the `restore` extra for the cipher; `freedocs doctor` says
 whether this build has it.
+
+### `-`: text on stdin
+
+`scrub -` and `restore -` read text from stdin and write the result to stdout.
+Stdout carries **only** the text, so a pipe into a model gets nothing else; the
+summary, the key file's path and every warning go to stderr. `-` stands alone:
+it cannot be mixed with files, and `-o` is refused beside it. A scrub that fails
+verification writes nothing to stdout. With `--map DIR` the key file is
+`DIR/pasted.fdmap`; a CLI process ends, so there is no held mapping here — that
+is the window's text mode, over the pipe. The text is capped at 2 000 000
+characters.
 
 ## `terms` — the encrypted term list
 

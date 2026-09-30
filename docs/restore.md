@@ -221,6 +221,42 @@ restore  { path, map, passphrase, output_dir }
 
 `restore` takes one `path`, not a list: a key file describes one document.
 
+### Pasted text
+
+```
+inspect_text  { text, ...inspect's options }        -> inspect's shape, text included
+scrub_text    { text, keep_map?, map?, map_passphrase?, ...scrub's options }
+              -> { ok, text, removed, flagged, warnings, suppressed, review,
+                   handle, key_file, report }
+restore_text  { text, handle }  or  { text, map, passphrase }
+              -> restore's shape without output and format, plus text
+forget        { text_maps: [handle, ...] | "all" }  -> text_maps_released
+```
+
+A paste has no file, so it goes by `pasted.txt` in the report and in a key file
+(`pasted.fdmap`). Nothing is written to disk and nothing is cached. The mapping
+goes one of three ways, chosen per text: **thrown away** (the default, the same
+as every scrub), **held** in the engine under a handle with `keep_map: true`, or
+**sealed** into a key file with `map` and `map_passphrase`.
+
+A held mapping is the one re-identification key this engine keeps past the
+request that made it, so it is bounded:
+
+- only when `keep_map` asked for it, never by default;
+- the handle is random (`secrets.token_urlsafe(16)`), never derived from the text;
+- at most eight, the oldest dropped first;
+- released by `forget` with `text_maps`, and by the process ending. A plain
+  `forget` does not release them, and `forget {text_maps}` does not touch the
+  cached file extractions.
+
+`restore_text` does not consume the handle: asking the model a second time is
+normal. A handle that is not held (forgotten, evicted, or from before a restart)
+is `INVALID_REQUEST` with a message that names no value; scrub the text again.
+
+A leak in `scrub_text` returns `scrub`'s value-free failure shape and **no
+`text`**, and holds nothing. The pasted text is capped at
+`capabilities.text_max_characters` (2 000 000).
+
 The passphrase travels over the pipe — the same channel that already carries the
 extracted document text, to a child process the caller started. What matters is
 that no failure puts it into a response, which is why every error comes from

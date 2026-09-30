@@ -548,7 +548,10 @@ calls it on every path that drops a document: removing one file, clearing them
 all, changing mode. Fire and forget from the window — nothing the user is doing
 depends on the answer, and a tidy-up that can fail a screen transition is worse
 than one occasionally skipped. Passphrases are not in this list because they never
-reach the engine's memory beyond the request that carried them.
+reach the engine's memory beyond the request that carried them. Two things are,
+and each is released only when named: the unlocked term list (`forget {terms}`,
+`terms_lock`), and a pasted text's mapping held under a handle
+(`forget {text_maps}`) — see *Pasted text* under *The reverse path*.
 
 **Extractions are cached per `(path, mtime, size)`, four at a time.** Every kept
 occurrence re-inspects, because propagation means one decision can change other
@@ -1867,6 +1870,27 @@ ciphertext length would otherwise be one.
 direction is a front-end decision about a finished result, not a branch inside the
 pipeline — and if this ever needs a method on the allocator, the design has gone
 wrong.
+
+**Pasted text is the plaintext handler over a string, and the mapping it may
+hold is a stated widening.** `text_mode.py` hands `PlainTextHandler(Path("pasted.txt"), ...)`
+straight to `Scrubber.scrub` and `Restorer.restore`, which both take a handler now,
+so no routing happens and `router` is not announced; nothing is cached and nothing
+reaches disk. The name is a constant, because a name the caller typed is one more
+way a client's name reaches a report. What is new is `TextMaps`: with
+`keep_map: true`, `scrub_text` holds the `KeyMap` under a random handle so a
+reply pasted minutes later can be restored without a passphrase and a folder.
+That weakens "a crash cannot leave a re-identification key in a live process"
+for the life of the handle, and it is bounded rather than denied: opt-in per
+text and never the default, at most eight with the oldest dropped, released by
+`forget {text_maps}` and by the process ending, no idle timer (a second thread in
+a process that deliberately has one), and not consumed by a restore. A plain
+`forget` leaves them, and `forget {text_maps}` leaves the file cache, because
+dropping a paste is not dropping the documents on another screen. A leak returns
+the per-file failure shape with no `text` and holds nothing. `MAX_TEXT_CHARS` is
+2 000 000 and was measured, like every ceiling in `core/limits.py`: the pipe was
+not the bound — `json.loads` of a 5 MB line is 0.01 s — detection was, and
+measuring it is what found the quadratic overlap scans (1 MB of one-IBAN-a-line
+text was 178 s and 14 GB before `detect/propagate.Occupied`).
 
 **Restore's verification asks two questions, and the second is the load-bearing
 one.** Placeholder gone *and* value present. `PdfTextHandler.write_back` stamps a

@@ -63,6 +63,7 @@ from .report import (
     format_restore_console,
 )
 from .restore import Restorer
+from .text_mode import PASTED_NAME, decoded, handler_for_text
 from .verify import LeakDetected
 
 EXIT_OK = 0
@@ -97,9 +98,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     scrub = sub.add_parser("scrub", help="write a scrubbed copy of one or more files")
-    scrub.add_argument("files", nargs="+", type=Path)
     scrub.add_argument(
-        "-o", "--output-dir", type=Path, required=True, help="directory for scrubbed copies"
+        "files", nargs="+", type=Path, help="files to scrub, or - to read text from stdin"
+    )
+    scrub.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        help="directory for scrubbed copies; not used with -, which writes to stdout",
     )
     scrub.add_argument("--report", type=Path, help="write a JSON report to this path")
     scrub.add_argument(
@@ -208,7 +214,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "restore",
         help="put the real values back into a document that came back from a model",
     )
-    restore.add_argument("files", nargs="+", type=Path)
+    restore.add_argument(
+        "files", nargs="+", type=Path, help="files to restore, or - to read text from stdin"
+    )
     restore.add_argument(
         "--map",
         type=Path,
@@ -217,7 +225,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the key file written by 'freedocs scrub --map'",
     )
     restore.add_argument(
-        "-o", "--output-dir", type=Path, required=True, help="directory for restored copies"
+        "-o",
+        "--output-dir",
+        type=Path,
+        help="directory for restored copies; not used with -, which writes to stdout",
     )
     restore.add_argument(
         "--map-passphrase-file",
@@ -668,7 +679,34 @@ def _scrubber(
     )
 
 
+def _reads_stdin(args: argparse.Namespace) -> bool | None:
+    """True for ``-``, False for files, None (and a message) for a usage error.
+
+    ``-`` stands alone. Text on stdin has no name to put a copy under, so it goes
+    to stdout, and one stream cannot carry a batch's worth of documents; a
+    directory is required for files and meaningless for stdin.
+    """
+    dash = [path for path in args.files if str(path) == "-"]
+    if dash and len(args.files) > 1:
+        print("- reads text from stdin and cannot be combined with files", file=sys.stderr)
+        return None
+    if dash:
+        if args.output_dir is not None:
+            print("-o is not used with -: the result goes to stdout", file=sys.stderr)
+            return None
+        return True
+    if args.output_dir is None:
+        print("-o/--output-dir is required for files", file=sys.stderr)
+        return None
+    return False
+
+
 def _cmd_scrub(args: argparse.Namespace) -> int:
+    stdin = _reads_stdin(args)
+    if stdin is None:
+        return EXIT_USAGE
+    if stdin:
+        return _cmd_scrub_text(args)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     # Both resolved before anything is read. A bad passphrase rule or a key file
     # aimed at the output directory must stop the run, not interrupt it halfway
@@ -754,6 +792,60 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
     return status
 
 
+def _cmd_scrub_text(args: argparse.Namespace) -> int:
+    """``freedocs scrub -``: stdin in, scrubbed text out, everything else on stderr.
+
+    Stdout is the output here, so the summary, the key file's path and every
+    warning go to stderr - a pipe into a model must carry nothing but the text.
+    A leak writes nothing to stdout at all, for the reason a leaking file is not
+    written. The key file is ``--map`` as for a file; a CLI process ends, so
+    there is nothing to hold a mapping in between.
+    """
+    target = getattr(args, "map", None)
+    passphrase = _passphrase(args, confirm=True) if target else ""
+    try:
+        scrubber = _scrubber(args, strict=not args.allow_leaks, overrides=_override(args))
+    except (ValueError, MissingDependency) as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        handler = handler_for_text(sys.stdin.read())
+        result = scrubber.scrub(handler)
+    except ModelNotFound as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    except REFUSALS as exc:
+        print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+        return EXIT_UNSUPPORTED
+    except LeakDetected as exc:
+        print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+        print("  nothing written", file=sys.stderr)
+        return EXIT_LEAK
+
+    sys.stdout.write(decoded(handler, result.output))
+    sys.stdout.flush()
+    print(format_console(result), file=sys.stderr)
+
+    wrote_key = False
+    if target is not None:
+        key_path = map_path_for(target, Path(PASTED_NAME))
+        key_map = key_map_from(result, placeholder_language=args.placeholder_language)
+        try:
+            write_key_map(key_path, key_map, passphrase)
+        except (MissingDependency, OutputRefused) as exc:
+            print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+            return EXIT_UNSUPPORTED
+        wrote_key = True
+        print(f"  key file: {key_path}", file=sys.stderr)
+        for message in key_map.warnings():
+            print(f"  warning: {message}", file=sys.stderr)
+
+    if args.report:
+        write_private_json(args.report, [build_report(result, key_file=wrote_key)])
+        print(f"report: {args.report}", file=sys.stderr)
+    return EXIT_OK if result.verify.ok else EXIT_LEAK
+
+
 def _cmd_restore(args: argparse.Namespace) -> int:
     """Put the values back, per file, from one key file.
 
@@ -765,9 +857,13 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     produced the caller's best artifact with a visible defect in it, so the bytes
     go to disk, every problem is printed, and the exit code says so.
     """
+    stdin = _reads_stdin(args)
+    if stdin is None:
+        return EXIT_USAGE
     # Owner only when this call creates it, since what lands in it is the
     # originals. An existing directory is left as the user made it.
-    private_directory(args.output_dir)
+    if not stdin:
+        private_directory(args.output_dir)
     passphrase = _passphrase(args, confirm=False)
     try:
         key_map = read_key_map(args.map, passphrase)
@@ -784,6 +880,23 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     # key file, and repeating it per document reads as a per-document problem.
     for message in key_map.warnings():
         print(f"warning: {message}", file=sys.stderr)
+
+    if stdin:
+        # The originals, on stdout: the caller chose where that goes, and a
+        # restored text is for reading, which is what a terminal or a pipe is.
+        try:
+            handler = handler_for_text(sys.stdin.read())
+            result = Restorer(key_map=key_map).restore(handler)
+        except REFUSALS as exc:
+            print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+            return EXIT_UNSUPPORTED
+        sys.stdout.write(decoded(handler, result.output))
+        sys.stdout.flush()
+        print(format_restore_console(result), file=sys.stderr)
+        if args.report:
+            write_private_json(args.report, [build_restore_report(result)])
+            print(f"report: {args.report}", file=sys.stderr)
+        return EXIT_OK if result.ok else EXIT_INCOMPLETE
 
     reports = []
     status = EXIT_OK
