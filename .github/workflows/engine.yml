@@ -99,4 +99,8 @@ jobs:
         run: |
           uv export --format requirements-txt --no-hashes --all-extras \
             --no-emit-project -o .audit-requirements.txt
-          uv run --with pip-audit pip-audit --strict -r .audit-requirements.txt
+          # One excused advisory, with its reason and its version guard, in
+          # EXCUSED_ADVISORIES in scripts/ci.py. The flag is repeated here
+          # without the guard, so on re-enabling CI move to calling that list.
+          uv run --with pip-audit pip-audit --strict \
+            --ignore-vuln PYSEC-2026-3804 -r .audit-requirements.txt
