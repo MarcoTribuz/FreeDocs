@@ -733,7 +733,7 @@ wheels = [
 
 [[package]]
 name = "freedocs"
-version = "0.2.0.dev5"
+version = "0.2.0.dev6"
 source = { editable = "." }
 dependencies = [
     { name = "phonenumbers" },
