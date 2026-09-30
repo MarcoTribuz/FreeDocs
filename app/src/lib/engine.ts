@@ -90,6 +90,16 @@ export interface Capabilities {
 	 * screen sentences that do not apply to what they are looking at.
 	 */
 	restore_caveats: string[];
+	/**
+	 * Whether this build can open a term list. The same cipher as the key file,
+	 * published under its own name so the window need not know they share it.
+	 */
+	terms_available: boolean;
+	terms_unavailable_reason: string | null;
+	/** The engine's limits on a list and on one entry, so a refusal is not the first word. */
+	terms_max_entries: number;
+	term_min_characters: number;
+	term_max_characters: number;
 }
 
 export interface Concern {
@@ -172,6 +182,20 @@ export interface Inspection {
 	text_end?: number;
 	text_truncated?: boolean;
 	parts?: Part[];
+	/** Present only when the term list was used. See `TermsUse`. */
+	terms?: TermsUse;
+}
+
+/**
+ * How much of the term list one document met. Counts, never values.
+ *
+ * `matched` counts entries that removed something. The ones that did not are
+ * named nowhere, on purpose: a client register is mostly absent from any given
+ * document, and listing its misses would write the register into every report.
+ */
+export interface TermsUse {
+	loaded: number;
+	matched: number;
 }
 
 export interface HiddenItem {
@@ -221,6 +245,8 @@ export interface Report {
 	 * thing about it worth not writing down.
 	 */
 	key_file_written: boolean;
+	/** Absent when no term list was used, so "not used" cannot read as "matched nothing". */
+	terms?: TermsUse;
 	caveats: string[];
 }
 
@@ -450,6 +476,13 @@ export interface ScrubOptions {
 	 * sending the scrubbed document along with the key to undo it.
 	 */
 	mapInOutputDir?: boolean;
+	/**
+	 * Merge the unlocked term list into this request's removals. The terms stay in
+	 * the engine: this is a flag, never the list. A locked list with this set is
+	 * refused rather than skipped — a scrub that quietly left the firm's names in
+	 * is the failure the list exists to prevent.
+	 */
+	useTerms?: boolean;
 }
 
 /**
@@ -502,6 +535,9 @@ async function request<T>(method: string, params: Record<string, unknown> = {}):
  * that is occasionally skipped.
  */
 export function forget(paths?: string[]): void {
+	// Never `terms: true` from here. The window forgets after every batch, and the
+	// term list is unlocked once per session - locking it on every tidy-up would
+	// ask for the passphrase after every scrub. `termsLock` is the explicit call.
 	void request<{ released: number }>('forget', paths ? { paths } : {}).catch(() => {});
 }
 
@@ -647,6 +683,85 @@ export function restore(
 	});
 }
 
+/** One entry of the term list, as the engine names it. */
+export interface Term {
+	value: string;
+	/** An `EntityType` name; `OTHER` when the person did not say what it is. */
+	entity: string;
+}
+
+/** Where the unlocked list lives and how many entries it holds. Never the entries. */
+export interface TermsHeld {
+	path: string;
+	count: number;
+}
+
+/**
+ * The term list over the pipe. The unlocked list lives in the engine's session,
+ * like the model weights: a passphrase asked per document is how passphrases get
+ * weak. Every call below that changes the file carries the passphrase, because the
+ * engine re-opens the file with it before saving — a save under a mistyped one
+ * would otherwise re-key the list to a passphrase nobody knows, and succeed.
+ */
+export function termsCreate(path: string, passphrase: string): Promise<TermsHeld> {
+	return request<TermsHeld>('terms_create', { path, passphrase });
+}
+
+export function termsUnlock(path: string, passphrase: string): Promise<TermsHeld> {
+	return request<TermsHeld>('terms_unlock', { path, passphrase });
+}
+
+export function termsLock(): Promise<{ locked: boolean; was_unlocked: boolean }> {
+	return request('terms_lock');
+}
+
+/** The entries matching `query`, ignoring case and accents; all of them without one. */
+export function termsList(query?: string): Promise<TermsHeld & { terms: Term[] }> {
+	return request('terms_list', query ? { query } : {});
+}
+
+export function termsUpdate(
+	passphrase: string,
+	change: { add?: Term[]; remove?: string[] }
+): Promise<TermsHeld & { added: number; removed: number }> {
+	return request('terms_update', {
+		passphrase,
+		add: change.add ?? [],
+		remove: change.remove ?? []
+	});
+}
+
+/**
+ * Read a plaintext or CSV file into the list.
+ *
+ * `delete_source` is always true and is a flag so the window can say it in the
+ * reader's language; `notice` is the engine's English sentence. The engine never
+ * deletes the file itself, and neither does this window.
+ */
+export function termsImport(
+	source: string,
+	passphrase: string
+): Promise<
+	TermsHeld & { added: number; skipped: number; delete_source: boolean; notice: string }
+> {
+	return request('terms_import', { source, passphrase });
+}
+
+/**
+ * Change the passphrase. The old one must open the file; the engine re-seals it
+ * atomically, so a failure leaves the list under the passphrase it had.
+ */
+export function termsRekey(old: string, next: string): Promise<TermsHeld> {
+	return request<TermsHeld>('terms_rekey', { old, new: next });
+}
+
+/** Write the list out **unencrypted**. The window confirms before it calls this. */
+export function termsExport(
+	output: string
+): Promise<{ output: string; count: number; warning: string }> {
+	return request('terms_export', { output });
+}
+
 function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<string, unknown> {
 	const params: Record<string, unknown> = { ...base };
 	if (options.keep?.length) params.keep = options.keep;
@@ -668,6 +783,7 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	// Both or neither. A `map` without a passphrase is refused by the engine, and
 	// sending one alone would make an unused field look like it had an effect — the
 	// same rule the review host above follows.
+	if (options.useTerms) params.use_terms = true;
 	if (options.map && options.mapPassphrase) {
 		params.map = options.map;
 		params.map_passphrase = options.mapPassphrase;

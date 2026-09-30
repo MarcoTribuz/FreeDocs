@@ -21,6 +21,7 @@
 	import TextField from '$lib/components/TextField.svelte';
 	import AdvancedPanel from './AdvancedPanel.svelte';
 	import KeyFilePanel from './KeyFilePanel.svelte';
+	import TermListPanel from './TermListPanel.svelte';
 	import DocumentText from './DocumentText.svelte';
 	import FindingDetail from './FindingDetail.svelte';
 	import FindingsTable from './FindingsTable.svelte';
@@ -187,6 +188,15 @@
 			     ever crossing the pipe into this window. -->
 			<KeyFilePanel />
 
+			<!-- Here as well as on the file step: this is where its effect shows. -->
+			<TermListPanel />
+
+			{#if inspection.terms}
+				<!-- Counts only. Which entries did not match is named nowhere: a
+				     client register is mostly absent from any one document. -->
+				<p class="terms-used">{m.termsMatched(inspection.terms)}</p>
+			{/if}
+
 			{#if inspection.findings.length}
 				<Card padding="tight">
 					<ul class="tally">
@@ -235,6 +245,11 @@
 {/if}
 
 <style>
+	.terms-used {
+		font-size: var(--text-sm);
+		color: var(--text-2);
+	}
+
 	.hidden-list {
 		list-style: none;
 		margin: var(--space-2) 0 0;

@@ -337,3 +337,47 @@ what looked like a placeholder and was left alone. `ok: false` does **not** empt
 that screen: the engine wrote the restored file either way, so the path is always
 shown and the failure is stated beside it rather than instead of it. See
 [the reverse path](restore.md).
+
+## The term list in the window
+
+One card, `TermListPanel.svelte`, on the file step and on the review step: before
+a file is loaded so the first preview can already use it, and beside the preview
+where its effect shows. Open… or New…, a passphrase, then an editor: search,
+add a value with an entity type, remove, Import… and Export…. The entries stay
+in the engine; the window holds only the slice on screen, and a search asks the
+engine again rather than filtering a copy. See [the term list](terms.md).
+
+**The passphrase is kept for the life of the unlock**, and it is the one secret
+this window keeps past a single call. Every save re-opens the file with it,
+because a save under a mistyped passphrase would re-key the list and succeed, so
+dropping it after the unlock would mean retyping it for every entry added. It is
+cleared by `lockTerms()`, which Lock, Close, choosing another file and a mode
+change all go through, and it is never in `localStorage`. The *path* is, beside
+the Tesseract path, and it comes back locked: the unlock is what validates it.
+
+**The toggle is on as soon as a list is unlocked**, and unlocking, locking,
+toggling and every edit re-inspect the open documents, because a preview
+computed without the list is a preview of a different scrub. A finding the list
+put there says so ("your firm's term list", detector `terms`), and the preview
+and the result both show `M of N entries` from the engine's counts and nothing
+about the entries that did not match.
+
+**Export is two clicks with the cost between them.** The first names what an
+unencrypted file means; the second opens the save dialog. The engine's own
+warning is quoted beside the path afterwards. Import shows the "delete the source
+file" notice until dismissed, translated from the `delete_source` flag; neither
+the window nor the engine deletes the file.
+
+`dialog:allow-save` came back into the capability for this: a new list and an
+export both name a file that does not exist yet.
+
+**Change passphrase… asks for the current one again**, rather than using the one
+the window holds: an unlocked window left on a desk should not be enough to lock
+its owner out of the list. The held passphrase is replaced only when the engine
+says the re-seal worked, since every later save re-opens the file with it.
+
+One gap, stated. **A restarted sidecar has locked the list** while the window
+still shows it unlocked, and the next preview fails with the engine's
+"the term list is locked" rather than the window noticing first; Lock and unlock
+again.
+

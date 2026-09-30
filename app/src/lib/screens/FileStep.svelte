@@ -5,6 +5,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import Callout from '$lib/components/Callout.svelte';
 	import AdvancedPanel from './AdvancedPanel.svelte';
+	import TermListPanel from './TermListPanel.svelte';
 	import Diagnostics from './Diagnostics.svelte';
 
 	const m = $derived(i18n.m);
@@ -114,6 +115,8 @@
 	     cannot. Every `Check.fix` was written to be read by a person and until now
 	     only a terminal could show one. -->
 	<Diagnostics />
+	<!-- Before a file is loaded, so the first preview can already use it. -->
+	<TermListPanel />
 	<AdvancedPanel />
 </div>
 

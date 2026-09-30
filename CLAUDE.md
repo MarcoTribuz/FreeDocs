@@ -1971,6 +1971,17 @@ arriving after the scrubbed copies were written. With no capabilities answer yet
 the window treats *no* passphrase as long enough, which disables the button rather
 than restating the number.
 
+**The term list's passphrase is the exception, and it is bounded by the unlock.**
+`session.termsPassphrase` outlives a single call because `terms_update` and
+`terms_import` re-open the file with it before every save; dropping it would
+mean retyping it per entry. `forgetSecrets()` deliberately leaves it alone, since
+a scrub finishing is not the list closing, and `lockTerms()` is the one place it
+is cleared — Lock, Close, another file and a mode change all go through it. The
+path is in `localStorage` and comes back locked; the entries never leave the
+engine beyond the slice the editor shows. A finding from the list is told apart
+by `detector === 'terms'` (`isFromTerms`), not by its layer, which is `H` like
+the person's own.
+
 **Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
 entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
 of this feature entirely — read the note under *The desktop app* before adding a

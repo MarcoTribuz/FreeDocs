@@ -283,6 +283,72 @@ export interface Messages {
 	chooseKeyFile(): string;
 	keyFileFilter(): string;
 
+	// ---- the term list: the persistent half of "also remove" -----------------
+	termsTitle(): string;
+	/** What the list is, said where it is opened. */
+	termsHint(): string;
+	/** The build has no cipher for the list. */
+	termsUnavailable(): string;
+	termsOpen(): string;
+	termsNew(): string;
+	termsCancel(): string;
+	termsPassphrase(): string;
+	termsConfirm(): string;
+	termsUnlock(): string;
+	termsCreate(): string;
+	termsLock(): string;
+	/** Lock, and stop remembering which file it was. */
+	termsForget(): string;
+	termsNeedsPassphrase(a: { min: number }): string;
+	termsMismatch(): string;
+	/** Said before the list exists: nothing recovers a forgotten passphrase. */
+	termsNewWarning(): string;
+	termsCount(a: { count: number }): string;
+	termsUse(): string;
+	termsSearch(): string;
+	termsNoMatch(): string;
+	termsEmpty(): string;
+	termsNewValue(): string;
+	termsEntity(): string;
+	/** OTHER, in the entity picker: the person has not said. */
+	termsEntityUnspecified(): string;
+	termsAdd(): string;
+	/** Accessible name of the per-row remove button. */
+	termsRemoveOne(a: { value: string }): string;
+	termsImport(): string;
+	termsExport(): string;
+	/** The cost of an export, said before the file is chosen. */
+	termsExportWarning(): string;
+	termsExportConfirm(): string;
+	termsExportedTitle(): string;
+	termsImportedTitle(a: { added: number; skipped: number }): string;
+	/** The engine never deletes the source; the person must. */
+	termsDeleteSource(a: { file: string }): string;
+	termsDismiss(): string;
+	termsFilter(): string;
+	termsRekey(): string;
+	termsCurrentPassphrase(): string;
+	termsNextPassphrase(): string;
+	termsRekeyConfirm(): string;
+	termsRekeyed(): string;
+	termsImportFilter(): string;
+	termsChooseFile(): string;
+	termsChooseNew(): string;
+	termsChooseImport(): string;
+	termsChooseExport(): string;
+	termsUnlocked(a: { count: number }): string;
+	termsLocked(): string;
+	termsAdded(a: { count: number }): string;
+	termsAlreadyThere(): string;
+	termsRemoved(a: { count: number }): string;
+	termsImportedAnnounce(a: { count: number }): string;
+	termsExportedAnnounce(a: { count: number }): string;
+	/** Tag on a finding the term list put there, beside `mine`. */
+	fromTermList(): string;
+	foundByTermList(): string;
+	/** Counts from the report. The entries that matched nothing are named nowhere. */
+	termsMatched(a: { matched: number; loaded: number }): string;
+
 	stepRestoreFile(): string;
 	restoreTitle(): string;
 	restoreHint(): string;
