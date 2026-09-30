@@ -110,6 +110,12 @@ note ("a value does not have to be in the text to be a value").
 
 ## G1: positioning
 
+**Status: implemented** on `feature/readme-positioning`: the hero line, a
+"nobody in between" paragraph after the opening one (with the egress limit
+stated, linking `SECURITY.md`), the reverse-path bullet led by "irreversible by
+default", and "it does not talk to the model for you" in the honest list. No
+figures changed.
+
 Cedreon's desktop app screens locally and offline, with its own OCR, so "runs
 locally" no longer separates the two products. What does:
 

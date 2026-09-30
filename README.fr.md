@@ -9,7 +9,7 @@
 
 <p align="center">
   PDF, Word, Excel, PowerPoint et numérisations — entrent, ressortent nettoyés, dans le même format.<br>
-  Sur votre machine. Aucun cloud, aucune clé d'API, aucune télémétrie, aucun compte.
+  Sur votre machine, sans personne entre les deux : aucun cloud, aucun sous-traitant, aucune clé d'API, aucune télémétrie, aucun compte.
 </p>
 
 <p align="center">
@@ -34,6 +34,16 @@ dessinent des rectangles noirs par-dessus un texte qui reste sélectionnable en
 dessous. FreeDocs modifie le document sur place — puis il rouvre ce qu'il vient
 d'écrire, le réextrait, parties invisibles comprises, et **fait échouer
 l'exécution si une seule valeur retirée a survécu**.
+
+**Personne ne se tient entre vous et le modèle.** Un service de masquage qui
+tourne sur le serveur de quelqu'un d'autre reçoit le document avant le modèle, ce
+qui en fait un sous-traitant : un contrat de sous-traitance, une liste de
+sous-traitants ultérieurs et, pour un avocat ou une fiduciaire, une question de
+secret professionnel. FreeDocs n'a rien de tout cela, car le document ne va nulle
+part — et le moteur bloque les connexions sortantes vers tout ce qui n'est pas
+cette machine, si bien qu'une dépendance qui tente d'appeler chez elle échoue
+comme sur un portable hors réseau. Cela arrête l'appel accidentel, pas un code
+hostile ; [SECURITY.md](SECURITY.md) dit exactement jusqu'où cela va.
 
 <p align="center">
   <img src="docs/images/review.png" alt="L'étape Review : le document extrait avec chaque détection marquée, et le panneau de détail indiquant ce qui a trouvé la valeur sélectionnée, sa confiance et les deux façons de la conserver" width="900">
@@ -112,12 +122,12 @@ paragraphe, le tableau et les styles intacts.
 - **Des chiffres que vous pouvez relancer.** `freedocs benchmark` évalue les
   couches sur un corpus annoté, et l'outil imprime sa propre mise en garde chaque
   fois. → [benchmark](docs/benchmark.md)
-- **Si vous le voulez, le chemin inverse.** `--map` écrit un fichier de clé
-  chiffré, et `freedocs restore` remet les vraies valeurs dans ce que le modèle
-  renvoie. Désactivé par défaut, car c'est la seule chose qui rend un nettoyage
-  réversible : sans lui, la correspondance est détruite à la fin de l'exécution et
-  personne ne peut l'annuler, vous compris.
-  → [le chemin inverse](docs/restore.md)
+- **Irréversible par défaut ; le chemin inverse seulement si vous le demandez.**
+  `--map` écrit un fichier de clé chiffré, et `freedocs restore` remet les vraies
+  valeurs dans ce que le modèle renvoie. Désactivé par défaut, car c'est la seule
+  chose qui rend un nettoyage réversible : sans lui, la correspondance est
+  détruite à la fin de l'exécution et personne ne peut l'annuler, vous compris. →
+  [le chemin inverse](docs/restore.md)
 
 ## Démarrage
 
@@ -259,6 +269,9 @@ par nature.
   ramener ce qui a été *supprimé* plutôt que remplacé — vignettes, métadonnées,
   diapositives masquées — car cela n'a jamais reçu de marqueur.
   → [le chemin inverse](docs/restore.md)
+- **Il ne parle pas au modèle à votre place.** Vous collez la copie nettoyée dans
+  l'assistant que vous utilisez, et FreeDocs ne voit jamais la conversation. C'est
+  le prix de n'avoir personne entre les deux.
 - **Ce n'est pas une garantie de conformité et il ne prétend jamais que la sortie
   est propre.** `report.CAVEATS` inscrit les limites dans le rapport lui-même.
 
