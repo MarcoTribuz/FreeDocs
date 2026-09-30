@@ -129,11 +129,29 @@ PyMuPDF, not FreeDocs, is what runs Tesseract. And `tauri build` is given
 **`check` ends with a dependency audit and `build` ends with a manifest.** The
 audit is `pip-audit` over the *lockfile* (`uv export --all-extras`, so torch is
 covered even though `check` does not install `ner`), `npm audit --omit=dev`, and
-`cargo audit`. No ignore list, and that was measured: `cargo audit` fails only on
-vulnerabilities and this tree has zero, plus seventeen *warnings* that are the
-unmaintained GTK3 bindings and the `glib` unsoundness `dependabot.yml` explains
-cannot be fixed from here — so `-D warnings` would turn a standing fact into a
-red gate. `cargo-audit` and `cargo-cyclonedx` are separate binaries and go
+`cargo audit`. There was no ignore list, and that was measured: `cargo audit`
+fails only on vulnerabilities and this tree has zero, plus seventeen *warnings*
+that are the unmaintained GTK3 bindings and the `glib` unsoundness
+`dependabot.yml` explains cannot be fixed from here — so `-D warnings` would turn
+a standing fact into a red gate.
+
+**There is now one, `EXCUSED_ADVISORIES` in `scripts/ci.py`, and upgrading was
+the wrong answer.** `PYSEC-2026-3804` is a path traversal in `accelerate`'s
+`load_checkpoint_in_model` and `load_checkpoint_and_dispatch` via a sharded
+checkpoint's `weight_map`. `accelerate 1.15.0` makes `pip-audit` pass — the
+advisory reads "through 1.14.0" — while both functions are byte-identical to
+1.14.0, so the upgrade would have turned the gate green with the code unchanged,
+and red again the day the advisory's range is corrected. Nothing in this build
+calls either function: `accelerate` arrives only through `peft`, which uses its
+hooks and device map, and the model is one `model.safetensors` with no shard
+index. So the advisory is excused, with that sentence printed on every run.
+
+Two rules for the list. **An entry is bound to the locked version it was judged
+against**: `excused_arguments()` reads `uv.lock` and stops excusing the moment the
+pin moves, so an exception cannot outlive its reasoning silently. And **the reason
+names what ends it** — here, a release that sanitises `weight_map`. The workflow
+repeats the flag without the version guard, because YAML cannot read the lock;
+re-enabling CI should call the list rather than copy it. `cargo-audit` and `cargo-cyclonedx` are separate binaries and go
 through the `skip=` mechanism; `pip-audit` does not need to, because
 `uv run --with` fetches it the way the sidecar step already fetches PyInstaller.
 
