@@ -142,9 +142,9 @@ existing rule.
 
 ## G3: firm term list, encrypted
 
-**Status: engine and CLI implemented** on `feature/term-list`; the window is the
-second branch. What changed from the design below, each for a reason found while
-building it:
+**Status: implemented.** Engine and CLI on `feature/term-list`, the window on
+`feature/term-list-window`. What changed from the design below, each for a reason
+found while building it:
 
 - `forget` locks the list only with `terms: true`. The window calls `forget` after
   every batch, and locking there would ask for the passphrase after every batch.
@@ -161,6 +161,15 @@ building it:
   control characters, so every entry survives its own export.
 - Measured: 10 000 entries against 600 000 characters is 1.3 s of
   `Override.apply`, linear in both.
+- Window: its own card on the file and review steps, not a section of
+  `AdvancedPanel.svelte`. Everything in that disclosure only narrows the search,
+  and a collapsed disclosure would hide that a list is unlocked and in use.
+- Window: the passphrase is held until the list is locked, since every save
+  re-opens the file with it; `lockTerms()` is the one place it is cleared.
+- Window: Change passphrase… (not in the design) asks for the current one again
+  rather than using the held one.
+- Window: a restarted sidecar leaves the window showing an unlocked list the
+  engine no longer holds. Stated in `docs/desktop-app.md`.
 
 **What.** An encrypted file of values that are removed on every scrub: client
 names, matter numbers, internal project code names. It is the persistent form of

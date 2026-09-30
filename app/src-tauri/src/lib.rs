@@ -13,11 +13,13 @@ use tauri::{Manager, State};
 /// A note on `capabilities/default.json`, which is a JSON file and cannot hold
 /// one.
 ///
-/// The two plugins are narrowed to the single command each is used for:
-/// `dialog:allow-open` and `opener:allow-reveal-item-in-dir`, replacing the
-/// `default` sets that also carried `save`, `ask`, `confirm`, `message`,
-/// `open-url` and `open-path`. Free, and checkable — the build fails on a
-/// permission name that does not exist.
+/// The two plugins are narrowed to the commands they are used for:
+/// `dialog:allow-open`, `dialog:allow-save` and
+/// `opener:allow-reveal-item-in-dir`, replacing the `default` sets that also
+/// carried `ask`, `confirm`, `message`, `open-url` and `open-path`. Free, and
+/// checkable — the build fails on a permission name that does not exist. `save`
+/// came back for the term list: a new list and an export both name a file that
+/// does not exist yet, which `open` cannot choose.
 ///
 /// `core:default` is deliberately left whole, and the reason is worth stating so
 /// nobody narrows it for the look of the thing. What it would defend against is

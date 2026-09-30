@@ -1,4 +1,4 @@
-import { open } from '@tauri-apps/plugin-dialog';
+import { open, save } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import {
 	type Capabilities,
@@ -15,6 +15,7 @@ import {
 	type RestoreResult,
 	type ScrubResult,
 	type TesseractRefusal,
+	type Term,
 	MISSING_DEPENDENCY,
 	NEEDS_OCR,
 	UNSUPPORTED_FORMAT,
@@ -29,7 +30,15 @@ import {
 	onNotify,
 	restore,
 	reviewModels,
-	scrub
+	scrub,
+	termsCreate,
+	termsExport,
+	termsImport,
+	termsList,
+	termsLock,
+	termsRekey,
+	termsUnlock,
+	termsUpdate
 } from './engine';
 import { announce } from './announce.svelte';
 import { basename } from './format';
@@ -189,7 +198,57 @@ export const session = $state({
 	restoreFile: null as string | null,
 	restoreMap: null as string | null,
 	restorePassphrase: '',
-	restoreResult: null as RestoreResult | null
+	restoreResult: null as RestoreResult | null,
+
+	/**
+	 * The firm's term list: which file, whether the engine holds it unlocked, and
+	 * what opens it.
+	 *
+	 * The entries themselves live in the engine, not here — this holds only the
+	 * slice the editor is showing. `termsPath` is remembered in `localStorage`
+	 * like the Tesseract path; the passphrase and the entries never are.
+	 *
+	 * `termsPassphrase` is the one secret this window keeps past a single call,
+	 * and it is deliberate: every save re-opens the file with it (see
+	 * `termsUpdate`), so dropping it after the unlock would mean retyping it for
+	 * every entry added. It lives exactly as long as the unlock — cleared by
+	 * `lockTerms`, which a mode change and closing the list both go through — and
+	 * `forgetSecrets` leaves it alone, because a scrub finishing is not the list
+	 * being closed.
+	 */
+	termsPath: null as string | null,
+	termsUnlocked: false,
+	termsCount: 0,
+	termsPassphrase: '',
+	/** Only for a new list: a mistyped passphrase on it is unrecoverable. */
+	termsConfirm: '',
+	/** Whether a new list is being set up, which needs the confirm field. */
+	termsCreating: false,
+	/** Send `use_terms` with every inspect and scrub. On by default once unlocked. */
+	termsUse: true,
+	termsQuery: '',
+	termsShown: [] as Term[],
+	termsNewValue: '',
+	termsNewEntity: 'OTHER',
+	termsBusy: false,
+	/** The engine's refusal, quoted. Kept beside the panel rather than in `problem`. */
+	termsProblem: null as string | null,
+	/** The last import's counts and the file to delete. Shown until dismissed. */
+	termsImported: null as { source: string; added: number; skipped: number } | null,
+	/** Export is two clicks on purpose: the first says what it costs. */
+	termsExportArmed: false,
+	/** Where the last export went, with the engine's warning beside it. */
+	termsExported: null as { output: string; warning: string } | null,
+	/**
+	 * Changing the passphrase. The current one is typed again rather than taken
+	 * from `termsPassphrase`: an unlocked window left on a desk should not be
+	 * enough to lock its owner out of the list. Cleared with the rest by
+	 * `lockTerms` and after every attempt.
+	 */
+	termsRekeying: false,
+	termsOld: '',
+	termsNext: '',
+	termsNextConfirm: ''
 });
 
 /** What the model dropdown offers: the typed host's answer, else the startup one. */
@@ -207,6 +266,15 @@ export function totalFindings(): number {
 /** A finding the user put there, rather than one a detector nominated. */
 export function isMine(finding: Finding): boolean {
 	return finding.detector === 'human';
+}
+
+/**
+ * A finding the term list put there. Layer `H` like the user's own - both are
+ * instructions - but told apart by the engine's detector name, which is its
+ * answer to "who claimed this" and not a rule about its naming.
+ */
+export function isFromTerms(finding: Finding): boolean {
+	return finding.detector === 'terms';
 }
 
 /** Counts per entity type, which is what a preview is actually for. */
@@ -309,6 +377,7 @@ export async function start(): Promise<() => void> {
 		// adoption. The badge may paint "OCR missing" for a few milliseconds first;
 		// that is honest — it is what the engine said at that moment.
 		await applyRememberedTesseract();
+		applyRememberedTerms();
 		session.entityList = (await entities(session.placeholderLanguage)).entities;
 		await Promise.all([refreshCoverage(), refreshDiagnostics()]);
 	} catch (error) {
@@ -647,9 +716,17 @@ export function setMode(mode: Mode): void {
 	// The two directions do not share a secret. Leaving one mode's passphrase in
 	// memory while the other is on screen is a secret nobody decided to keep.
 	forgetSecrets();
+	// Including the term list's, which the restore direction never uses. Locked
+	// rather than merely forgotten here: an unlocked list with no passphrase in
+	// the window is a list that can be read and not saved.
+	void lockTerms();
 }
 
-/** Every passphrase this window is holding, gone. Called on every exit path. */
+/**
+ * Every single-call passphrase this window is holding, gone. Called on every exit
+ * path. The term list's is not one of them: it lives as long as the unlock, and
+ * `lockTerms` is what ends it.
+ */
 function forgetSecrets(): void {
 	session.keyPassphrase = '';
 	session.keyConfirm = '';
@@ -803,7 +880,8 @@ export async function loadInspection(path: string): Promise<void> {
 			// The review pane renders the document, so it asks for it. Opt-in on the
 			// wire because this text contains the confidential values no layer
 			// detected, which is more than the findings alone.
-			includeText: true
+			includeText: true,
+			useTerms: termsInUse()
 		});
 		session.inspections[path] = inspection;
 		// Nothing here moves focus, so without this the result of a decision is
@@ -935,7 +1013,8 @@ export async function runScrub(): Promise<void> {
 				// Both or neither, which `toParams` enforces: the engine refuses a key
 				// file with no passphrase rather than quietly writing nothing.
 				map: session.keyWanted ? session.keyDir : null,
-				mapPassphrase: session.keyWanted ? session.keyPassphrase : null
+				mapPassphrase: session.keyWanted ? session.keyPassphrase : null,
+				useTerms: termsInUse()
 			})
 		).results;
 
@@ -966,5 +1045,327 @@ export async function runScrub(): Promise<void> {
 		// The passphrase existed for this request. Emptying the fields after a
 		// successful scrub is deliberate: the next run is a new decision.
 		forgetSecrets();
+	}
+}
+
+// ---- the term list ----------------------------------------------------------
+
+/**
+ * Where the term list is remembered. The path, never the passphrase and never
+ * an entry: the path says where a firm keeps its register, which this machine's
+ * own profile already knows, and anything more would be a plaintext copy of the
+ * thing the file encrypts.
+ */
+const TERMS_KEY = 'freedocs.terms';
+
+/**
+ * Put the remembered path back, locked. Validated by the unlock, not here: the
+ * engine is the one that can say whether a file is a term list, and a file that
+ * has since moved is refused with its own message when the person tries.
+ */
+function applyRememberedTerms(): void {
+	if (!browserStorage() || !termsAvailable()) return;
+	const remembered = safeRead(TERMS_KEY);
+	if (remembered) session.termsPath = remembered;
+}
+
+export function termsAvailable(): boolean {
+	return session.caps?.terms_available ?? false;
+}
+
+/** Whether inspect and scrub should ask for the list, which is the person's toggle. */
+export function termsInUse(): boolean {
+	return session.termsUnlocked && session.termsUse;
+}
+
+/**
+ * What stops the unlock or create button, as a key the panel translates. The
+ * floor is the engine's, read from capabilities; the engine refuses anyway.
+ */
+export function termsBlocker(): 'file' | 'passphrase' | 'mismatch' | null {
+	if (!session.termsPath) return 'file';
+	if (session.termsPassphrase.length < passphraseMinimum()) return 'passphrase';
+	if (session.termsCreating && session.termsPassphrase !== session.termsConfirm) return 'mismatch';
+	return null;
+}
+
+const TERMS_FILTER = () => [{ name: i18n.m.termsFilter(), extensions: ['fdterms'] }];
+
+/** Choose an existing list. Whatever was unlocked is locked first: one list at a time. */
+export async function pickTermsFile(): Promise<void> {
+	const chosen = await open({
+		multiple: false,
+		directory: false,
+		title: i18n.m.termsChooseFile(),
+		filters: TERMS_FILTER()
+	});
+	if (!chosen || Array.isArray(chosen)) return;
+	await lockTerms();
+	session.termsPath = chosen;
+	session.termsCreating = false;
+}
+
+/** Name a new list. Nothing is written until the passphrase is given twice. */
+export async function pickNewTermsFile(): Promise<void> {
+	const chosen = await save({
+		title: i18n.m.termsChooseNew(),
+		defaultPath: 'firm.fdterms',
+		filters: TERMS_FILTER()
+	});
+	if (!chosen) return;
+	await lockTerms();
+	session.termsPath = chosen;
+	session.termsCreating = true;
+}
+
+/** Leave "new list" without creating it, back to whatever was remembered. */
+export function cancelNewTerms(): void {
+	session.termsCreating = false;
+	session.termsPassphrase = '';
+	session.termsConfirm = '';
+	session.termsProblem = null;
+	session.termsPath = browserStorage() ? safeRead(TERMS_KEY) : null;
+}
+
+/**
+ * Create or unlock, then re-inspect.
+ *
+ * Re-inspecting is what makes the list visible: the preview that was on screen
+ * was computed without it, and a toggle that changes nothing until the next file
+ * is loaded reads as a toggle that does nothing.
+ */
+export async function unlockTerms(): Promise<void> {
+	const path = session.termsPath;
+	if (!path || termsBlocker()) return;
+	session.termsBusy = true;
+	session.termsProblem = null;
+	try {
+		const held = session.termsCreating
+			? await termsCreate(path, session.termsPassphrase)
+			: await termsUnlock(path, session.termsPassphrase);
+		session.termsUnlocked = true;
+		session.termsCreating = false;
+		session.termsConfirm = '';
+		session.termsCount = held.count;
+		session.termsUse = true;
+		if (browserStorage()) safeWrite(TERMS_KEY, held.path);
+		announce(i18n.m.termsUnlocked({ count: held.count }));
+		await refreshTerms();
+		if (session.files.length) await reinspectAll();
+	} catch (error) {
+		// A wrong passphrase is the ordinary case, so the field is emptied: the
+		// person retypes it either way, and a rejected secret has no reason to stay.
+		session.termsPassphrase = '';
+		session.termsConfirm = '';
+		termsFailed(error);
+	} finally {
+		session.termsBusy = false;
+	}
+}
+
+/**
+ * Lock the list in the engine and drop everything the window held for it.
+ *
+ * Safe to call when nothing is unlocked, which is how a mode change and choosing
+ * another file use it. The passphrase goes here, in the one place, whatever the
+ * engine answers: a lock that failed is still a list this window should stop
+ * being able to save.
+ */
+export async function lockTerms(): Promise<void> {
+	const was = session.termsUnlocked;
+	session.termsPassphrase = '';
+	session.termsConfirm = '';
+	session.termsUnlocked = false;
+	session.termsCount = 0;
+	session.termsShown = [];
+	session.termsQuery = '';
+	session.termsNewValue = '';
+	session.termsImported = null;
+	session.termsExported = null;
+	session.termsExportArmed = false;
+	session.termsProblem = null;
+	forgetRekey();
+	if (!was) return;
+	try {
+		await termsLock();
+	} catch {
+		// The engine's copy ends with the process at worst. Nothing on screen
+		// depends on this answer.
+	}
+	announce(i18n.m.termsLocked());
+	if (session.files.length) await reinspectAll();
+}
+
+/** Stop remembering the file too. The list itself is untouched on disk. */
+export async function closeTerms(): Promise<void> {
+	await lockTerms();
+	session.termsPath = null;
+	session.termsCreating = false;
+	if (browserStorage()) safeRemove(TERMS_KEY);
+}
+
+export async function refreshTerms(): Promise<void> {
+	if (!session.termsUnlocked) return;
+	try {
+		const listed = await termsList(session.termsQuery.trim() || undefined);
+		session.termsShown = listed.terms;
+		session.termsCount = listed.count;
+	} catch (error) {
+		termsFailed(error);
+	}
+}
+
+/** The person's toggle changed what inspect sends, so the preview is stale. */
+export function setTermsUse(value: boolean): void {
+	session.termsUse = value;
+	if (session.files.length) void reinspectAll();
+}
+
+export async function addTerm(): Promise<void> {
+	const value = session.termsNewValue.trim();
+	if (!value || !session.termsUnlocked) return;
+	await changeTerms({ add: [{ value, entity: session.termsNewEntity }] }, (done) =>
+		done.added ? i18n.m.termsAdded({ count: done.added }) : i18n.m.termsAlreadyThere()
+	);
+	if (!session.termsProblem) session.termsNewValue = '';
+}
+
+export async function removeTerm(value: string): Promise<void> {
+	await changeTerms({ remove: [value] }, (done) => i18n.m.termsRemoved({ count: done.removed }));
+}
+
+async function changeTerms(
+	change: { add?: Term[]; remove?: string[] },
+	said: (done: { added: number; removed: number }) => string
+): Promise<void> {
+	session.termsBusy = true;
+	session.termsProblem = null;
+	try {
+		const done = await termsUpdate(session.termsPassphrase, change);
+		session.termsCount = done.count;
+		announce(said(done));
+		await refreshTerms();
+		if (termsInUse() && session.files.length) await reinspectAll();
+	} catch (error) {
+		termsFailed(error);
+	} finally {
+		session.termsBusy = false;
+	}
+}
+
+/**
+ * Read a plaintext or CSV file into the list, and tell the person to delete it.
+ *
+ * The window never deletes the source, and neither does the engine: a plaintext
+ * copy beside the encrypted list undoes the encryption, and deleting somebody's
+ * file is not this tool's decision. The notice stays until dismissed.
+ */
+export async function importTerms(): Promise<void> {
+	const chosen = await open({
+		multiple: false,
+		directory: false,
+		title: i18n.m.termsChooseImport(),
+		filters: [{ name: i18n.m.termsImportFilter(), extensions: ['txt', 'csv'] }]
+	});
+	if (!chosen || Array.isArray(chosen)) return;
+	session.termsBusy = true;
+	session.termsProblem = null;
+	try {
+		const done = await termsImport(chosen, session.termsPassphrase);
+		session.termsCount = done.count;
+		session.termsImported = done.delete_source
+			? { source: chosen, added: done.added, skipped: done.skipped }
+			: null;
+		announce(i18n.m.termsImportedAnnounce({ count: done.added }), { assertive: true });
+		await refreshTerms();
+		if (termsInUse() && session.files.length) await reinspectAll();
+	} catch (error) {
+		termsFailed(error);
+	} finally {
+		session.termsBusy = false;
+	}
+}
+
+export function dismissImported(): void {
+	session.termsImported = null;
+}
+
+/** First click: say what an export costs. Nothing is written. */
+export function armExport(armed: boolean): void {
+	session.termsExportArmed = armed;
+}
+
+/** Second click: choose where, and write the list out unencrypted. */
+export async function exportTerms(): Promise<void> {
+	if (!session.termsExportArmed) return;
+	const chosen = await save({ title: i18n.m.termsChooseExport(), defaultPath: 'terms.txt' });
+	session.termsExportArmed = false;
+	if (!chosen) return;
+	session.termsBusy = true;
+	session.termsProblem = null;
+	try {
+		const done = await termsExport(chosen);
+		session.termsExported = { output: done.output, warning: done.warning };
+		announce(i18n.m.termsExportedAnnounce({ count: done.count }), { assertive: true });
+	} catch (error) {
+		termsFailed(error);
+	} finally {
+		session.termsBusy = false;
+	}
+}
+
+function termsFailed(error: unknown): void {
+	const message = describe(error);
+	session.termsProblem = message;
+	announce(message, { assertive: true });
+}
+
+/** What stops the change-passphrase button. The floor is the engine's. */
+export function rekeyBlocker(): 'current' | 'passphrase' | 'mismatch' | null {
+	if (!session.termsOld) return 'current';
+	if (session.termsNext.length < passphraseMinimum()) return 'passphrase';
+	if (session.termsNext !== session.termsNextConfirm) return 'mismatch';
+	return null;
+}
+
+export function startRekey(open: boolean): void {
+	forgetRekey();
+	session.termsRekeying = open;
+}
+
+function forgetRekey(): void {
+	session.termsRekeying = false;
+	session.termsOld = '';
+	session.termsNext = '';
+	session.termsNextConfirm = '';
+}
+
+/**
+ * Re-seal the list under a new passphrase, and hold the new one.
+ *
+ * The held passphrase is replaced only on success: every later save re-opens the
+ * file with it, and holding the new one after a refused change would make the
+ * next save fail against a file still under the old one.
+ */
+export async function rekeyTerms(): Promise<void> {
+	if (!session.termsUnlocked || rekeyBlocker()) return;
+	session.termsBusy = true;
+	session.termsProblem = null;
+	try {
+		const held = await termsRekey(session.termsOld, session.termsNext);
+		session.termsPassphrase = session.termsNext;
+		session.termsCount = held.count;
+		announce(i18n.m.termsRekeyed());
+		forgetRekey();
+	} catch (error) {
+		// Every field emptied, including the new passphrase: retyping it is the
+		// cost of a secret that was refused, and a wrong current one is the usual
+		// cause.
+		session.termsOld = '';
+		session.termsNext = '';
+		session.termsNextConfirm = '';
+		termsFailed(error);
+	} finally {
+		session.termsBusy = false;
 	}
 }

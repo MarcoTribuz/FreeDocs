@@ -165,6 +165,14 @@ save under a mistyped one would re-key the list to a passphrase nobody knows),
 and it merges changes another window saved in the meantime instead of
 overwriting them.
 
+## In the window
+
+A term-list card on the file and review steps: Open… or New…, the passphrase
+once, then search, add, remove, Import…, Export… and Change passphrase…. The toggle "remove these on
+every scrub" is on as soon as the list is unlocked. The window keeps the
+passphrase until you lock the list, because every save needs it; it never stores
+it or the entries. See [the desktop app](desktop-app.md#the-term-list-in-the-window).
+
 ## Later, not now
 
 The passphrase in the macOS Keychain or the Windows Credential Manager, so it is

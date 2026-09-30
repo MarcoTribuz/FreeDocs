@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Inspection } from '$lib/engine';
-	import { dropValue, isMine, session, toggleKeep, toggleSpan } from '$lib/app.svelte';
+	import { dropValue, isFromTerms, isMine, session, toggleKeep, toggleSpan } from '$lib/app.svelte';
 	import { review } from '$lib/review.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { countryName } from '$lib/format';
@@ -38,6 +38,8 @@
 	 */
 	const provenance = $derived.by(() => {
 		if (!finding) return '';
+		// Layer H is both the person and the list; the detector says which.
+		if (isFromTerms(finding)) return m.foundByTermList();
 		if (finding.layer === 'H') return m.foundByYou();
 		if (finding.layer === 'L2') return m.foundByModel();
 		if (finding.layer === 'L1') return m.foundByChecksum();
