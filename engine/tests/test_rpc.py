@@ -621,6 +621,28 @@ def test_a_requested_value_that_is_absent_is_reported_as_a_warning(
     assert any("Cognome Assente" in warning for warning in found["warnings"])
 
 
+def test_a_scrub_names_an_absent_value_on_the_pipe_and_not_in_its_report(
+    session: Session, document: Path, tmp_path: Path
+):
+    """The response and the report inside it are two channels with two rules.
+
+    ``warnings`` goes down this pipe, which already carries matched text, so it
+    names the value; ``report`` is what gets written to disk, so it counts it.
+    """
+    result = result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        remove=["Cognome Assente"],
+    )
+    one = result["results"][0]
+    assert one["ok"], one
+    assert any("Cognome Assente" in warning for warning in one["warnings"])
+    assert "Cognome Assente" not in json.dumps(one["report"])
+    assert one["report"]["requested_values_not_found"] == 1
+
+
 def test_a_stale_kept_span_is_refused_rather_than_reinterpreted(session: Session, document: Path):
     """Honouring it would keep whatever moved into that range."""
     response = call(

@@ -876,6 +876,20 @@ has to act on.
 cannot reach either channel. Both assert the second half too: the warning must
 still say what the sheet is called now, since deleting it would also have passed.
 
+**A value a caller named is a value, and the absent ones are the ones that
+leaked.** A removal that matched nothing produced a sentence quoting it, that
+sentence rode `Inspection.notes` into `ScrubResult.warnings`, and
+`build_report` wrote it to disk — so a requested value reached the report
+*exactly when it was not in the document*. One list of client names over a
+folder of contracts put most of that list into every report. A found value was
+never the problem: it becomes a placeholder and a count. `Inspection.unmatched`
+and `ScrubResult.unmatched` now carry them apart from the value-free notes; the
+report says `requested_values_not_found: N`, and `caller_warnings` is the
+quoting form for the console and the pipe, which already carry matched text.
+`test_the_report_does_not_quote_a_requested_value_it_did_not_find` is the
+guard, and it was confirmed to fail on the code before the fix. This had to
+land before a persistent term list, which would have made it the normal path.
+
 **Who may read an output is decided by what is in it, and one module decides.**
 `core/outputs.py` answers both halves. A file from which the document could be
 reconstructed is owner-only — the key file, a restored document, and the report,

@@ -78,8 +78,8 @@ class Inspection:
 
     extraction: Extraction
     findings: list[Finding]
-    #: What the *configuration* has to say: the registry's notes and any value a
-    #: caller asked to remove that is not in this document.
+    #: What the *configuration* has to say: the registry's notes. Value-free, so
+    #: they may travel anywhere a warning does, the report included.
     #:
     #: Kept apart from the handler's own warnings rather than merged, because the
     #: two are collected at different times. A handler goes on warning during
@@ -94,6 +94,14 @@ class Inspection:
     #: recomputed, because stage 6 has to be told about exactly these and a
     #: second opinion about which they are would be a second rule.
     suppressed: list[Suppression] = field(default_factory=list)
+    #: Values a caller asked to remove that appear nowhere in this document.
+    #: Kept apart from ``notes`` because these *are* values: somebody thought
+    #: each one confidential enough to name. They used to be folded into
+    #: ``notes`` as a quoting sentence, and from there into ``ScrubResult.warnings``
+    #: and the JSON report - so a value reached disk exactly when it was absent
+    #: from the document it was reported against. One list of client names over
+    #: a folder of contracts wrote most of that list into every report.
+    unmatched: list[str] = field(default_factory=list)
 
     @property
     def stream(self) -> TextStream:
@@ -101,8 +109,13 @@ class Inspection:
 
     @property
     def warnings(self) -> list[str]:
-        """Everything a preview should say. Complete as of extraction."""
-        return [*self.extraction.warnings, *self.notes]
+        """Everything a preview should say. Complete as of extraction.
+
+        Quotes the unmatched values. A preview travels the local pipe, which
+        already carries every matched value, and a caller who pasted a name
+        needs to hear *which* one was not found.
+        """
+        return [*self.extraction.warnings, *self.notes, *map(unmatched_note, self.unmatched)]
 
 
 @dataclass
@@ -124,6 +137,18 @@ class ScrubResult:
     #: would have turned a loud refusal into a silence, and a reader who is told
     #: nothing believes the city is gone from the document when it is not.
     suppressed: list[Suppression] = field(default_factory=list)
+    #: Requested removals that matched nothing. Values, so the report carries
+    #: only their count; see ``Inspection.unmatched``.
+    unmatched: list[str] = field(default_factory=list)
+
+    @property
+    def caller_warnings(self) -> list[str]:
+        """``warnings`` plus a sentence naming each unmatched value.
+
+        For the console and the local pipe, which already carry matched text,
+        and for nothing that reaches disk. ``build_report`` reads ``warnings``.
+        """
+        return [*self.warnings, *map(unmatched_note, self.unmatched)]
 
     @property
     def removed(self) -> list[Finding]:
@@ -173,6 +198,16 @@ class StageEvent:
 
 
 ProgressFn = Callable[[StageEvent], None]
+
+
+def unmatched_note(value: str) -> str:
+    """The sentence for a requested removal that matched nothing.
+
+    It quotes the value, so it belongs on a channel that already carries values
+    and never in a report. "Removed" and "was not there" look identical in the
+    output, which is why the caller is told at all.
+    """
+    return f"the value {value!r} was asked to be removed but does not appear in this document"
 
 
 #: Layer combinations addressable by name, for the CLI and the benchmark.
@@ -489,16 +524,8 @@ class Scrubber:
             extraction=extraction,
             findings=findings,
             suppressed=suppressed,
-            notes=[
-                *self.registry.notes,
-                # "Removed" and "was not there" look identical in the output, and
-                # a caller who pasted a value expects to hear which happened.
-                *(
-                    f"the value {value!r} was asked to be removed but does not "
-                    f"appear in this document"
-                    for value in self.overrides.unmatched(text)
-                ),
-            ],
+            notes=list(self.registry.notes),
+            unmatched=self.overrides.unmatched(text),
         )
 
     def scrub(self, source: Path | FormatHandler) -> ScrubResult:
@@ -561,6 +588,7 @@ class Scrubber:
             warnings=[*handler.warnings, *inspection.notes],
             review=self._review(verify, plan),
             suppressed=inspection.suppressed,
+            unmatched=inspection.unmatched,
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)

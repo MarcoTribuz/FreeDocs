@@ -62,6 +62,10 @@ even if its tests are green.
 
 ## G0: stop the report quoting requested values
 
+**Status: implemented** on `feature/report-requested-values`. The field names
+below are the ones that landed: `Inspection.unmatched`, `ScrubResult.unmatched`,
+`ScrubResult.caller_warnings`, and `requested_values_not_found` in the report.
+
 **The bug.** `Scrubber.detect_in` adds
 `f"the value {value!r} was asked to be removed but does not appear in this document"`
 to `Inspection.notes`. `pipeline.scrub` then folds `inspection.notes` into

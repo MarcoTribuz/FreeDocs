@@ -209,6 +209,11 @@ export interface Report {
 	totals: { removed: number; reported_only: number };
 	hidden_content_removed: HiddenItem[];
 	warnings: string[];
+	/**
+	 * How many requested removals matched nothing. A count, because each one is a
+	 * value somebody named; the response's own `warnings` is where they are named.
+	 */
+	requested_values_not_found: number;
 	verification: Verification;
 	/**
 	 * Whether a key file was written for this document. A boolean and not a path:
