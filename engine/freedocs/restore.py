@@ -183,7 +183,7 @@ class Restorer:
             )
         )
 
-    def restore(self, path: Path) -> RestoreResult:
+    def restore(self, source: Path | FormatHandler) -> RestoreResult:
         """Read ``path``, write the values back, and check both directions.
 
         **The output is returned even when the result is incomplete, and that is
@@ -194,9 +194,16 @@ class Restorer:
         defect is visible in it. So the bytes come back, every problem is
         reported, and the caller exits non-zero. Do not "fix" this into
         consistency with stage 6.
+
+        Takes a handler as well as a path, the change ``Scrubber.read`` made and
+        for the same reason: pasted text has no file to route, and a run that
+        announced ``router`` for it would report a stage it never ran.
         """
-        self._announce("router")
-        handler = handler_for(path)
+        if isinstance(source, Path):
+            self._announce("router")
+            handler = handler_for(source)
+        else:
+            handler = source
 
         self._announce("extract")
         handler.set_progress(
