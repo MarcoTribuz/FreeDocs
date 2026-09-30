@@ -142,6 +142,26 @@ existing rule.
 
 ## G3: firm term list, encrypted
 
+**Status: engine and CLI implemented** on `feature/term-list`; the window is the
+second branch. What changed from the design below, each for a reason found while
+building it:
+
+- `forget` locks the list only with `terms: true`. The window calls `forget` after
+  every batch, and locking there would ask for the passphrase after every batch.
+- `terms_import` takes the passphrase too, and `terms_update` and `terms_import`
+  re-open the file with it before saving: a save under a mistyped passphrase
+  would have re-keyed the list and succeeded.
+- `matched` counts entries that removed something, read from the findings rather
+  than by a second search, which halved the cost at `MAX_TERMS`.
+- Nested requested values now go longest first, in the list and in the existing
+  override alike; in caller order `Acme` left ` Corp` behind `Acme Corp`.
+- The payload is padded to 4 KiB so the ciphertext length does not count the
+  entries, which the header was already careful not to.
+- Entries are 2 to 500 characters (`MIN_TERM_CHARS`, `MAX_TERM_CHARS`) with no
+  control characters, so every entry survives its own export.
+- Measured: 10 000 entries against 600 000 characters is 1.3 s of
+  `Override.apply`, linear in both.
+
 **What.** An encrypted file of values that are removed on every scrub: client
 names, matter numbers, internal project code names. It is the persistent form of
 the window's "add a value" control, and it can only ever **remove**.

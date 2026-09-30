@@ -32,7 +32,7 @@ from pathlib import Path
 
 from .core.errors import MissingDependency
 from .core.findings import Finding
-from .core.overrides import Override
+from .core.overrides import Override, TermsUse
 from .core.policy import Action, Policy, SurrogateAllocator, placeholder_labels
 from .core.stream import Edit, TextStream
 from .detect.llm_review import LlmReviewer, ReviewOutcome
@@ -102,6 +102,9 @@ class Inspection:
     #: from the document it was reported against. One list of client names over
     #: a folder of contracts wrote most of that list into every report.
     unmatched: list[str] = field(default_factory=list)
+    #: The term list's counts for this document, or ``None`` when no list was
+    #: used - which is not the same as a list that matched nothing.
+    terms: TermsUse | None = None
 
     @property
     def stream(self) -> TextStream:
@@ -140,6 +143,8 @@ class ScrubResult:
     #: Requested removals that matched nothing. Values, so the report carries
     #: only their count; see ``Inspection.unmatched``.
     unmatched: list[str] = field(default_factory=list)
+    #: See ``Inspection.terms``.
+    terms: TermsUse | None = None
 
     @property
     def caller_warnings(self) -> list[str]:
@@ -526,6 +531,7 @@ class Scrubber:
             suppressed=suppressed,
             notes=list(self.registry.notes),
             unmatched=self.overrides.unmatched(text),
+            terms=self.overrides.terms_use(findings),
         )
 
     def scrub(self, source: Path | FormatHandler) -> ScrubResult:
@@ -589,6 +595,7 @@ class Scrubber:
             review=self._review(verify, plan),
             suppressed=inspection.suppressed,
             unmatched=inspection.unmatched,
+            terms=inspection.terms,
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)

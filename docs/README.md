@@ -18,6 +18,7 @@ measurement that disagrees with itself after the next benchmark run.
 | [packaging.md](packaging.md) | Building the sidecar and the installers, and the honest multi-platform status |
 | [portable.md](portable.md) | The unzip-and-run bundle: why it needs no writable state, and what does not travel with it |
 | [restore.md](restore.md) | The reverse path: the opt-in encrypted key file, and putting the values back into what the model returned |
+| [terms.md](terms.md) | The encrypted term list: values removed on every scrub, what the encryption protects and what it does not |
 | [llm-review.md](llm-review.md) | The opt-in second opinion over already-anonymised text |
 | [security-review.md](security-review.md) | A source review of the whole project: sixteen findings, what was done about each, and what is deliberately still open |
 

@@ -14,7 +14,7 @@ detected** — a build that finds less has to say so.
 ## `inspect` — report, write nothing
 
 ```bash
-uv run freedocs inspect FILE [FILE ...] [--min-confidence F] [--detectors SPEC] [--countries CODES]
+uv run freedocs inspect FILE [FILE ...] [--min-confidence F] [--detectors SPEC] [--countries CODES] [--remove VALUE] [--terms FILE]
 ```
 
 ```console
@@ -55,6 +55,9 @@ uv run freedocs scrub FILE [FILE ...] -o DIR
 | `--placeholder-language {de,en,fr,it}` | language of the placeholder stems written into the output |
 | `--countries CODES` | e.g. `ch,it,de`; defaults to every supported country |
 | `--detectors SPEC` | `l1`, `ner`, `all`, `all:presidio` |
+| `--remove VALUE` | also remove every occurrence of this exact text; repeatable. Also on `inspect` |
+| `--terms FILE` | also remove every entry of an encrypted term list — see [terms.md](terms.md). Also on `inspect` |
+| `--terms-passphrase-file PATH` | the term list's passphrase; otherwise `FREEDOCS_TERMS_PASSPHRASE`, otherwise a prompt |
 | `--allow-leaks` | write the output even when verification finds a survivor |
 | `--review MODEL` | ask a local Ollama model to read the result — see [llm-review.md](llm-review.md) |
 | `--review-host URL` | which Ollama (default `http://127.0.0.1:11434`) |
@@ -158,6 +161,23 @@ somebody else's data in the document.
 Runs no detector and loads no model, so it works the same on a build without the
 `ner` extra. Needs the `restore` extra for the cipher; `freedocs doctor` says
 whether this build has it.
+
+## `terms` — the encrypted term list
+
+```bash
+uv run freedocs terms create|list|add|remove|import|export|rekey FILE ...
+```
+
+Values removed on every scrub that passes `--terms FILE`. Every change is saved
+before the command returns. `import` tells you to delete its source and does not
+do it itself; `export` writes the list **unencrypted** and asks first. The full
+reference, and what the encryption does and does not protect, is in
+[terms.md](terms.md).
+
+A value that `--remove` or the list names and the document does not contain is
+counted in the report, never quoted. `--remove` values are also named on the
+console, which already shows what was found; term-list entries are not, because
+most of a list is absent from any one document.
 
 ## `entities`, `countries`, `doctor`
 

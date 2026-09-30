@@ -75,6 +75,29 @@ MAX_PDF_PAGES = 10_000
 #: it to ``json.loads`` to take again.
 MAX_MAP_BYTES = 8 * 1024 * 1024
 
+#: Entries in a term list. A firm's client register runs to hundreds or a few
+#: thousand; 10 000 is several times that. The cost that bounds it is matching,
+#: not storage: every entry is a substring search over the whole extraction, on
+#: every inspect and every scrub, and every kept occurrence in the preview
+#: re-inspects. Measured: 10 000 entries against 600 000 characters - about two
+#: hundred pages - is 1.3 s of ``Override.apply``, linear in both, so a list of
+#: five hundred costs 65 ms on the same document. Past this ceiling a click in
+#: the preview starts to feel like a scan being read.
+MAX_TERMS = 10_000
+
+#: One entry. A client or matter name is tens of characters; a value this long
+#: is a pasted paragraph, and matching a paragraph literally finds nothing.
+MAX_TERM_CHARS = 500
+
+#: A sealed term list on disk, read before ``read_text``. At the two ceilings
+#: above and base64's 4/3 the largest legitimate file is about 7 MB, so this is
+#: the key file's ceiling again.
+MAX_TERMS_BYTES = 8 * 1024 * 1024
+
+#: A plaintext list offered for import. The same reason as the sealed file, and
+#: generous: an export from a CRM carries columns this reader ignores.
+MAX_TERMS_IMPORT_BYTES = 16 * 1024 * 1024
+
 
 def refuse_oversized_input(name: str, size: int) -> None:
     """Refuse a file too large to be a document, before it is read."""
@@ -114,6 +137,14 @@ def refuse_too_many_pages(name: str, pages: int) -> None:
     if pages > MAX_PDF_PAGES:
         raise InputTooLarge(
             f"{name} declares {pages} pages; this build reads up to {MAX_PDF_PAGES}"
+        )
+
+
+def refuse_too_many_terms(name: str, count: int) -> None:
+    """Refuse a term list longer than any client register, before it is used."""
+    if count > MAX_TERMS:
+        raise InputTooLarge(
+            f"{name} holds {count} entries; this build reads a term list of up to {MAX_TERMS}"
         )
 
 

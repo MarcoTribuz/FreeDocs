@@ -1776,3 +1776,167 @@ def test_a_leak_is_described_per_value(session: Session, tmp_path: Path, monkeyp
         }
     ]
     assert "Lugano" not in json.dumps(failure)
+
+
+# -- the term list ------------------------------------------------------------------
+
+TERMS_PASSPHRASE = "correct horse battery staple"
+SECRET_TERM = "Nordwind Holding"
+
+
+def _unlocked_list(session: Session, tmp_path: Path, *values: str) -> Path:
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    path = tmp_path / "firm.fdterms"
+    result_of(session, "terms_create", path=str(path), passphrase=TERMS_PASSPHRASE)
+    if values:
+        result_of(session, "terms_update", add=list(values), passphrase=TERMS_PASSPHRASE)
+    return path
+
+
+def test_capabilities_says_whether_a_term_list_can_be_held(session: Session):
+    caps = result_of(session, "capabilities")
+    assert caps["terms_available"] == (caps["terms_unavailable_reason"] is None)
+    assert caps["terms_max_entries"] > 0
+    assert caps["term_min_characters"] <= caps["term_max_characters"]
+
+
+def test_create_unlock_list_and_lock(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    listed = result_of(session, "terms_list")
+    assert listed["count"] == 1
+    assert listed["terms"] == [{"value": SECRET_TERM, "entity": "OTHER"}]
+
+    assert result_of(session, "terms_lock") == {"locked": True, "was_unlocked": True}
+    assert error_of(session, "terms_list")["code"] == INVALID_REQUEST
+
+    unlocked = result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    # The size and nothing else: the terms come from `terms_list`, on request.
+    assert unlocked == {"path": str(path), "count": 1}
+
+
+def test_create_refuses_an_existing_file(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    error = error_of(session, "terms_create", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert error["code"] == INVALID_REQUEST
+    result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert result_of(session, "terms_list")["count"] == 1
+
+
+def test_forget_locks_the_list_only_when_asked(session: Session, tmp_path: Path):
+    """The window forgets its documents after every batch. Locking the list with
+    them would ask for the passphrase after every batch."""
+    _unlocked_list(session, tmp_path, SECRET_TERM)
+    assert result_of(session, "forget")["terms_locked"] is False
+    assert result_of(session, "terms_list")["count"] == 1
+    assert result_of(session, "forget", terms=True)["terms_locked"] is True
+    assert error_of(session, "terms_list")["code"] == INVALID_REQUEST
+
+
+def test_use_terms_with_a_locked_list_is_refused_and_writes_nothing(
+    session: Session, document: Path, tmp_path: Path
+):
+    """A scrub that skipped a locked list would be believed to have used it."""
+    out = tmp_path / "out"
+    for method, params in (
+        ("inspect", {"path": str(document)}),
+        ("scrub", {"paths": [str(document)], "output_dir": str(out)}),
+    ):
+        error = error_of(session, method, use_terms=True, **params)
+        assert error["code"] == INVALID_REQUEST
+        assert "locked" in error["message"]
+    assert not (out / document.name).exists()
+
+
+def test_a_scrub_with_the_list_removes_it_and_reports_counts(
+    session: Session, document: Path, tmp_path: Path
+):
+    document.write_text(
+        document.read_text(encoding="utf-8") + f"Cliente: {SECRET_TERM}\n", encoding="utf-8"
+    )
+    _unlocked_list(session, tmp_path, SECRET_TERM, "Progetto Aurora")
+
+    preview = result_of(session, "inspect", path=str(document), use_terms=True)
+    assert preview["terms"] == {"loaded": 2, "matched": 1}
+    assert any(f["detector"] == "terms" and f["layer"] == "H" for f in preview["findings"])
+
+    scrubbed = result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        use_terms=True,
+    )["results"][0]
+    assert scrubbed["ok"], scrubbed
+    assert SECRET_TERM not in Path(scrubbed["output"]).read_text(encoding="utf-8")
+    assert scrubbed["report"]["terms"] == {"loaded": 2, "matched": 1}
+    blob = json.dumps(scrubbed)
+    # The absent entry is named nowhere: not in the report, not in a warning.
+    assert "Progetto Aurora" not in blob
+
+
+def test_an_update_with_the_wrong_passphrase_changes_nothing(session: Session, tmp_path: Path):
+    """A save under a mistyped passphrase would re-key the register to a
+    passphrase nobody knows, and succeed. The update re-reads first."""
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    response = call(session, "terms_update", add=["Giulia Verdi"], passphrase="mistyped phrase")
+    assert response["error"]["code"] == INVALID_REQUEST
+    blob = json.dumps(response)
+    assert "mistyped phrase" not in blob
+    assert SECRET_TERM not in blob
+    result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert result_of(session, "terms_list")["count"] == 1
+
+
+def test_update_adds_and_removes_and_saves(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM, "Progetto Aurora")
+    changed = result_of(
+        session,
+        "terms_update",
+        add=[{"value": "Giulia Verdi", "entity": "person"}],
+        remove=["Progetto Aurora"],
+        passphrase=TERMS_PASSPHRASE,
+    )
+    assert (changed["count"], changed["added"], changed["removed"]) == (2, 1, 1)
+    result_of(session, "terms_lock")
+    result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert {t["value"]: t["entity"] for t in result_of(session, "terms_list")["terms"]} == {
+        SECRET_TERM: "OTHER",
+        "Giulia Verdi": "PERSON",
+    }
+
+
+def test_import_says_to_delete_the_source_and_does_not(session: Session, tmp_path: Path):
+    _unlocked_list(session, tmp_path)
+    source = tmp_path / "clients.txt"
+    source.write_text(f"{SECRET_TERM}\nPERSON\tGiulia Verdi\n", encoding="utf-8")
+    imported = result_of(session, "terms_import", source=str(source), passphrase=TERMS_PASSPHRASE)
+    assert (imported["count"], imported["added"], imported["delete_source"]) == (2, 2, True)
+    assert source.exists()
+
+
+def test_export_refuses_the_list_itself(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    assert error_of(session, "terms_export", output=str(path))["code"] == INVALID_REQUEST
+    out = tmp_path / "export.txt"
+    exported = result_of(session, "terms_export", output=str(out))
+    assert "not encrypted" in exported["warning"]
+    assert SECRET_TERM in out.read_text(encoding="utf-8")
+
+
+def test_rekey_changes_what_opens_the_list(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    result_of(session, "terms_rekey", old=TERMS_PASSPHRASE, new="a brand new passphrase")
+    result_of(session, "terms_lock")
+    error = error_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert error["code"] == INVALID_REQUEST
+    result_of(session, "terms_unlock", path=str(path), passphrase="a brand new passphrase")
+
+
+def test_a_wrong_unlock_passphrase_leaks_neither_it_nor_a_term(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    result_of(session, "terms_lock")
+    response = call(session, "terms_unlock", path=str(path), passphrase="not the passphrase")
+    blob = json.dumps(response)
+    assert response["error"]["code"] == INVALID_REQUEST
+    assert "not the passphrase" not in blob
+    assert SECRET_TERM not in blob

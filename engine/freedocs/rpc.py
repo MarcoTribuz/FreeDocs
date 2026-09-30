@@ -26,6 +26,7 @@ reach a report, a warning or an error's ``data`` block.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -44,6 +45,7 @@ from .core.errors import (
     OutputRefused,
 )
 from .core.findings import EntityType
+from .core.limits import MAX_TERM_CHARS, MAX_TERMS
 from .core.mapping import (
     MIN_PASSPHRASE,
     BadPassphrase,
@@ -68,6 +70,20 @@ from .core.policy import (
 )
 from .core.sandbox import describe as describe_sandbox
 from .core.sandbox import harden
+from .core.terms import (
+    MIN_TERM_CHARS,
+    TermList,
+    TermListError,
+    create_terms,
+    open_terms,
+    parse_terms,
+    read_import,
+    rekey_terms,
+    save_terms,
+    terms_unavailable_reason,
+    with_terms,
+    write_export,
+)
 from .detect.llm_review import (
     DEFAULT_HOST as REVIEW_HOST,
 )
@@ -182,6 +198,12 @@ class Session:
     #: one it belongs to. A caller with two requests in flight would otherwise
     #: have to guess, and the answer would be wrong exactly when it mattered.
     current: Any = None
+    #: The one unlocked term list, and where it lives. Held for the life of the
+    #: unlock rather than per request, as the model weights are: a passphrase
+    #: asked on every document is how passphrases become "12345678". Released by
+    #: ``terms_lock``, by ``forget`` with ``terms``, and by the process ending.
+    _terms: TermList | None = None
+    _terms_path: Path | None = None
 
     # -- transport -------------------------------------------------------------
 
@@ -298,17 +320,175 @@ class Session:
         this calls it on every exit path, including the ones where nothing was
         ever inspected.
         """
+        # The term list only when named. The window calls this with no
+        # arguments every time it drops its documents - clearing a batch,
+        # changing mode - and locking the list there too would ask for the
+        # passphrase after every batch, which is the habit that makes weak ones.
+        terms_locked = bool(params.get("terms")) and self._lock_terms()
+
         wanted = params.get("paths")
         if wanted is None:
             released = len(self._extractions)
             self._extractions.clear()
-            return {"released": released}
+            return {"released": released, "terms_locked": terms_locked}
 
         names = {str(_as_path(value)) for value in wanted}
         keys = [key for key in self._extractions if key[0] in names]
         for key in keys:
             del self._extractions[key]
-        return {"released": len(keys)}
+        return {"released": len(keys), "terms_locked": terms_locked}
+
+    # -- the term list -----------------------------------------------------------
+    #
+    # Values travel this pipe in both directions, which is the channel that
+    # already carries every matched value and, on request, the whole document.
+    # What must not happen is a term or a passphrase inside an *error*: every
+    # failure below comes from `core/terms.py` or `core/sealed.py`, which quote
+    # line numbers and counts, and `_terms_errors` forwards those and nothing
+    # composed near a value.
+
+    def _lock_terms(self) -> bool:
+        was = self._terms is not None
+        self._terms = None
+        self._terms_path = None
+        return was
+
+    def _unlocked(self) -> tuple[TermList, Path]:
+        if self._terms is None or self._terms_path is None:
+            raise RpcError(INVALID_REQUEST, "the term list is locked; unlock it first")
+        return self._terms, self._terms_path
+
+    def _hold(self, path: Path, terms: TermList) -> dict[str, Any]:
+        self._terms, self._terms_path = terms, path
+        return {"path": str(path), "count": len(terms)}
+
+    def terms_create(self, params: dict[str, Any]) -> dict[str, Any]:
+        """A new, empty list, unlocked. Refused over anything that exists."""
+        path = _require_path(params, "path", must_exist=False)
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            return self._hold(path, create_terms(path, passphrase))
+
+    def terms_unlock(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt a list into this session. Answers with its size, not its terms."""
+        path = _require_path(params, "path")
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            return self._hold(path, open_terms(path, passphrase))
+
+    def terms_lock(self, _params: dict[str, Any]) -> dict[str, Any]:
+        return {"locked": True, "was_unlocked": self._lock_terms()}
+
+    def terms_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The unlocked list, or the entries matching ``query``."""
+        terms, path = self._unlocked()
+        query = params.get("query")
+        if query is not None and not isinstance(query, str):
+            raise RpcError(INVALID_REQUEST, "'query' must be a string")
+        shown = terms.search(query)
+        return {
+            "path": str(path),
+            "count": len(terms),
+            "terms": [{"value": term.value, "entity": term.entity.value} for term in shown],
+        }
+
+    def terms_update(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Add and remove entries and save, in one request.
+
+        One request so there is no unsaved state anywhere: the window never holds
+        an edit the engine has not written, and a crash loses nothing that was
+        acknowledged.
+
+        **The list is re-read from disk with the passphrase given, not edited in
+        memory.** That is the check that the passphrase is the list's own - a save
+        under a mistyped one would re-key the client register to a passphrase
+        nobody knows, and succeed - and it also means a second window that saved
+        in between is merged into rather than overwritten.
+        """
+        _, path = self._unlocked()
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            add = parse_terms(_list_param(params, "add"))
+            remove = [str(value) for value in _list_param(params, "remove")]
+            current = open_terms(path, passphrase)
+            current, removed = current.without(remove)
+            current, added = current.with_added(add)
+            save_terms(path, current, passphrase)
+        return {**self._hold(path, current), "added": added, "removed": removed}
+
+    def terms_import(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Read a plaintext or CSV list into the unlocked one, and save.
+
+        The source is never deleted, and the response says it should be. Both
+        halves are deliberate: a plaintext copy beside the encrypted list is the
+        encryption defeated, and deleting a person's file is not this tool's
+        call. ``delete_source`` is a flag so the window can say it in the
+        reader's language; ``notice`` is the English sentence for everyone else.
+        """
+        _, path = self._unlocked()
+        source = _require_path(params, "source")
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            incoming = read_import(source)
+            current = open_terms(path, passphrase)
+            current, added = current.with_added(incoming)
+            save_terms(path, current, passphrase)
+        return {
+            **self._hold(path, current),
+            "added": added,
+            "skipped": len(incoming) - added,
+            "delete_source": True,
+            "notice": (
+                f"{source.name} is not encrypted and still holds every entry; "
+                "delete it now that the term list has them"
+            ),
+        }
+
+    def terms_export(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Write the unlocked list out in plaintext, owner only.
+
+        The window confirms before it asks, and the response repeats the
+        warning, because this is the one way the list leaves its encryption and
+        the person should hear it at both ends.
+        """
+        terms, path = self._unlocked()
+        output = _require_path(params, "output", must_exist=False)
+        with _terms_errors():
+            write_export(output, terms, refuse=[path])
+        return {
+            "output": str(output),
+            "count": len(terms),
+            "warning": (
+                f"{output.name} is not encrypted; anyone who can read it can read "
+                "every entry, so delete it when you are done with it"
+            ),
+        }
+
+    def terms_rekey(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Change the unlocked list's passphrase. The old one must open it."""
+        _, path = self._unlocked()
+        old = _passphrase(params, "old")
+        new = _passphrase(params, "new")
+        with _terms_errors():
+            return self._hold(path, rekey_terms(path, old, new))
+
+    def _override_from(self, params: dict[str, Any]) -> Override:
+        """The caller's decisions, plus the term list when ``use_terms`` asks.
+
+        A locked list is a refusal, never a quiet skip. A scrub that ignored it
+        would produce a document the person believes had the firm's names taken
+        out, and the only sign otherwise would be those names in it.
+        """
+        override = _override_from(params)
+        if not params.get("use_terms"):
+            return override
+        if self._terms is None:
+            raise RpcError(
+                INVALID_REQUEST,
+                "use_terms was asked for and the term list is locked; unlock it, "
+                "or scrub without it",
+            )
+        return with_terms(override, self._terms)
 
     # -- methods ---------------------------------------------------------------
 
@@ -356,6 +536,14 @@ class Session:
             # the `scrub` request, and the failure landing after the scrubbed
             # copies were written.
             "passphrase_min_characters": MIN_PASSPHRASE,
+            # The term list is sealed with the key file's cipher, so this is the
+            # same answer under its own name: a window should not have to know
+            # the two features share an extra to offer the right controls.
+            "terms_available": terms_unavailable_reason() is None,
+            "terms_unavailable_reason": terms_unavailable_reason(),
+            "terms_max_entries": MAX_TERMS,
+            "term_min_characters": MIN_TERM_CHARS,
+            "term_max_characters": MAX_TERM_CHARS,
             # Whether this process will refuse an outbound connection that is not
             # to this machine, and one sentence saying what else it gives up.
             # Published because "nothing leaves the machine" is the claim the
@@ -540,7 +728,7 @@ class Session:
         """
         path = _require_path(params, "path")
         policy = _policy_from(params)
-        scoped = _override_from(params).for_path(str(path))
+        scoped = self._override_from(params).for_path(str(path))
         scrubber = Scrubber(
             policy=policy,
             registry=self.registry(  # type: ignore[arg-type]
@@ -621,6 +809,11 @@ class Session:
                 for finding in inspection.findings
             ],
         }
+        if inspection.terms is not None:
+            payload["terms"] = {
+                "loaded": inspection.terms.loaded,
+                "matched": inspection.terms.matched,
+            }
         if params.get("include_text"):
             payload.update(_preview(stream))
         return payload
@@ -645,7 +838,7 @@ class Session:
             strict=not bool(params.get("allow_leaks")),
             reviewer=_reviewer_from(params),
         )
-        override = _override_from(params)
+        override = self._override_from(params)
 
         results: list[dict[str, Any]] = []
         for index, path in enumerate(paths):
@@ -1022,6 +1215,39 @@ def _override_from(params: dict[str, Any]) -> Override:
         raise RpcError(INVALID_REQUEST, str(exc)) from exc
 
 
+def _passphrase(params: dict[str, Any], key: str) -> str:
+    value = params.get(key)
+    if not isinstance(value, str) or not value:
+        raise RpcError(INVALID_REQUEST, f"{key!r} must be a non-empty string")
+    return value
+
+
+def _list_param(params: dict[str, Any], key: str) -> list[Any]:
+    value = params.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise RpcError(INVALID_REQUEST, f"{key!r} must be a list")
+    return value
+
+
+@contextlib.contextmanager
+def _terms_errors() -> Iterator[None]:
+    """The term list's failures as codes. Every message is value-free at source."""
+    try:
+        yield
+    except MissingDependency as exc:
+        raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+    except InputTooLarge as exc:
+        raise RpcError(INPUT_TOO_LARGE, str(exc)) from exc
+    except OutputRefused as exc:
+        raise RpcError(OUTPUT_REFUSED, str(exc)) from exc
+    except (BadPassphrase, TermListError, ValueError) as exc:
+        # ValueError covers the passphrase floor, which `core/sealed.py` raises
+        # without quoting what it refused.
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
+
+
 def _reviewer_from(params: dict[str, Any]) -> LlmReviewer | None:
     """Build the optional reviewer, or None when nobody asked for one."""
     model = params.get("review")
@@ -1136,6 +1362,14 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "restore": session.restore,
         "forget": session.forget,
         "use_tesseract": session.use_tesseract,
+        "terms_create": session.terms_create,
+        "terms_unlock": session.terms_unlock,
+        "terms_lock": session.terms_lock,
+        "terms_list": session.terms_list,
+        "terms_update": session.terms_update,
+        "terms_import": session.terms_import,
+        "terms_export": session.terms_export,
+        "terms_rekey": session.terms_rekey,
     }
 
 
