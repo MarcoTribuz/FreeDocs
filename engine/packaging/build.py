@@ -39,9 +39,12 @@ OUTPUT = ENGINE / "dist" / "freedocs-engine"
 #: one to test with: it accepts 0.12% of random values of its shape, so this
 #: cannot pass by luck.
 SMOKE_NAME = "Mario Rossi"
+#: A string no detector finds, so only the term list can remove it.
+SMOKE_TERM = "Progetto Aurora"
 SMOKE_TEXT = (
     f"Il cliente {SMOKE_NAME} ha firmato il contratto.\n"
     "Numero de TVA du fournisseur: FR40303265045.\n"
+    f"Riferimento interno: {SMOKE_TERM}.\n"
 )
 
 #: Used once, inside a temporary directory, to prove the cipher is in the bundle.
@@ -99,6 +102,10 @@ def smoke_test(bundle: Path) -> None:
     cipher never made it in - so a scrub writes a key file, a restore reads it
     back, and the value has to arrive. Asking the capability alone is precisely
     the mistake this whole function was rewritten to stop making.
+
+    The term list is sealed with the same cipher and gets the same treatment:
+    created, saved through an update that re-opens it from disk, and then used
+    by an inspect that has to come back with the list's own finding.
     """
     executable = bundle / ("freedocs-engine.exe" if sys.platform == "win32" else "freedocs-engine")
     if not executable.is_file():  # pragma: no cover - packaging only
@@ -113,6 +120,7 @@ def smoke_test(bundle: Path) -> None:
         clean = Path(scratch) / "clean"
         keys = Path(scratch) / "keys"
         back = Path(scratch) / "back"
+        terms = Path(scratch) / "firm.fdterms"
         requests = "\n".join(
             [
                 json.dumps({"jsonrpc": "2.0", "id": 1, "method": "capabilities"}),
@@ -150,6 +158,30 @@ def smoke_test(bundle: Path) -> None:
                         },
                     }
                 ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 5,
+                        "method": "terms_create",
+                        "params": {"path": str(terms), "passphrase": SMOKE_PASSPHRASE},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 6,
+                        "method": "terms_update",
+                        "params": {"add": [SMOKE_TERM], "passphrase": SMOKE_PASSPHRASE},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 7,
+                        "method": "inspect",
+                        "params": {"path": str(sample), "use_terms": True},
+                    }
+                ),
             ]
         )
         completed = subprocess.run(
@@ -174,6 +206,7 @@ def smoke_test(bundle: Path) -> None:
 
     formats: set[str] = set()
     entities: set[str] = set()
+    term_findings: set[str] = set()
     for line in completed.stdout.splitlines():
         if not line.strip():
             continue
@@ -183,6 +216,11 @@ def smoke_test(bundle: Path) -> None:
         payload = message.get("params") or message.get("result") or {}
         formats.update(payload.get("formats") or [])
         entities.update(finding["entity"] for finding in payload.get("findings") or [])
+        term_findings.update(
+            finding["text"]
+            for finding in payload.get("findings") or []
+            if finding.get("detector") == "terms"
+        )
 
     expected = {".pdf", ".docx", ".xlsx", ".pptx", ".txt"}
     missing = expected - formats
@@ -212,9 +250,16 @@ def smoke_test(bundle: Path) -> None:
             "imported at call time and PyInstaller cannot see it; check the "
             'collect_submodules("cryptography") block in freedocs-engine.spec.'
         )
+    if SMOKE_TERM not in term_findings:  # pragma: no cover - packaging only
+        raise SystemExit(
+            "the built engine did not remove the term list's entry: a term list was "
+            "created and saved but could not be used. It is sealed with the key "
+            "file's cipher; check freedocs-engine.spec."
+        )
     print(
         f"smoke test passed: {len(formats)} formats, the model found the name, the "
-        "checksum layer found the foreign VAT number, and a key file round-tripped"
+        "checksum layer found the foreign VAT number, a key file round-tripped, and "
+        "a term list was sealed, reopened and applied"
     )
 
 

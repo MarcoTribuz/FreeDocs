@@ -34,8 +34,22 @@ from .core.mapping import (
     write_key_map,
 )
 from .core.outputs import private_directory, write_output, write_private, write_private_json
+from .core.overrides import Override, parse_override
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .core.sandbox import harden
+from .core.sealed import MalformedSealed
+from .core.terms import (
+    Term,
+    TermList,
+    create_terms,
+    open_terms,
+    read_import,
+    rekey_terms,
+    save_terms,
+    with_terms,
+    write_export,
+)
+from .core.terms import check_passphrase as check_terms_passphrase
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import Check, engine_version, run_checks
@@ -155,6 +169,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "hands over the scrubbed document and the key to undo it together"
         ),
     )
+    _add_removal_arguments(scrub)
     scrub.add_argument(
         "--allow-leaks",
         action="store_true",
@@ -220,6 +235,62 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--min-confidence", type=float, default=0.5)
     inspect.add_argument("--detectors", default=None)
     inspect.add_argument("--countries", default=None, metavar="CODES")
+    _add_removal_arguments(inspect)
+
+    terms = sub.add_parser(
+        "terms",
+        help="manage an encrypted term list: values removed on every scrub that uses it",
+    )
+    terms.set_defaults(files=[])
+    actions = terms.add_subparsers(dest="terms_command", required=True)
+    for name, text in (
+        ("create", "create a new, empty term list; refused if FILE exists"),
+        ("list", "print the entries, one ENTITY<TAB>value per line"),
+        ("add", "add entries and save"),
+        ("remove", "remove entries by exact value and save"),
+        ("import", "add every entry of a plaintext or CSV file, then tell you to delete it"),
+        ("export", "write the list out UNENCRYPTED; you are asked to confirm"),
+        ("rekey", "change the passphrase"),
+    ):
+        action = actions.add_parser(name, help=text)
+        action.add_argument("file", type=Path, metavar="FILE")
+        action.add_argument(
+            "--passphrase-file",
+            type=Path,
+            default=None,
+            metavar="PATH",
+            help=(
+                f"read the passphrase from the first line of this file; without it "
+                f"{TERMS_PASSPHRASE_ENV} is read, and failing that you are prompted"
+            ),
+        )
+        if name == "list":
+            action.add_argument("--query", default=None, help="only entries containing this")
+        if name in ("add", "remove"):
+            action.add_argument("values", nargs="+", metavar="VALUE")
+        if name == "add":
+            action.add_argument(
+                "--entity",
+                default="OTHER",
+                help="the placeholder family for these values (default: OTHER)",
+            )
+        if name == "import":
+            action.add_argument("source", type=Path, metavar="SOURCE")
+        if name == "export":
+            action.add_argument("output", type=Path, metavar="OUTPUT")
+            action.add_argument(
+                "--yes",
+                action="store_true",
+                help="do not ask for confirmation; the export is still unencrypted",
+            )
+        if name == "rekey":
+            action.add_argument(
+                "--new-passphrase-file",
+                type=Path,
+                default=None,
+                metavar="PATH",
+                help=f"the new passphrase; otherwise {TERMS_NEW_PASSPHRASE_ENV} or a prompt",
+            )
 
     entities = sub.add_parser("entities", help="list the entity types this build detects")
     entities.set_defaults(files=[])
@@ -453,6 +524,118 @@ def _warn_if_others_can_read(path: Path) -> None:
         )
 
 
+#: The term list's passphrase sources, apart from the key file's: they are two
+#: different secrets, and one variable for both would hand a scrub that asked
+#: for a key file the list's passphrase without anybody deciding that.
+TERMS_PASSPHRASE_ENV = "FREEDOCS_TERMS_PASSPHRASE"
+TERMS_NEW_PASSPHRASE_ENV = "FREEDOCS_TERMS_NEW_PASSPHRASE"
+
+
+def _add_removal_arguments(command: argparse.ArgumentParser) -> None:
+    """``--remove`` and ``--terms``, shared by scrub and inspect.
+
+    Both, because an inspect is how a person checks what a scrub is about to
+    take out, and a preview that ignores the list answers a different question.
+    """
+    command.add_argument(
+        "--remove",
+        action="append",
+        default=[],
+        metavar="VALUE",
+        help=(
+            "also remove every occurrence of this exact text; repeatable. The pipe "
+            "has had this since the preview could add a value, and the command line "
+            "had not"
+        ),
+    )
+    command.add_argument(
+        "--terms",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="also remove every entry of this encrypted term list",
+    )
+    command.add_argument(
+        "--terms-passphrase-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            f"read the term list's passphrase from this file; without it "
+            f"{TERMS_PASSPHRASE_ENV} is read, and failing that you are prompted"
+        ),
+    )
+
+
+def _secret(named: Path | None, env: str, prompt: str, what: str, *, confirm: bool) -> str:
+    """A passphrase from a file, the environment or a prompt, in that order.
+
+    The term list's copy of :func:`_passphrase_source`, with the same three
+    rules: no command-line argument, the variable popped so a Tesseract
+    subprocess does not inherit it, and no terminal with neither set is a usage
+    error rather than a silent skip.
+    """
+    if named is not None:
+        _warn_if_others_can_read(named)
+        try:
+            first = named.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise SystemExit(f"cannot read {named}: {exc.strerror or 'unreadable'}") from exc
+        value = first[0] if first else ""
+        if not value:
+            raise SystemExit(f"{named} is empty; it should hold the passphrase on its first line")
+        return value
+    from_env = os.environ.pop(env, None)
+    if from_env:
+        return from_env
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            f"no passphrase for the {what}: pass a passphrase file, set {env}, or run "
+            "this where a terminal can prompt"
+        )
+    value = getpass.getpass(prompt)
+    if confirm and value != getpass.getpass("Again: "):
+        raise SystemExit("the two passphrases do not match; nothing was written")
+    return value
+
+
+def _terms_passphrase(args: argparse.Namespace, named: Path | None, *, confirm: bool) -> str:
+    value = _secret(
+        named, TERMS_PASSPHRASE_ENV, "Term list passphrase: ", "term list", confirm=confirm
+    )
+    try:
+        check_terms_passphrase(value)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    return value
+
+
+def _open_terms_or_exit(path: Path, passphrase: str) -> TermList:
+    """Open a list for this process. Every failure is configuration, not input."""
+    try:
+        return open_terms(path, passphrase)
+    except (BadPassphrase, MalformedSealed, InputTooLarge, MissingDependency) as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _override(args: argparse.Namespace) -> Override:
+    """``--remove`` values and the ``--terms`` list, parsed before any file is read.
+
+    Through ``parse_override`` so the command line and the pipe agree on what a
+    removal is. The list is unlocked once for the run; a CLI process is its own
+    session, so there is nothing to lock afterwards.
+    """
+    try:
+        override = parse_override(None, list(getattr(args, "remove", []) or []))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    path = getattr(args, "terms", None)
+    if path is None:
+        return override
+    passphrase = _terms_passphrase(args, args.terms_passphrase_file, confirm=False)
+    return with_terms(override, _open_terms_or_exit(path, passphrase))
+
+
 def _map_target(args: argparse.Namespace) -> Path | None:
     """Where the key file goes, refusing the output directory unless told.
 
@@ -470,12 +653,18 @@ def _map_target(args: argparse.Namespace) -> Path | None:
     return target
 
 
-def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
+def _scrubber(
+    args: argparse.Namespace, *, strict: bool, overrides: Override | None = None
+) -> Scrubber:
     spec = getattr(args, "detectors", None)
     countries = _countries(args)
     registry = build_registry(spec, countries=countries) if spec else default_registry(countries)
     return Scrubber(
-        policy=_policy(args), registry=registry, strict=strict, reviewer=_reviewer(args)
+        policy=_policy(args),
+        registry=registry,
+        strict=strict,
+        reviewer=_reviewer(args),
+        overrides=overrides or Override(),
     )
 
 
@@ -486,8 +675,9 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
     # through with scrubbed copies already on disk.
     map_target = _map_target(args)
     passphrase = _passphrase(args, confirm=True) if map_target else ""
+    overrides = _override(args)
     try:
-        scrubber = _scrubber(args, strict=not args.allow_leaks)
+        scrubber = _scrubber(args, strict=not args.allow_leaks, overrides=overrides)
     except (ValueError, MissingDependency) as exc:
         # Unprefixed: this guard covers the detector spec, the country list and
         # the policy, and every one of those messages already names what it is
@@ -640,8 +830,9 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     `ner` extra silently reported reduced coverage. One read-and-detect path,
     used by the preview and the scrub.
     """
+    overrides = _override(args)
     try:
-        scrubber = _scrubber(args, strict=False)
+        scrubber = _scrubber(args, strict=False, overrides=overrides)
     except (ValueError, MissingDependency) as exc:
         print(exc, file=sys.stderr)
         return EXIT_USAGE
@@ -681,9 +872,102 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
             print("  hidden content found:")
             for item in extraction.hidden:
                 print(f"    {item.part:<12} {item.kind:<26} {item.detail}")
+        if inspection.terms is not None:
+            print(
+                f"  term list: {inspection.terms.matched} of {inspection.terms.loaded} "
+                "entries removed something in this document"
+            )
         for message in inspection.warnings:
             print(f"  warning: {message}")
     return status
+
+
+def _cmd_terms(args: argparse.Namespace) -> int:
+    """``freedocs terms ...``: one process, one unlock, nothing left open.
+
+    Every change is saved before the command returns, through the same atomic
+    writer the window's edits use. ``export`` asks first because it is the one
+    way out of the encryption; ``import`` ends by saying the source should be
+    deleted and does not delete it, because that is the person's file.
+    """
+    path: Path = args.file
+    command = args.terms_command
+    try:
+        if command == "create":
+            passphrase = _terms_passphrase(args, args.passphrase_file, confirm=True)
+            create_terms(path, passphrase)
+            print(f"created {path}: an empty term list")
+            return EXIT_OK
+
+        passphrase = _terms_passphrase(args, args.passphrase_file, confirm=False)
+        terms = _open_terms_or_exit(path, passphrase)
+
+        if command == "list":
+            for term in terms.search(args.query):
+                print(f"{term.entity.value}\t{term.value}")
+            return EXIT_OK
+        if command == "add":
+            try:
+                entity = EntityType(args.entity.upper())
+            except ValueError as exc:
+                raise SystemExit(
+                    f"unknown entity type {args.entity!r}; try 'freedocs entities'"
+                ) from exc
+            terms, added = terms.with_added(Term(value=v, entity=entity) for v in args.values)
+            save_terms(path, terms, passphrase)
+            print(f"added {added}, skipped {len(args.values) - added}; {len(terms)} entries")
+            return EXIT_OK
+        if command == "remove":
+            terms, removed = terms.without(args.values)
+            save_terms(path, terms, passphrase)
+            print(f"removed {removed}; {len(terms)} entries")
+            return EXIT_OK
+        if command == "import":
+            incoming = read_import(args.source)
+            terms, added = terms.with_added(incoming)
+            save_terms(path, terms, passphrase)
+            print(f"imported {added}, skipped {len(incoming) - added}; {len(terms)} entries")
+            print(
+                f"warning: {args.source} is not encrypted and still holds every entry; "
+                "delete it now that the term list has them",
+                file=sys.stderr,
+            )
+            return EXIT_OK
+        if command == "export":
+            if not args.yes:
+                if not sys.stdin.isatty():
+                    raise SystemExit(
+                        "an export is unencrypted; pass --yes to confirm when no terminal can ask"
+                    )
+                answer = input(
+                    f"{args.output} will NOT be encrypted: anyone who can read it can "
+                    "read every entry. Write it? [y/N] "
+                )
+                if answer.strip().lower() not in ("y", "yes"):
+                    print("nothing was written")
+                    return EXIT_OK
+            write_export(args.output, terms, refuse=[path])
+            print(f"exported {len(terms)} entries to {args.output} (unencrypted)")
+            return EXIT_OK
+        if command == "rekey":
+            new = _secret(
+                args.new_passphrase_file,
+                TERMS_NEW_PASSPHRASE_ENV,
+                "New passphrase: ",
+                "term list",
+                confirm=True,
+            )
+            rekey_terms(path, passphrase, new)
+            print(f"re-sealed {path} under the new passphrase")
+            return EXIT_OK
+    except (BadPassphrase, MalformedSealed, InputTooLarge, MissingDependency, OutputRefused) as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    except ValueError as exc:
+        # The passphrase floor, raised by `core/sealed.py` without quoting it.
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    raise AssertionError(f"unhandled terms command {command!r}")  # pragma: no cover
 
 
 def _cmd_entities(_: argparse.Namespace) -> int:
@@ -877,6 +1161,7 @@ def _dispatch(argv: list[str] | None) -> int:
         "review-models": _cmd_review_models,
         "doctor": _cmd_doctor,
         "benchmark": _cmd_benchmark,
+        "terms": _cmd_terms,
     }
     return handlers[args.command](args)
 

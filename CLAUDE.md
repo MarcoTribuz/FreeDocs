@@ -38,7 +38,8 @@ the preview a caller can excuse one occurrence or name a value the detectors
 missed, through `core/overrides.py`, and stage 6 verifies the result either way.
 There is also an opt-in reverse path: `scrub --map` writes an encrypted key file
 and `freedocs restore` puts the values back into whatever came back from the
-model. Off by default, because it is the one thing that makes a scrub reversible —
+model. A firm can keep an encrypted term list (`freedocs terms`, `--terms`) of
+values removed on every scrub; see `docs/terms.md`. Off by default, because it is the one thing that makes a scrub reversible —
 see *The reverse path*.
 Anything further is new work, not a remaining milestone.
 
@@ -69,6 +70,8 @@ uv run freedocs inspect FILE           # report findings, write nothing
 uv run freedocs scrub FILE -o out/     # write a scrubbed copy
 uv run freedocs scrub FILE -o out/ --map keys/   # ... plus an encrypted key file
 uv run freedocs restore FILE --map keys/FILE.fdmap -o back/   # put the values back
+uv run freedocs terms create firm.fdterms     # an encrypted term list (FREEDOCS_TERMS_PASSPHRASE)
+uv run freedocs scrub FILE -o out/ --terms firm.fdterms --remove "Acme"   # plus firm-wide removals
 uv run freedocs entities               # list supported entity types
 uv run freedocs countries              # list countries and what each one gets
 uv run freedocs doctor                 # what this machine can actually do
@@ -1458,6 +1461,36 @@ Four decisions, each of which has a failure it prevents:
   checked against the first file's spans and fails as stale — the check working on
   a question nobody asked.
 
+**The term list is the persistent half of `remove`, and there is deliberately
+no persistent half of `keep`.** `core/terms.py` holds a firm's client register
+encrypted (`.fdterms`), and `with_terms` merges it into an `Override` as
+removals marked `detector="terms"` — layer `H` like a person's, because both are
+instructions, but told apart on every finding. A standing "never redact X" would
+be an allowance applied to documents nobody has read, which is the dangerous
+half of this module with the preview taken away; asking for one gets a no.
+
+Three things in it were each a bug first. **An absent term is never an
+unmatched value**: `Override.unmatched` reads only caller-named removals, and the
+report carries `terms: {loaded, matched}`, because a register is mostly absent
+from any document and quoting its misses is the G0 leak made routine.
+**`matched` is read from the findings**, not by searching again — an entry
+counts when it removed something, and the second search was half of a 2.6 s
+inspect at `MAX_TERMS`. **Nested values go longest first** in `_added`: in the
+caller's order `Acme` claimed its characters before `Acme Corp` and left ` Corp`
+in the document, and a list of a thousand names makes that order the alphabet's.
+That last one changed the existing override too, in the direction of removing a
+superset.
+
+Over the pipe the unlocked list is `Session` state, like the model weights,
+because a passphrase asked per document is how passphrases get weak. A locked
+list with `use_terms` is `INVALID_REQUEST` and nothing is scrubbed. A plain
+`forget` does **not** lock it — the window forgets after every batch — only
+`forget {terms: true}` or `terms_lock` does. `terms_update` and `terms_import`
+re-open the file with the passphrase they were given before saving: a save under
+a mistyped one would re-key the register to a passphrase nobody knows and
+succeed. `docs/terms.md` has the protection table, and nothing may claim more
+than it.
+
 **Stage 6 needed an allowance, and it is a count rather than an exemption.**
 Verification is value-based and an override is occurrence-based, so keeping one
 `Zurigo` and removing the next leaves the string in the document and the search
@@ -1810,6 +1843,21 @@ back into whatever came back from the model. `core/mapping.py` owns the file,
 `restore.py` owns five stages of its own — `router -> extract -> match ->
 write-back -> verify`. Off by default, an optional `restore` extra for the cipher,
 and `docs/restore.md` is the long version.
+
+**The envelope lives in `core/sealed.py`, and moving it changed no byte.** The
+term list is sealed exactly as the key file is, and two copies of a cipher recipe
+are two places for a fix to land in one of. `core/mapping.py` and
+`core/terms.py` say only what goes inside; each passes its own error subclass of
+`MalformedSealed`, and each kind refuses the other by name.
+`tests/fixtures/before-sealed.fdmap` was written by the pre-extraction code with
+`secrets.token_bytes` pinned, and `test_sealed.py` both opens it and rewrites it
+byte for byte — a key file somebody kept last month is one they will open next
+year. `cipher_unavailable_reason()` is the one authority for both features;
+`mapping_unavailable_reason()` and `terms_unavailable_reason()` ask it. The term
+list adds two things the key file does not need: `outputs.replace_private`, the
+first atomic writer, because it is the only output that is its own source; and a
+payload padded to 4 KiB, because its header promises no count and AES-GCM's
+ciphertext length would otherwise be one.
 
 **The default did not change and neither did the allocator.**
 `SurrogateAllocator` gains no accessor and `pipeline.py` does not import
