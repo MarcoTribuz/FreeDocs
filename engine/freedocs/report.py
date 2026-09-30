@@ -122,6 +122,11 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
             for item in result.hidden_removed
         ],
         "warnings": list(result.warnings),
+        # A count and never the values. Each one is a string somebody named as
+        # confidential, and it is reported here precisely because it is *not*
+        # in this document - quoting it would put it on disk beside a file it
+        # has nothing to do with. The console and the pipe name them.
+        "requested_values_not_found": len(result.unmatched),
         # Occurrences the detection layer left in place on purpose, so nobody
         # reads a clean verification as "the value is gone from the document".
         # Entity, rule and count and nothing else: this file reaches disk and
@@ -207,7 +212,7 @@ def format_console(result: ScrubResult) -> str:
             f"    {item.part:<12} {item.kind:<26} {item.detail}" for item in result.hidden_removed
         )
 
-    lines.extend(f"  warning: {message}" for message in result.warnings)
+    lines.extend(f"  warning: {message}" for message in result.caller_warnings)
     # Said out loud, and before the verification line. A clean verify now means
     # "nothing survived that was meant to go", which is not the same as "none of
     # these words is in the output" — and the difference is invisible unless the

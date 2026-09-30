@@ -13,6 +13,7 @@ import pytest
 pytest.importorskip("stdnum", reason="python-stdnum is required for the L1 layer")
 
 from freedocs.core.findings import EntityType
+from freedocs.core.overrides import Override, RemovedValue
 from freedocs.core.policy import Action, Policy
 from freedocs.report import build_report
 from freedocs.verify import LeakDetected
@@ -254,6 +255,35 @@ def test_the_report_names_no_sheet_it_renamed(tmp_path: Path):
     assert "[" in renamed[0] or "_" in renamed[0], (
         "the warning must name what the sheet is called now: " + renamed[0]
     )
+
+
+def test_the_report_does_not_quote_a_requested_value_it_did_not_find(tmp_path: Path):
+    """A value somebody asked to remove is a value, found or not.
+
+    The absent ones are the dangerous half. A found value becomes a placeholder
+    and a count; an absent one used to become a sentence quoting it, and that
+    sentence went into ``warnings`` and from there into the report - onto disk,
+    attached to a document it has nothing to do with. One list of client names
+    over a folder of contracts put most of the list into every report.
+
+    Both halves are asserted, because deleting the notice would also pass: the
+    report must still count what was not found, and the caller must still be
+    told which value it was.
+    """
+    absent = "Nordwind Holding"
+    present = "Scheda cliente"
+    path = tmp_path / "scheda.txt"
+    path.write_text(f"{present}: nessun dato\n", encoding="utf-8", newline="")
+
+    override = Override(remove=(RemovedValue(absent), RemovedValue(present)))
+    result = l1_scrubber(overrides=override).scrub_file(path)
+    report = build_report(result)
+
+    assert absent not in repr(report), "the report quotes a value that was not found"
+    assert present not in repr(report)
+    assert report["requested_values_not_found"] == 1
+    assert any(absent in message for message in result.caller_warnings)
+    assert not any(absent in message for message in result.warnings)
 
 
 def test_the_report_does_not_name_an_attachment(tmp_path: Path):

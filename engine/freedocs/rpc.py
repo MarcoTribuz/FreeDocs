@@ -771,7 +771,9 @@ class Session:
             "output": str(destination),
             "removed": len(result.removed),
             "flagged": len(result.reported),
-            "warnings": [*result.warnings, *key_warnings],
+            # The quoting form: this response goes down the local pipe, which
+            # already carries matched text. The `report` below does not quote.
+            "warnings": [*result.caller_warnings, *key_warnings],
             "hidden_removed": [
                 {"part": item.part, "kind": item.kind, "detail": item.detail}
                 for item in result.hidden_removed
