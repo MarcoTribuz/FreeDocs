@@ -6,6 +6,7 @@ from freedocs.core.findings import EntityType, Finding, Layer, Span
 from freedocs.detect.propagate import (
     DETECTOR_SUFFIX,
     MIN_PROPAGATION_LENGTH,
+    Occupied,
     propagate_known_values,
 )
 
@@ -268,3 +269,62 @@ def test_the_longer_template_goes_first_between_two_removable_ones():
     second = text.index("Alpin Treuhand AG")
     out = propagate_known_values(text, [at("Alpin Treuhand", 0), at("Alpin Treuhand AG", second)])
     assert len(out) == 2
+
+
+def test_occupied_answers_what_the_scan_it_replaced_answered():
+    """Three passes asked "does this overlap anything so far" by scanning, which
+    was quadratic on a dense document. The replacement must give the same answer
+    on every input, empty ranges and touching ones included - the scan counted
+    ``(p, p)`` as overlapping a query strictly around ``p``, and a merge of
+    ``[a, b)`` with ``[b, c)`` would have made an empty query at ``b`` overlap."""
+    import random
+
+    rng = random.Random(1)
+    for _ in range(5000):
+        spans: list[tuple[int, int]] = []
+        occupied = Occupied()
+        for _ in range(rng.randint(0, 40)):
+            start = rng.randint(0, 60)
+            end = start + rng.randint(0, 8)
+            if rng.random() < 0.5:
+                expected = any(start < e and s < end for s, e in spans)
+                assert occupied.overlaps(start, end) == expected, (spans, (start, end))
+            else:
+                spans.append((start, end))
+                occupied.add(start, end)
+
+
+def test_a_dense_document_is_not_quadratic(monkeypatch):
+    """One IBAN a line, a thousand lines. `displace_report_only` used to build a
+    range per occurrence per finding - a million here - and at 1 MB of text that
+    was 178 s and 14 GB. Asserted as a count of ranges rather than a time, so a
+    slow machine cannot fail it."""
+    from freedocs.detect.registry import displace_report_only
+
+    line = "IBAN CH93 0076 2011 6238 5295 7\n"
+    text = line * 1000
+    value = "CH93 0076 2011 6238 5295 7"
+    findings = [
+        Finding(
+            span=Span(index * len(line) + 5, index * len(line) + 5 + len(value)),
+            entity=EntityType.IBAN,
+            text=value,
+            layer=Layer.VALIDATOR,
+            detector="iban",
+            confidence=1.0,
+        )
+        for index in range(1000)
+    ]
+    calls = 0
+    import freedocs.detect.registry as registry
+
+    real = registry.value_occurrences
+
+    def counting(text: str, value: str) -> list[tuple[int, int]]:
+        nonlocal calls
+        calls += 1
+        return real(text, value)
+
+    monkeypatch.setattr(registry, "value_occurrences", counting)
+    assert len(displace_report_only(text, findings)) == 1000
+    assert calls == 1
