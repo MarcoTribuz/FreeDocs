@@ -283,6 +283,47 @@ export interface Messages {
 	chooseKeyFile(): string;
 	keyFileFilter(): string;
 
+	// ---- text mode: paste in, scrubbed text out, the reply back ---------------
+	modeText(): string;
+	stepText(): string;
+	textTitle(): string;
+	/** What the mode is, and that nothing is written to disk. */
+	textHint(): string;
+	textLabel(): string;
+	textPlaceholder(): string;
+	textCount(a: { count: number }): string;
+	/** The engine's ceiling, from capabilities. */
+	textTooLong(a: { max: number }): string;
+	textInspect(): string;
+	textReviewTitle(): string;
+	textScrub(): string;
+	textKeepTitle(): string;
+	textKeepNone(): string;
+	textKeepNoneHint(): string;
+	textKeepMemory(): string;
+	textKeepMemoryHint(): string;
+	/** The one mapping the engine keeps past the request that made it. */
+	textKeepMemoryWarning(): string;
+	textKeepFile(): string;
+	textKeepFileHint(): string;
+	textKeyNeedsDirectory(): string;
+	textResultTitle(): string;
+	textScrubbedTitle(): string;
+	textNew(): string;
+	textCopy(): string;
+	textCopied(): string;
+	/** Said aloud: a failed copy pastes the previous clipboard into a model. */
+	textCopyFailed(): string;
+	textHeld(): string;
+	textNotKept(): string;
+	textNothingProduced(): string;
+	textReplyTitle(): string;
+	textReplyLabel(): string;
+	textReplyPlaceholder(): string;
+	textRestore(): string;
+	textRestoredTitle(): string;
+	announceTextScrubbed(a: { count: number }): string;
+
 	// ---- the term list: the persistent half of "also remove" -----------------
 	termsTitle(): string;
 	/** What the list is, said where it is opened. */

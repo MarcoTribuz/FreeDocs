@@ -1892,6 +1892,14 @@ not the bound — `json.loads` of a 5 MB line is 0.01 s — detection was, and
 measuring it is what found the quadratic overlap scans (1 MB of one-IBAN-a-line
 text was 178 s and 14 GB before `detect/propagate.Occupied`).
 
+**In the window, text mode borrows the review screen rather than copying it.**
+The paste is `session.files = ['pasted.txt']`, so `ReviewStep`, `DocumentText`
+and every decision control are the scrub's own, and `loadInspection` is the one
+place that branches. The scrub mode's files are stashed on the way in and put
+back on the way out. Reachability moved to `lib/steps.ts` so it is tested, and a
+kept span is built by `keptSpanFor` from the engine's offsets, because pasted
+text is where an emoji before a value is most likely.
+
 **Restore's verification asks two questions, and the second is the load-bearing
 one.** Placeholder gone *and* value present. `PdfTextHandler.write_back` stamps a
 redaction annotation rather than splicing, and PyMuPDF silently drops a

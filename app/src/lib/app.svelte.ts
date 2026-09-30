@@ -16,6 +16,8 @@ import {
 	type ScrubResult,
 	type TesseractRefusal,
 	type Term,
+	type TextRestoreResult,
+	type TextScrubResult,
 	MISSING_DEPENDENCY,
 	NEEDS_OCR,
 	UNSUPPORTED_FORMAT,
@@ -38,12 +40,17 @@ import {
 	termsLock,
 	termsRekey,
 	termsUnlock,
-	termsUpdate
+	termsUpdate,
+	forgetTextMaps,
+	inspectText,
+	restoreText,
+	scrubText
 } from './engine';
 import { announce } from './announce.svelte';
 import { basename } from './format';
 import { i18n } from './i18n/index.svelte';
 import { resetReview } from './review.svelte';
+import { keptSpanFor, type Mode, type Step } from './steps';
 
 /**
  * The window's session: what the engine said, what the user picked, and the
@@ -60,24 +67,14 @@ import { resetReview } from './review.svelte';
  * at import time. Fields of a reactive object stay live, and they stay
  * bindable, which is what `bind:value={session.reviewHost}` needs.
  */
-export type Step = 'file' | 'review' | 'result';
+export { ORDER, type Mode, type Step } from './steps';
 
 /**
- * Which direction the window is working in.
- *
- * A mode rather than a fourth step. A document comes back from a model days after
- * the scrub that produced it, so restoring is not the continuation of a wizard
- * state — there is nothing in the session to continue from. Each mode owns its own
- * step order, which keeps the rule above intact: reachability stays derived, and a
- * step that means nothing in this mode is simply not in its order.
+ * What a paste goes by in the window: the engine's own name for it, used as the
+ * one "file" of text mode so the review screen needs no second code path.
+ * Every inspection, kept span and added value for the paste is keyed on it.
  */
-export type Mode = 'scrub' | 'restore';
-
-/** The steps each mode has, in the order the rail shows them. */
-export const ORDER: Record<Mode, Step[]> = {
-	scrub: ['file', 'review', 'result'],
-	restore: ['file', 'result']
-};
+export const PASTED = 'pasted.txt';
 
 export const session = $state({
 	mode: 'scrub' as Mode,
@@ -237,6 +234,22 @@ export const session = $state({
 	termsImported: null as { source: string; added: number; skipped: number } | null,
 	/** Export is two clicks on purpose: the first says what it costs. */
 	termsExportArmed: false,
+	/**
+	 * Text mode. The paste, what became of it, and the reply.
+	 *
+	 * None of it touches `localStorage`, and all of it goes on "New text", a mode
+	 * change and the end of the session. `textKeep` is chosen per text and not
+	 * remembered: a remembered "keep" is a default nobody chose, and the engine's
+	 * own default is irreversible.
+	 */
+	pastedText: '',
+	textKeep: 'none' as 'none' | 'memory' | 'file',
+	textResult: null as TextScrubResult | null,
+	replyText: '',
+	/** Only to open a key file this text was sealed into; cleared after each try. */
+	textRestorePassphrase: '',
+	textRestored: null as TextRestoreResult | null,
+
 	/** Where the last export went, with the engine's warning beside it. */
 	termsExported: null as { output: string; warning: string } | null,
 	/**
@@ -649,6 +662,10 @@ export function forgetModels(): void {
 }
 
 export function addFiles(paths: string[]): void {
+	// Text mode borrows `files` for its one paste; a file dropped on the window
+	// there would join a list that is not a batch. Ignored rather than switching
+	// mode under the person's hands.
+	if (session.mode === 'text') return;
 	session.files = [...new Set([...session.files, ...paths])];
 	// Reviewing is the default, not a gate: the user lands on the preview and can
 	// scrub straight from it. Nobody is made to read anything.
@@ -707,6 +724,11 @@ export function goTo(step: Step): void {
  */
 export function setMode(mode: Mode): void {
 	if (session.mode === mode) return;
+	if (session.mode === 'text') {
+		endText();
+		unstashFiles();
+	}
+	if (mode === 'text') stashFiles();
 	session.mode = mode;
 	session.step = 'file';
 	session.problem = null;
@@ -716,10 +738,55 @@ export function setMode(mode: Mode): void {
 	// The two directions do not share a secret. Leaving one mode's passphrase in
 	// memory while the other is on screen is a secret nobody decided to keep.
 	forgetSecrets();
-	// Including the term list's, which the restore direction never uses. Locked
-	// rather than merely forgotten here: an unlocked list with no passphrase in
-	// the window is a list that can be read and not saved.
-	void lockTerms();
+	// Restoring uses no term list, so the list is locked on the way in rather
+	// than merely forgotten: an unlocked list with no passphrase in the window is
+	// a list that can be read and not saved. Text mode uses it, so it stays.
+	if (mode === 'restore') void lockTerms();
+}
+
+/**
+ * The scrub mode's documents, set aside while text mode borrows the review
+ * screen. Borrowing is what lets the paste reuse `ReviewStep` unchanged - it
+ * reads `files`, `activePath` and `inspections` - and setting aside rather than
+ * clearing is what keeps a batch the person loaded from vanishing because they
+ * pasted a paragraph in between. Module state, not `session`: nothing renders it.
+ */
+type Stash = Pick<
+	typeof session,
+	'files' | 'inspections' | 'keptSpans' | 'extraValues' | 'pending' | 'activePath' | 'results'
+>;
+let stashed: Stash | null = null;
+
+function clearReview(): void {
+	session.files = [];
+	session.inspections = {};
+	session.keptSpans = {};
+	session.extraValues = {};
+	session.pending = {};
+	session.results = [];
+	select(null);
+}
+
+function stashFiles(): void {
+	stashed = {
+		files: session.files,
+		inspections: session.inspections,
+		keptSpans: session.keptSpans,
+		extraValues: session.extraValues,
+		pending: session.pending,
+		activePath: session.activePath,
+		results: session.results
+	};
+	clearReview();
+}
+
+function unstashFiles(): void {
+	clearReview();
+	if (!stashed) return;
+	const { activePath, ...rest } = stashed;
+	Object.assign(session, rest);
+	select(activePath);
+	stashed = null;
 }
 
 /**
@@ -871,7 +938,7 @@ export async function loadInspection(path: string): Promise<void> {
 	session.busy = path;
 	session.problem = null;
 	try {
-		const inspection = await inspect(path, {
+		const options = {
 			keep: [...session.kept],
 			keepSpans: session.keptSpans[path] ?? [],
 			remove: session.extraValues[path] ?? [],
@@ -882,7 +949,12 @@ export async function loadInspection(path: string): Promise<void> {
 			// detected, which is more than the findings alone.
 			includeText: true,
 			useTerms: termsInUse()
-		});
+		};
+		// A paste is the one "file" of text mode, and it has no path on disk.
+		const inspection =
+			session.mode === 'text' && path === PASTED
+				? await inspectText(session.pastedText, options)
+				: await inspect(path, options);
 		session.inspections[path] = inspection;
 		// Nothing here moves focus, so without this the result of a decision is
 		// silent: the table simply has a different number of rows.
@@ -919,7 +991,7 @@ export function toggleSpan(path: string, finding: Finding): void {
 		...session.keptSpans,
 		[path]: already
 			? current.filter((span) => !(span.start === finding.start && span.end === finding.end))
-			: [...current, { start: finding.start, end: finding.end, text: finding.text, path }]
+			: [...current, keptSpanFor(path, finding)]
 	};
 	void loadInspection(path);
 }
@@ -985,6 +1057,7 @@ export function toggleCountry(code: string): void {
 }
 
 export async function runScrub(): Promise<void> {
+	if (session.mode === 'text') return runScrubText();
 	const target = await open({
 		directory: true,
 		multiple: false,
@@ -1368,4 +1441,158 @@ export async function rekeyTerms(): Promise<void> {
 	} finally {
 		session.termsBusy = false;
 	}
+}
+
+// ---- pasted text ------------------------------------------------------------
+
+/** How long the paste is as the engine counts it: code points, not UTF-16 units. */
+export function pastedLength(): number {
+	let count = 0;
+	for (const _ of session.pastedText) count++;
+	return count;
+}
+
+/** Past the engine's ceiling, read from capabilities. The engine refuses anyway. */
+export function pasteTooLong(): boolean {
+	const max = session.caps?.text_max_characters;
+	return max !== undefined && pastedLength() > max;
+}
+
+/** Read the paste, and land on the review screen with it as the one "file". */
+export async function inspectPaste(): Promise<void> {
+	if (!session.pastedText.trim() || pasteTooLong()) return;
+	// A new reading is a new text: what was decided about the old one's offsets
+	// does not describe this one, and a result for it is a result for other words.
+	releaseHandle();
+	session.keptSpans = {};
+	session.extraValues = {};
+	session.textResult = null;
+	session.textRestored = null;
+	session.files = [PASTED];
+	select(PASTED);
+	session.step = 'review';
+	await loadInspection(PASTED);
+}
+
+/** What stops the text scrub: only a key file needs more than the paste. */
+export function textKeepBlocker(): 'directory' | 'passphrase' | 'mismatch' | null {
+	if (session.textKeep !== 'file') return null;
+	return keyFileBlocker();
+}
+
+/** Choose where the mapping goes. The key-file fields are the scrub's own. */
+export function setTextKeep(choice: 'none' | 'memory' | 'file'): void {
+	session.textKeep = choice;
+	session.keyWanted = choice === 'file';
+}
+
+async function runScrubText(): Promise<void> {
+	if (textKeepBlocker()) return;
+	session.busy = 'scrub';
+	session.problem = null;
+	// Whatever this text held before is replaced, so it is released first.
+	releaseHandle();
+	session.textResult = null;
+	session.textRestored = null;
+	try {
+		const result = await scrubText(session.pastedText, {
+			keep: [...session.kept],
+			keepSpans: session.keptSpans[PASTED] ?? [],
+			remove: session.extraValues[PASTED] ?? [],
+			minConfidence: session.minConfidence,
+			countries: activeCountries(),
+			placeholderLanguage: session.placeholderLanguage,
+			review: session.reviewModel || null,
+			reviewHost: session.reviewHost,
+			useTerms: termsInUse(),
+			keepMap: session.textKeep === 'memory',
+			map: session.textKeep === 'file' ? session.keyDir : null,
+			mapPassphrase: session.textKeep === 'file' ? session.keyPassphrase : null
+		});
+		session.textResult = result;
+		session.step = 'result';
+		announce(
+			result.ok
+				? i18n.m.announceTextScrubbed({ count: result.removed ?? 0 })
+				: i18n.m.textNothingProduced(),
+			{ assertive: !result.ok }
+		);
+	} catch (error) {
+		fail(describe(error), codeOf(error));
+	} finally {
+		session.busy = null;
+		session.stage = null;
+		forgetSecrets();
+	}
+}
+
+/** Whether the reply can be restored, and from what. */
+export function textRestoreSource(): 'handle' | 'file' | null {
+	if (session.textResult?.handle) return 'handle';
+	if (session.textResult?.key_file) return 'file';
+	return null;
+}
+
+/**
+ * Put the values back into the pasted reply.
+ *
+ * `ok: false` is not a failure of this call: the restored text is shown either
+ * way with every placeholder that did not come back, as the file restore does.
+ */
+export async function runRestoreText(): Promise<void> {
+	const source = textRestoreSource();
+	const result = session.textResult;
+	if (!source || !result || !session.replyText.trim()) return;
+	if (source === 'file' && !session.textRestorePassphrase) return;
+	session.busy = 'restore';
+	session.problem = null;
+	session.textRestored = null;
+	try {
+		const restored = await restoreText(
+			session.replyText,
+			source === 'handle'
+				? { handle: result.handle as string }
+				: { map: result.key_file as string, passphrase: session.textRestorePassphrase }
+		);
+		session.textRestored = restored;
+		announce(
+			restored.ok
+				? i18n.m.announceRestored({
+						count: restored.restored.reduce((sum, entry) => sum + entry.occurrences, 0)
+					})
+				: i18n.m.announceRestoredWithProblems({ count: restored.problems.length }),
+			{ assertive: !restored.ok }
+		);
+	} catch (error) {
+		fail(describe(error), codeOf(error));
+	} finally {
+		session.busy = null;
+		session.stage = null;
+		session.textRestorePassphrase = '';
+	}
+}
+
+/** Tell the engine to drop this text's mapping. Fire and forget. */
+function releaseHandle(): void {
+	const handle = session.textResult?.handle;
+	if (handle) forgetTextMaps([handle]);
+}
+
+/** Everything text mode held, gone: in the engine and in the window. */
+function endText(): void {
+	releaseHandle();
+	session.pastedText = '';
+	session.replyText = '';
+	session.textResult = null;
+	session.textRestored = null;
+	session.textRestorePassphrase = '';
+	session.textKeep = 'none';
+	session.keyWanted = false;
+}
+
+/** "New text": start over on an empty paste, in the same mode. */
+export function newText(): void {
+	endText();
+	clearReview();
+	session.step = 'file';
 }

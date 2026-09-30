@@ -381,3 +381,39 @@ still shows it unlocked, and the next preview fails with the engine's
 "the term list is locked" rather than the window noticing first; Lock and unlock
 again.
 
+## Pasted text, as a third mode
+
+Paste text → review it → scrubbed text to copy → paste the reply → values back.
+A mode, `'text'`, with the scrub's three steps. Only the first screen is new
+(`TextStep.svelte`, a text area); the review screen is `ReviewStep.svelte`
+unchanged, because the paste is its one "file" under the engine's own name
+`pasted.txt` and `loadInspection` asks `inspect_text` instead of `inspect`.
+Kept spans are built from the engine's offsets by `keptSpanFor` in `steps.ts`,
+which is tested with an emoji in front of the value — pasted text is where emoji
+are.
+
+**The scrub mode's files are set aside, not cleared.** Borrowing `files`,
+`inspections` and the decisions is what lets the review screen be reused, and
+putting them back on the way out is what keeps a loaded batch from vanishing
+because somebody pasted a paragraph in between. A file dropped on the window in
+text mode is ignored.
+
+**Where the mapping goes is chosen per text, beside the preview**, in place of
+the key-file card: nothing (the default), kept until FreeDocs closes (the engine
+holds it under a handle), or a key file. Not remembered, because a remembered
+"keep" is a default nobody chose. The handle is released on New text, on a new
+inspection of the paste, on a mode change and when the sidecar ends. The result
+step shows the scrubbed text read-only with Copy — a failed copy is announced,
+because it pastes the previous clipboard into a model — and, when there is a way
+back, a text area for the reply. A key file asks its passphrase again at restore
+time and drops it afterwards; a failed scrub shows no text at all.
+
+**Steps are pure now.** `ORDER` and the reachability rule moved to `steps.ts` so
+`vitest` covers them; `+page.svelte` and the rail read from there. The term list
+stays unlocked across scrub and text mode and is locked on entering restore mode,
+which uses none.
+
+Stated gaps: a reply to a text sealed into a key file on another day is restored
+in restore mode from a saved file, not pasted; the window close does not send a
+`forget`, because the sidecar ends with the window.
+

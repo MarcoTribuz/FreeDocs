@@ -100,6 +100,8 @@ export interface Capabilities {
 	terms_max_entries: number;
 	term_min_characters: number;
 	term_max_characters: number;
+	/** The longest paste the engine accepts, in code points. Asked, never restated. */
+	text_max_characters: number;
 }
 
 export interface Concern {
@@ -272,6 +274,25 @@ export interface ScrubResult {
 	error?: { code: number; message: string; data?: unknown };
 }
 
+/**
+ * What `scrub_text` answers. `text` is absent on a failure - a leak above all -
+ * because a nearly-clean paste gets sent exactly as a nearly-clean file does.
+ */
+export interface TextScrubResult {
+	path: string;
+	ok: boolean;
+	text?: string;
+	removed?: number;
+	flagged?: number;
+	warnings?: string[];
+	review?: Review | null;
+	/** The engine's name for the held mapping, or null when none was kept. */
+	handle?: string | null;
+	key_file?: string | null;
+	report?: Report;
+	error?: { code: number; message: string; data?: unknown };
+}
+
 /** One placeholder that was found in the returned document and replaced. */
 export interface Restored {
 	placeholder: string;
@@ -320,6 +341,9 @@ export interface RestoreResult {
 	problems: { placeholder: string; entity: string; kind: string }[];
 	report?: Record<string, unknown>;
 }
+
+/** What `restore_text` answers: a restore without a file, carrying the text. */
+export type TextRestoreResult = Omit<RestoreResult, 'output' | 'format'> & { text: string };
 
 export interface EntityInfo {
 	name: string;
@@ -541,6 +565,15 @@ export function forget(paths?: string[]): void {
 	void request<{ released: number }>('forget', paths ? { paths } : {}).catch(() => {});
 }
 
+/**
+ * Release held text mappings, named or all. Only these: the file cache and the
+ * term list are left alone, because dropping a paste is not dropping the
+ * documents on another screen. Fire and forget, like `forget`.
+ */
+export function forgetTextMaps(handles: string[] | 'all'): void {
+	void request('forget', { text_maps: handles }).catch(() => {});
+}
+
 /** Which of `locate`'s three routes named the engine executable. */
 export type EngineSource = 'override' | 'bundled' | 'checkout';
 
@@ -660,6 +693,38 @@ export function scrub(
 		'scrub',
 		toParams({ paths, output_dir: outputDir }, options)
 	);
+}
+
+/**
+ * `inspect` over pasted text. The text is always returned: the caller sent it.
+ * `includeText` is therefore ignored.
+ */
+export function inspectText(text: string, options: ScrubOptions = {}): Promise<Inspection> {
+	return request<Inspection>('inspect_text', toParams({ text }, options));
+}
+
+/**
+ * Scrub pasted text. Nothing reaches disk unless a key file was asked for.
+ *
+ * `keepMap` asks the engine to hold the mapping under a handle until it is
+ * forgotten, so a reply can be restored without a passphrase. Off unless the
+ * person chose it, per text: the default is irreversible like every scrub.
+ */
+export function scrubText(
+	text: string,
+	options: ScrubOptions & { keepMap?: boolean } = {}
+): Promise<TextScrubResult> {
+	const params = toParams({ text }, options);
+	if (options.keepMap) params.keep_map = true;
+	return request<TextScrubResult>('scrub_text', params);
+}
+
+/** Put the values back into a pasted reply, from a held handle or a key file. */
+export function restoreText(
+	text: string,
+	from: { handle: string } | { map: string; passphrase: string }
+): Promise<TextRestoreResult> {
+	return request<TextRestoreResult>('restore_text', { text, ...from });
 }
 
 /**

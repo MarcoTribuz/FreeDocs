@@ -395,9 +395,9 @@ and the passphrase the window holds.
 
 ## G2: text mode
 
-**Status: engine and CLI implemented** on `feature/text-mode`; the window is the
-second branch. What changed from the design below, each for a reason found while
-building it:
+**Status: implemented.** Engine and CLI on `feature/text-mode`, the window on
+`feature/text-mode-window`. What changed from the design below, each for a reason
+found while building it:
 
 - Measuring `MAX_TEXT_CHARS` found three quadratic overlap scans in detection
   (1 MB of dense text: 178 s and 14 GB). Fixed first, on its own branch
@@ -411,6 +411,13 @@ building it:
   a separate call writing a held map later; `pasted.fdmap` inside a directory.
 - A leak holds nothing, as well as returning no text.
 - `Restorer.restore` announces `router` only for a path, like `Scrubber.read`.
+- Window: the mapping choice sits beside the preview, in place of the key-file
+  card, rather than on the result step: the scrub is the request that decides.
+- Window: the scrub mode's files are stashed while text mode borrows the review
+  screen, and put back afterwards. The term list is now locked only on entering
+  restore mode, since text mode uses it.
+- Window: a key-file text restores its reply on the result step with the
+  passphrase asked again; a reply on another day goes through restore mode.
 
 This is the loop Cedreon closes and FreeDocs leaves to the user, and it can be
 closed without a network call:

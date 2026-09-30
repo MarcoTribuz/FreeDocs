@@ -112,7 +112,10 @@ describe('the catalogues', () => {
 		termsRemoved: { count: 1 },
 		termsImportedAnnounce: { count: 38 },
 		termsExportedAnnounce: { count: 40 },
-		termsMatched: { matched: 3, loaded: 50 }
+		termsMatched: { matched: 3, loaded: 50 },
+		textCount: { count: 1204 },
+		textTooLong: { max: 2000000 },
+		announceTextScrubbed: { count: 3 }
 	};
 
 	for (const [name, catalogue] of catalogues) {
@@ -138,7 +141,9 @@ describe('the catalogues', () => {
 				announceRestoredWithProblems: catalogue.announceRestoredWithProblems({ count: 1 }),
 				termsCount: catalogue.termsCount({ count: 1 }),
 				termsImportedTitle: catalogue.termsImportedTitle({ added: 1, skipped: 1 }),
-				termsMatched: catalogue.termsMatched({ matched: 1, loaded: 1 })
+				termsMatched: catalogue.termsMatched({ matched: 1, loaded: 1 }),
+				textCount: catalogue.textCount({ count: 1 }),
+				announceTextScrubbed: catalogue.announceTextScrubbed({ count: 1 })
 			};
 			for (const [key, produced] of Object.entries(ones)) {
 				expect(produced, `${name}.${key}`).toBeTruthy();

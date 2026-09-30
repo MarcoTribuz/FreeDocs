@@ -39,7 +39,7 @@
 					{ id: 'result', label: m.stepResult(), locked: m.stepResultLocked() }
 				]
 			: [
-					{ id: 'file', label: m.stepFile() },
+					{ id: 'file', label: session.mode === 'text' ? m.stepText() : m.stepFile() },
 					{ id: 'review', label: m.stepReview(), locked: m.stepReviewLocked() },
 					{ id: 'result', label: m.stepResult(), locked: m.stepResultLocked() }
 				]
@@ -47,6 +47,7 @@
 
 	const modes: { id: Mode; label: string }[] = $derived([
 		{ id: 'scrub', label: m.modeScrub() },
+		{ id: 'text', label: m.modeText() },
 		{ id: 'restore', label: m.modeRestore() }
 	]);
 </script>

@@ -2,6 +2,7 @@
 	import {
 		addValue,
 		clearSpans,
+		textKeepBlocker,
 		runScrub,
 		session,
 		summary,
@@ -22,6 +23,7 @@
 	import AdvancedPanel from './AdvancedPanel.svelte';
 	import KeyFilePanel from './KeyFilePanel.svelte';
 	import TermListPanel from './TermListPanel.svelte';
+	import TextKeepPanel from './TextKeepPanel.svelte';
 	import DocumentText from './DocumentText.svelte';
 	import FindingDetail from './FindingDetail.svelte';
 	import FindingsTable from './FindingsTable.svelte';
@@ -49,7 +51,11 @@
 		     page load, and without it a step change is silent and leaves focus
 		     wherever the last click was. -->
 		<h2 bind:this={heading} tabindex="-1">
-			{path ? m.reviewOf({ file: basename(path) }) : m.stepReview()}
+			{session.mode === 'text'
+				? m.textReviewTitle()
+				: path
+					? m.reviewOf({ file: basename(path) })
+					: m.stepReview()}
 		</h2>
 		{#if inspection}
 			<p class="counts">
@@ -71,9 +77,15 @@
 			variant="primary"
 			onclick={runScrub}
 			loading={session.busy === 'scrub'}
-			disabled={session.busy !== null || totalFindings() === 0}
+			disabled={session.busy !== null ||
+				totalFindings() === 0 ||
+				(session.mode === 'text' && textKeepBlocker() !== null)}
 		>
-			{session.busy === 'scrub' ? m.scrubbing() : m.scrub({ files: session.files.length })}
+			{session.busy === 'scrub'
+				? m.scrubbing()
+				: session.mode === 'text'
+					? m.textScrub()
+					: m.scrub({ files: session.files.length })}
 		</Button>
 	</div>
 </div>
@@ -186,7 +198,12 @@
 			<!-- The reverse path, decided before the run: the engine writes the key
 			     file inside the scrub request, which is what keeps the mapping from
 			     ever crossing the pipe into this window. -->
-			<KeyFilePanel />
+			{#if session.mode === 'text'}
+				<!-- A paste's mapping goes one of three ways, chosen here per text. -->
+				<TextKeepPanel />
+			{:else}
+				<KeyFilePanel />
+			{/if}
 
 			<!-- Here as well as on the file step: this is where its effect shows. -->
 			<TermListPanel />
