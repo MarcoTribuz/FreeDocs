@@ -16,6 +16,7 @@ measurement that disagrees with itself after the next benchmark run.
 | [desktop-app.md](desktop-app.md) | The Tauri window: how it is built, what it shows, and what it deliberately refuses to decide |
 | [gitflow.md](gitflow.md) | The branching model, the one version authority, and what the two git hooks can and cannot enforce |
 | [packaging.md](packaging.md) | Building the sidecar and the installers, and the honest multi-platform status |
+| [building.md](building.md) | Building and launching on Windows, Linux and Intel macOS by hand, and recording what worked |
 | [portable.md](portable.md) | The unzip-and-run bundle: why it needs no writable state, and what does not travel with it |
 | [restore.md](restore.md) | The reverse path: the opt-in encrypted key file, and putting the values back into what the model returned |
 | [terms.md](terms.md) | The encrypted term list: values removed on every scrub, what the encryption protects and what it does not |
