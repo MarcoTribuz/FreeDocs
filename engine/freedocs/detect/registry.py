@@ -23,7 +23,7 @@ from ..core.findings import Finding, Layer
 from ..core.policy import REPORT_ONLY
 from .addresses import fill_address_gaps
 from .organisations import fill_organisation_gaps
-from .propagate import propagate_known_values, value_occurrences
+from .propagate import Occupied, propagate_known_values, value_occurrences
 from .suppress import Suppression, drop_jurisdiction_mentions, drop_non_identifying
 from .validators import CHECKSUM_VERIFIABLE, COUNTRY_ISSUED, confirms
 
@@ -86,15 +86,18 @@ def resolve_overlaps(findings: Iterable[Finding]) -> list[Finding]:
     """Drop the weaker of every overlapping pair, keeping the result stable.
 
     Greedy by design: findings are considered strongest-first, and a finding is
-    kept only if it touches nothing already kept. With a handful of layers over
-    document-sized text this is fast enough to be uninteresting, and it is much
-    easier to reason about than an interval tree.
+    kept only if it touches nothing already kept. "Touches" is asked of an
+    :class:`~freedocs.detect.propagate.Occupied` rather than by scanning every
+    kept finding: the scan was quadratic, and a dense document - a pasted
+    statement with an IBAN on every line - made it most of an inspect.
     """
     kept: list[Finding] = []
+    occupied = Occupied()
     for finding in sorted(findings, key=_sort_key):
-        if any(finding.span.overlaps(other.span) for other in kept):
+        if occupied.overlaps(finding.span.start, finding.span.end):
             continue
         kept.append(finding)
+        occupied.add(finding.span.start, finding.span.end)
     return sorted(kept, key=lambda f: f.span.start)
 
 
@@ -222,16 +225,18 @@ def displace_report_only(text: str, findings: Iterable[Finding]) -> list[Finding
     nothing is untouched, which is the category doing its job.
     """
     findings = list(findings)
-    claimed: list[tuple[int, int]] = []
-    for finding in findings:
-        if finding.entity not in REPORT_ONLY:
-            claimed.extend(value_occurrences(text, finding.text))
+    # Once per distinct value, not once per finding: a value found a thousand
+    # times has a thousand occurrences, and asking for them a thousand times was
+    # a million ranges. See `Occupied` for the measurement.
+    claimed = Occupied()
+    for value in {f.text for f in findings if f.entity not in REPORT_ONLY}:
+        for start, end in value_occurrences(text, value):
+            claimed.add(start, end)
     return [
         finding
         for finding in findings
         if not (
-            finding.entity in REPORT_ONLY
-            and any(finding.span.start < end and start < finding.span.end for start, end in claimed)
+            finding.entity in REPORT_ONLY and claimed.overlaps(finding.span.start, finding.span.end)
         )
     ]
 

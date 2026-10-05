@@ -32,22 +32,51 @@ Three things this module refuses to do:
   import happens inside the two functions that need it and
   :func:`mapping_unavailable_reason` is the single authority on whether they can
   run — the lesson ``ocr_unavailable_reason()`` was written after.
+
+The envelope itself - scrypt, AES-256-GCM, the header bound as associated data,
+the work-factor band - lives in ``core/sealed.py``, because the term list is
+sealed the same way and two copies of a cipher recipe are two places for a fix
+to land in one of. What is left here is what a key file *says*.
 """
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
-import secrets
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .errors import MissingDependency
+from . import sealed
 from .findings import EntityType
 from .limits import MAX_MAP_BYTES
 from .outputs import private_directory, write_private
+
+# Re-exported: these were this module's names before the envelope moved, and
+# the CLI, the pipe and the tests still ask for them here.
+from .sealed import MIN_PASSPHRASE, BadPassphrase
+from .sealed import aad as _aad
+from .sealed import derive as _derive
+
+__all__ = [
+    "MAP_SUFFIX",
+    "MAP_VERSION",
+    "MAX_MAP_BYTES",
+    "MIN_PASSPHRASE",
+    "BadPassphrase",
+    "KeyMap",
+    "MalformedMap",
+    "MapEntry",
+    "_aad",
+    "_derive",
+    "check_passphrase",
+    "key_map_from",
+    "map_path_for",
+    "mapping_unavailable_reason",
+    "read_key_map",
+    "refuse_inside",
+    "write_key_map",
+]
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle: pipeline imports core, not vice versa
     from ..pipeline import ScrubResult
@@ -61,62 +90,8 @@ MAP_VERSION = 1
 #: glance in a directory listing and easy to put in a ``.gitignore``.
 MAP_SUFFIX = ".fdmap"
 
-#: Refused below this. The file's entire content is confidential, so a passphrase
-#: that a wordlist reaches in seconds is not a passphrase. Hard failure rather
-#: than a warning: a warning printed during a successful command is a warning
-#: nobody reads.
-MIN_PASSPHRASE = 8
 
-#: scrypt cost. n=2**15 is roughly 100 ms and 32 MB on a laptop, which is the
-#: right order for a key a human types once per document and wrong for anything
-#: an attacker wants to try a billion of.
-SCRYPT_N = 32768
-SCRYPT_R = 8
-SCRYPT_P = 1
-SCRYPT_MAXMEM = 128 * SCRYPT_N * SCRYPT_R * 2
-
-#: The band a *file's own* KDF parameters must fall in, since a reader derives
-#: the key from what the file declares rather than from the constants above.
-#:
-#: ``SCRYPT_MAXMEM`` already bounded two of the three by accident: scrypt's cost
-#: is n*r*p and only n and r touch memory, so a raised n or r fails inside
-#: ``hashlib.scrypt`` and becomes a clean :class:`MalformedMap`. Nothing bounded
-#: p at all, and a key file declaring ``p = 2**24`` grinds for hours - inside a
-#: single-threaded engine with no cancel, which is the whole session, while the
-#: caller sees a timeout and the process keeps burning a core. A key file is a
-#: thing people send each other, so this is reachable exactly as the feature
-#: intends to be used.
-#:
-#: Read as a time budget, not a taste in parameters. The per-field ceilings are
-#: generous enough that a future version could raise the defaults and a file
-#: written by one would still open; the product is what actually bounds the wait,
-#: and is deliberately checked separately so an absurd single value is named as
-#: itself.
-MAX_SCRYPT_N = 1 << 20
-MAX_SCRYPT_R = 64
-MAX_SCRYPT_P = 16
-MAX_SCRYPT_WORK = 16 * SCRYPT_N * SCRYPT_R * SCRYPT_P
-
-
-SALT_BYTES = 16
-#: AES-GCM's standard nonce length. Random per file, never reused: the key is
-#: derived per file from a fresh salt, so even an identical passphrase and
-#: identical contents produce a different ciphertext.
-NONCE_BYTES = 12
-KEY_BYTES = 32
-
-
-class BadPassphrase(ValueError):
-    """The passphrase does not open this file, or the file was altered.
-
-    One error for both, deliberately. AES-GCM cannot tell a wrong key from
-    tampered bytes and neither can a caller do anything different about them, so
-    inventing two messages would be inventing a distinction. The message names
-    neither the passphrase nor anything inside the file.
-    """
-
-
-class MalformedMap(ValueError):
+class MalformedMap(sealed.MalformedSealed):
     """The file is not a key file, or not one this build can read."""
 
 
@@ -191,38 +166,12 @@ class KeyMap:
 def mapping_unavailable_reason() -> str | None:
     """Why this build cannot read or write a key file, or None when it can.
 
-    The single authority, and the reason there is one: ``capabilities`` publishes
-    it, ``doctor`` renders it and both write and read raise from it, so the
-    capability and the refusal cannot disagree. ``capabilities.ocr_available``
-    once checked one half of a two-part requirement and made the window promise
-    an OCR the first scan could not deliver; this is that bug's shape, prevented
-    the same way.
-
-    Uses ``find_spec`` rather than an import: this is called from
-    ``capabilities``, on every session start, and importing a Rust extension to
-    answer a question about its presence is work for nothing.
+    Asked of ``sealed.cipher_unavailable_reason`` rather than answered here: the
+    term list needs the same cipher, and two checks for one extra is the shape
+    ``capabilities.ocr_available`` once had when it checked one half of a
+    two-part requirement.
     """
-    import importlib.util
-
-    try:
-        found = importlib.util.find_spec("cryptography") is not None
-    except (ImportError, ValueError):
-        found = False
-    if found:
-        return None
-    return (
-        "cryptography is not installed, so a key file can be neither written nor "
-        "read; a scrub without one is unaffected and stays irreversible"
-    )
-
-
-def _require_cryptography() -> Any:
-    reason = mapping_unavailable_reason()
-    if reason is not None:
-        raise MissingDependency(reason)
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
-    return AESGCM
+    return sealed.cipher_unavailable_reason()
 
 
 def key_map_from(result: ScrubResult, *, placeholder_language: str) -> KeyMap:
@@ -293,82 +242,14 @@ def key_map_from(result: ScrubResult, *, placeholder_language: str) -> KeyMap:
 
 def check_passphrase(passphrase: str) -> None:
     """Refuse a passphrase too short to be one. Raises without quoting it."""
-    if len(passphrase) < MIN_PASSPHRASE:
-        raise ValueError(
-            f"the passphrase must be at least {MIN_PASSPHRASE} characters; this "
-            "file holds every value the scrub removed"
-        )
+    sealed.check_passphrase(passphrase, "this file holds every value the scrub removed")
 
 
-def _derive(passphrase: str, salt: bytes) -> bytes:
-    return hashlib.scrypt(
-        passphrase.encode("utf-8"),
-        salt=salt,
-        n=SCRYPT_N,
-        r=SCRYPT_R,
-        p=SCRYPT_P,
-        dklen=KEY_BYTES,
-        maxmem=SCRYPT_MAXMEM,
-    )
+def _header(key_map: KeyMap) -> dict[str, Any]:
+    """What a key file adds to the envelope's cleartext header.
 
-
-def _b64(raw: bytes) -> str:
-    return base64.b64encode(raw).decode("ascii")
-
-
-def _unb64(value: object, field: str) -> bytes:
-    if not isinstance(value, str):
-        raise MalformedMap(f"{field!r} must be a base64 string")
-    try:
-        return base64.b64decode(value, validate=True)
-    except (ValueError, TypeError) as exc:
-        raise MalformedMap(f"{field!r} is not valid base64") from exc
-
-
-def _work_factor(kdf: dict[str, Any], name: str) -> tuple[int, int, int]:
-    """The file's own scrypt parameters, refused unless they are in the band.
-
-    Refused *before* any derivation runs, which is the whole point: a ceiling
-    enforced by ``hashlib.scrypt`` failing is a ceiling on memory, and the
-    parameter that costs only time had none. Every rejection is a
-    :class:`MalformedMap` naming the field and the band, because the caller's
-    only useful move is to distrust the file.
-
-    ``bool`` is excluded explicitly: ``isinstance(True, int)`` is true, so a
-    ``"p": true`` would otherwise derive with p=1 and be treated as a valid file.
-    A JSON float - ``1e9``, or 1.5 - is refused for what it is rather than
-    silently truncated.
-    """
-    read: dict[str, int] = {}
-    for field, default, ceiling in (
-        ("n", SCRYPT_N, MAX_SCRYPT_N),
-        ("r", SCRYPT_R, MAX_SCRYPT_R),
-        ("p", SCRYPT_P, MAX_SCRYPT_P),
-    ):
-        raw = kdf.get(field, default)
-        if isinstance(raw, bool) or not isinstance(raw, int):
-            raise MalformedMap(f"{name} declares a scrypt {field} that is not a whole number")
-        if not 1 <= raw <= ceiling:
-            raise MalformedMap(
-                f"{name} declares scrypt {field}={raw}; this build reads 1 to {ceiling}"
-            )
-        read[field] = raw
-
-    work = read["n"] * read["r"] * read["p"]
-    if work > MAX_SCRYPT_WORK:
-        raise MalformedMap(
-            f"{name} asks for {work // (SCRYPT_N * SCRYPT_R * SCRYPT_P)} times the key "
-            "derivation work this build does; each parameter is in range but their "
-            "product is not"
-        )
-    return read["n"], read["r"], read["p"]
-
-
-def _header(key_map: KeyMap, salt: bytes, nonce: bytes) -> dict[str, Any]:
-    """The cleartext half, which is also the AEAD associated data.
-
-    Binding the header means the ciphertext cannot be lifted onto a different
-    header: swapping the document name or the KDF parameters fails decryption
+    Bound as associated data with the rest of it, so the ciphertext cannot be
+    lifted onto a different header: swapping the document name fails decryption
     rather than producing a key file that describes the wrong document.
 
     It leaks the source filename and the output hash to anyone who can read the
@@ -377,16 +258,6 @@ def _header(key_map: KeyMap, salt: bytes, nonce: bytes) -> dict[str, Any]:
     so a filename is not the secret being protected here.
     """
     return {
-        "freedocs_map": MAP_VERSION,
-        "kdf": {
-            "algorithm": "scrypt",
-            "n": SCRYPT_N,
-            "r": SCRYPT_R,
-            "p": SCRYPT_P,
-            "salt": _b64(salt),
-        },
-        "cipher": "AES-256-GCM",
-        "nonce": _b64(nonce),
         "document": {
             "name": key_map.document,
             "format": key_map.format_name,
@@ -396,11 +267,6 @@ def _header(key_map: KeyMap, salt: bytes, nonce: bytes) -> dict[str, Any]:
     }
 
 
-def _aad(header: dict[str, Any]) -> bytes:
-    """Canonical bytes of the header, so writer and reader agree byte for byte."""
-    return json.dumps(header, sort_keys=True, separators=(",", ":")).encode("utf-8")
-
-
 def write_key_map(path: Path, key_map: KeyMap, passphrase: str) -> None:
     """Encrypt and write, mode 0600.
 
@@ -408,12 +274,7 @@ def write_key_map(path: Path, key_map: KeyMap, passphrase: str) -> None:
     accident that actually happens — another account on a shared machine, a
     backup agent, a directory served by something — and they cost one syscall.
     """
-    aesgcm = _require_cryptography()
     check_passphrase(passphrase)
-
-    salt = secrets.token_bytes(SALT_BYTES)
-    nonce = secrets.token_bytes(NONCE_BYTES)
-    header = _header(key_map, salt, nonce)
     payload = json.dumps(
         {
             "entries": [
@@ -430,9 +291,14 @@ def write_key_map(path: Path, key_map: KeyMap, passphrase: str) -> None:
         },
         ensure_ascii=False,
     ).encode("utf-8")
-
-    sealed = aesgcm(_derive(passphrase, salt)).encrypt(nonce, payload, _aad(header))
-    envelope = {**header, "entries": _b64(sealed)}
+    data = sealed.seal(
+        version_field="freedocs_map",
+        version=MAP_VERSION,
+        header=_header(key_map),
+        payload_field="entries",
+        payload=payload,
+        passphrase=passphrase,
+    )
 
     private_directory(path.parent)
     # Through `core/outputs.py` rather than a second `os.open` here. This
@@ -440,10 +306,7 @@ def write_key_map(path: Path, key_map: KeyMap, passphrase: str) -> None:
     # mode rather than a write-then-chmod, and the chmod anyway because O_CREAT
     # leaves an existing file's mode alone - and a restored document turned out to
     # need every one of them.
-    write_private(
-        path,
-        (json.dumps(envelope, indent=2, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"),
-    )
+    write_private(path, data)
 
 
 def read_key_map(path: Path, passphrase: str) -> KeyMap:
@@ -453,74 +316,17 @@ def read_key_map(path: Path, passphrase: str) -> KeyMap:
     decrypted value, because this function's caller may be ``rpc.handle``, whose
     generic path puts an exception's own message straight into a response.
     """
-    aesgcm = _require_cryptography()
-
-    try:
-        size = path.stat().st_size
-        if size > MAX_MAP_BYTES:
-            raise MalformedMap(
-                f"{path.name} is {size} bytes; this build reads a key file of up to "
-                f"{MAX_MAP_BYTES} bytes, which is thousands of entries"
-            )
-        raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise MalformedMap(f"cannot read {path.name}: {exc.strerror or 'unreadable'}") from exc
-    try:
-        envelope = json.loads(raw)
-    except ValueError as exc:
-        raise MalformedMap(f"{path.name} is not a key file: malformed JSON") from exc
-    if not isinstance(envelope, dict):
-        raise MalformedMap(f"{path.name} is not a key file: expected an object")
-
-    version = envelope.get("freedocs_map")
-    if version != MAP_VERSION:
-        raise MalformedMap(
-            f"{path.name} is a version {version!r} key file; this build reads version {MAP_VERSION}"
-        )
-    if envelope.get("cipher") != "AES-256-GCM":
-        raise MalformedMap(f"{path.name} names an unknown cipher {envelope.get('cipher')!r}")
-
-    kdf = envelope.get("kdf")
-    if not isinstance(kdf, dict) or kdf.get("algorithm") != "scrypt":
-        raise MalformedMap(f"{path.name} names an unknown key derivation")
-    document = envelope.get("document")
-    if not isinstance(document, dict):
-        raise MalformedMap(f"{path.name} is missing its 'document' header")
-
-    salt = _unb64(kdf.get("salt"), "kdf.salt")
-    nonce = _unb64(envelope.get("nonce"), "nonce")
-    sealed = _unb64(envelope.get("entries"), "entries")
-
-    # Rebuilt from the file's own header rather than from constants, so a key file
-    # written with different scrypt parameters still opens. The AAD is then
-    # whatever the file says, which is exactly what binds the two halves.
-    header = {key: value for key, value in envelope.items() if key != "entries"}
-    n, r, p = _work_factor(kdf, path.name)
-    try:
-        key = hashlib.scrypt(
-            passphrase.encode("utf-8"),
-            salt=salt,
-            n=n,
-            r=r,
-            p=p,
-            dklen=KEY_BYTES,
-            # Kept as a second, independent ceiling. The band above bounds the
-            # wait; this bounds the allocation, and a power-of-two n inside the
-            # band can still ask for more memory than this build will give it.
-            maxmem=SCRYPT_MAXMEM,
-        )
-    except (TypeError, ValueError) as exc:
-        raise MalformedMap(f"{path.name} has unusable key derivation parameters") from exc
-
-    try:
-        payload = aesgcm(key).decrypt(nonce, sealed, _aad(header))
-    except Exception as exc:
-        raise BadPassphrase(
-            f"{path.name} did not open: the passphrase is wrong, or the file has "
-            "been altered since it was written"
-        ) from exc
-
-    return _parse_payload(path.name, payload, envelope, document)
+    payload, envelope = sealed.open_sealed(
+        path,
+        passphrase,
+        version_field="freedocs_map",
+        version=MAP_VERSION,
+        payload_field="entries",
+        max_bytes=MAX_MAP_BYTES,
+        malformed=MalformedMap,
+        required_objects=("document",),
+    )
+    return _parse_payload(path.name, payload, envelope, envelope["document"])
 
 
 def _parse_payload(

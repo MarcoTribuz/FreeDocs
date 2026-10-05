@@ -626,3 +626,95 @@ class _NotATerminal:
 
     def isatty(self) -> bool:
         return False
+
+
+# -- --remove and the term list -----------------------------------------------------
+
+TERMS_PASSPHRASE = "correct horse battery staple"
+
+
+def test_remove_takes_out_a_value_no_detector_found(document: Path, tmp_path: Path):
+    out = tmp_path / "out"
+    status = cli.main(
+        ["scrub", str(document), "-o", str(out), *L1, "--remove", "Realise Consulting SA"]
+    )
+    assert status == cli.EXIT_OK
+    assert "Realise Consulting SA" not in (out / document.name).read_text(encoding="utf-8")
+
+
+def test_a_term_list_is_used_by_scrub_and_counted_in_the_report(
+    document: Path, tmp_path: Path, monkeypatch, capsys
+):
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    terms = tmp_path / "firm.fdterms"
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    assert cli.main(["terms", "create", str(terms)]) == cli.EXIT_OK
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    assert (
+        cli.main(["terms", "add", str(terms), "Realise Consulting SA", "Progetto Aurora"])
+        == cli.EXIT_OK
+    )
+
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    out, report = tmp_path / "out", tmp_path / "report.json"
+    status = cli.main(
+        [
+            "scrub",
+            str(document),
+            "-o",
+            str(out),
+            *L1,
+            "--terms",
+            str(terms),
+            "--report",
+            str(report),
+        ]
+    )
+    assert status == cli.EXIT_OK
+    assert "Realise Consulting SA" not in (out / document.name).read_text(encoding="utf-8")
+    written = report.read_text(encoding="utf-8")
+    assert '"loaded": 2' in written and '"matched": 1' in written
+    assert "Progetto Aurora" not in written
+    assert "Progetto Aurora" not in capsys.readouterr().out
+
+
+def test_a_term_list_with_no_passphrase_and_no_terminal_is_a_usage_error(
+    document: Path, tmp_path: Path, monkeypatch
+):
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    monkeypatch.delenv(cli.TERMS_PASSPHRASE_ENV, raising=False)
+    monkeypatch.setattr("sys.stdin", _NotATerminal())
+    out = tmp_path / "out"
+    with pytest.raises(SystemExit, match="no passphrase for the term list"):
+        cli.main(["scrub", str(document), "-o", str(out), *L1, "--terms", str(tmp_path / "x")])
+    assert not (out / document.name).exists()
+
+
+def test_an_export_needs_a_yes_where_nobody_can_be_asked(tmp_path: Path, monkeypatch):
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    terms = tmp_path / "firm.fdterms"
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    cli.main(["terms", "create", str(terms)])
+    monkeypatch.setattr("sys.stdin", _NotATerminal())
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    with pytest.raises(SystemExit, match="--yes"):
+        cli.main(["terms", "export", str(terms), str(tmp_path / "plain.txt")])
+    assert not (tmp_path / "plain.txt").exists()
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    assert (
+        cli.main(["terms", "export", str(terms), str(tmp_path / "plain.txt"), "--yes"])
+        == cli.EXIT_OK
+    )
+
+
+def test_a_wrong_term_list_passphrase_is_a_usage_error_that_quotes_nothing(
+    tmp_path: Path, monkeypatch, capsys
+):
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    terms = tmp_path / "firm.fdterms"
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, TERMS_PASSPHRASE)
+    cli.main(["terms", "create", str(terms)])
+    monkeypatch.setenv(cli.TERMS_PASSPHRASE_ENV, "wrong but long enough")
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["terms", "list", str(terms)])
+    assert "wrong but long enough" not in str(caught.value)

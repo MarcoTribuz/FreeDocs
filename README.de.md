@@ -9,7 +9,7 @@
 
 <p align="center">
   PDF, Word, Excel, PowerPoint und Scans — rein, bereinigt, und im selben Format wieder heraus.<br>
-  Auf Ihrem Rechner. Keine Cloud, kein API-Key, keine Telemetrie, kein Konto.
+  Auf Ihrem Rechner, ohne jemanden dazwischen: keine Cloud, kein Auftragsverarbeiter, kein API-Key, keine Telemetrie, kein Konto.
 </p>
 
 <p align="center">
@@ -34,6 +34,16 @@ malen schwarze Rechtecke über Text, der darunter weiterhin markierbar bleibt.
 FreeDocs bearbeitet das Dokument an Ort und Stelle. Und dann öffnet es die eigene
 Ausgabe erneut, extrahiert sie samt der unsichtbaren Teile und **lässt den Lauf
 scheitern, wenn ein einziger entfernter Wert überlebt hat**.
+
+**Zwischen Ihnen und dem Modell steht niemand.** Ein Maskierungsdienst, der auf
+fremden Servern läuft, erhält das Dokument vor dem Modell und ist damit ein
+Auftragsverarbeiter: ein Auftragsverarbeitungsvertrag, eine Liste von
+Unterauftragsverarbeitern und, für eine Anwältin oder einen Treuhänder, eine Frage
+des Berufsgeheimnisses. FreeDocs hat nichts davon, weil das Dokument nirgendwohin
+geht — und die Engine blockiert ausgehende Verbindungen zu allem außer diesem
+Rechner, sodass eine Abhängigkeit, die nach Hause telefonieren will, scheitert wie
+auf einem Laptop ohne Netz. Das stoppt den versehentlichen Aufruf, nicht
+feindlichen Code; [SECURITY.md](SECURITY.md) sagt genau, wie weit es reicht.
 
 <p align="center">
   <img src="docs/images/review.png" alt="Der Review-Schritt: das extrahierte Dokument mit jedem markierten Fund und das Detailfeld, das zeigt, was den ausgewählten Wert gefunden hat, wie sicher es ist und die zwei Wege, ihn zu behalten" width="900">
@@ -114,12 +124,12 @@ Absatzformatierung, Tabelle und Formatvorlagen.
 - **Zahlen, die Sie selbst nachrechnen können.** `freedocs benchmark` bewertet die
   Ebenen gegen ein annotiertes Korpus, und das Werkzeug druckt jedes Mal seinen
   eigenen Vorbehalt mit. → [Benchmark](docs/benchmark.md)
-- **Auf Wunsch der Weg zurück.** `--map` schreibt eine verschlüsselte
-  Schlüsseldatei, und `freedocs restore` setzt die echten Werte in das ein, was das
-  Modell zurückgibt. Standardmäßig aus, denn es ist das Einzige, was eine
-  Bereinigung umkehrbar macht: ohne sie wird die Zuordnung am Ende des Laufs
-  zerstört und niemand kann sie rückgängig machen, Sie eingeschlossen.
-  → [der umgekehrte Weg](docs/restore.md)
+- **Standardmäßig unumkehrbar; der Weg zurück nur auf Wunsch.** `--map` schreibt
+  eine verschlüsselte Schlüsseldatei, und `freedocs restore` setzt die echten
+  Werte in das ein, was das Modell zurückgibt. Standardmäßig aus, denn es ist das
+  Einzige, was eine Bereinigung umkehrbar macht: ohne sie wird die Zuordnung am
+  Ende des Laufs zerstört und niemand kann sie rückgängig machen, Sie
+  eingeschlossen. → [der umgekehrte Weg](docs/restore.md)
 
 ## Schnellstart
 
@@ -260,6 +270,9 @@ lautlos.
   nichts zurückbringen, was *entfernt* statt ersetzt wurde — Vorschaubilder,
   Metadaten, versteckte Folien — denn dafür gab es nie einen Platzhalter.
   → [der umgekehrte Weg](docs/restore.md)
+- **Es spricht nicht an Ihrer Stelle mit dem Modell.** Sie fügen die bereinigte
+  Kopie in den Assistenten ein, den Sie verwenden, und FreeDocs sieht das Gespräch
+  nie. Das ist der Preis dafür, dass niemand dazwischensteht.
 - **Es ist keine Compliance-Garantie und behauptet nie, die Ausgabe sei saubere
   Ware.** `report.CAVEATS` schreibt die Grenzen in den Bericht selbst.
 

@@ -42,6 +42,13 @@ from .findings import EntityType, Finding, Layer, Span
 #: "who claimed this" is the first question asked of a finding nobody expected.
 DETECTOR = "human"
 
+#: The same mark for a value that came from the firm's term list rather than
+#: from the person at the preview. Layer ``H`` either way - both are
+#: instructions, not inferences - but "I added this now" and "the list added
+#: this" are different answers to "who claimed it", and the second one is also
+#: the one whose absent values must never be quoted: see :meth:`Override.unmatched`.
+TERMS_DETECTOR = "terms"
+
 
 class StaleOverride(ValueError):
     """A kept span no longer covers the text the caller saw.
@@ -93,6 +100,24 @@ class RemovedValue:
     #: a span, a value is meaningful across a batch — one list of names over a
     #: folder of contracts — so both readings are useful here.
     path: str | None = None
+    #: Who asked: :data:`DETECTOR` for a person at the preview,
+    #: :data:`TERMS_DETECTOR` for the term list. Carried onto every finding.
+    detector: str = DETECTOR
+
+
+@dataclass(frozen=True)
+class TermsUse:
+    """How much of the term list one document met. Counts, never values.
+
+    ``loaded`` is the list's size and ``matched`` the number of its entries that
+    removed at least one occurrence in this document. That is what the report carries instead of the
+    unmatched sentence a caller-named value gets, because a term list is mostly
+    absent from any given document by design: quoting its misses would write the
+    firm's client register into every report.
+    """
+
+    loaded: int
+    matched: int
 
 
 @dataclass(frozen=True)
@@ -163,7 +188,28 @@ class Override:
         names — and failing the file would be wrong. Saying nothing would not:
         "it was removed" and "it was not there" look identical in the output.
         """
-        return [item.value for item in self.remove if item.value and item.value not in text]
+        return [
+            item.value
+            for item in self.remove
+            if item.detector == DETECTOR and item.value and item.value not in text
+        ]
+
+    def terms_use(self, findings: Iterable[Finding]) -> TermsUse | None:
+        """The term list's counts for this document, or None when none was used.
+
+        ``matched`` is read from the findings :meth:`apply` returned rather than
+        by searching the text again, and that is a definition as well as a
+        saving: an entry counts when it removed something. One nested inside a
+        longer entry, or sitting only in a span the person kept, is in the
+        document and removed nothing, and the report should not say otherwise.
+        The second search was also half the cost - 1.3 s of a 2.6 s inspect at
+        the list's ceiling, see ``limits.MAX_TERMS``.
+        """
+        loaded = sum(1 for item in self.remove if item.detector == TERMS_DETECTOR)
+        if not loaded:
+            return None
+        matched = {f.text for f in findings if f.detector == TERMS_DETECTOR}
+        return TermsUse(loaded=loaded, matched=len(matched))
 
     def _check(self, text: str) -> None:
         for kept in self.keep:
@@ -201,15 +247,20 @@ class Override:
         exactly that.
         """
         claimed: list[Span] = []
-        for item in self.remove:
+        # Longest first. Two requested values can nest - "Acme" inside "Acme
+        # Corp" - and whichever claims the characters first wins the overlap. In
+        # the caller's own order a short value listed first would take "Acme"
+        # and leave " Corp" in the document; a term list of a thousand names
+        # makes that order an accident of the alphabet. The longer value removes
+        # a superset of the characters, which is the direction to err in.
+        for item in sorted(self.remove, key=lambda item: -len(item.value)):
             if not item.value:
                 continue
             start = text.find(item.value)
             while start != -1:
                 span = Span(start, start + len(item.value))
-                # Two requested values can nest ("Acme" inside "Acme Corp"). The
-                # first one wins rather than producing overlapping edits; which
-                # one that is follows the caller's own ordering.
+                # Nested values: the longer one got here first (see above), and
+                # the shorter is not a second edit on the same characters.
                 if not any(span.overlaps(other) for other in claimed):
                     claimed.append(span)
                     yield Finding(
@@ -217,7 +268,7 @@ class Override:
                         entity=item.entity,
                         text=item.value,
                         layer=Layer.HUMAN,
-                        detector=DETECTOR,
+                        detector=item.detector,
                         confidence=1.0,
                     )
                 start = text.find(item.value, start + 1)

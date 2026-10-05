@@ -337,3 +337,83 @@ what looked like a placeholder and was left alone. `ok: false` does **not** empt
 that screen: the engine wrote the restored file either way, so the path is always
 shown and the failure is stated beside it rather than instead of it. See
 [the reverse path](restore.md).
+
+## The term list in the window
+
+One card, `TermListPanel.svelte`, on the file step and on the review step: before
+a file is loaded so the first preview can already use it, and beside the preview
+where its effect shows. Open… or New…, a passphrase, then an editor: search,
+add a value with an entity type, remove, Import… and Export…. The entries stay
+in the engine; the window holds only the slice on screen, and a search asks the
+engine again rather than filtering a copy. See [the term list](terms.md).
+
+**The passphrase is kept for the life of the unlock**, and it is the one secret
+this window keeps past a single call. Every save re-opens the file with it,
+because a save under a mistyped passphrase would re-key the list and succeed, so
+dropping it after the unlock would mean retyping it for every entry added. It is
+cleared by `lockTerms()`, which Lock, Close, choosing another file and a mode
+change all go through, and it is never in `localStorage`. The *path* is, beside
+the Tesseract path, and it comes back locked: the unlock is what validates it.
+
+**The toggle is on as soon as a list is unlocked**, and unlocking, locking,
+toggling and every edit re-inspect the open documents, because a preview
+computed without the list is a preview of a different scrub. A finding the list
+put there says so ("your firm's term list", detector `terms`), and the preview
+and the result both show `M of N entries` from the engine's counts and nothing
+about the entries that did not match.
+
+**Export is two clicks with the cost between them.** The first names what an
+unencrypted file means; the second opens the save dialog. The engine's own
+warning is quoted beside the path afterwards. Import shows the "delete the source
+file" notice until dismissed, translated from the `delete_source` flag; neither
+the window nor the engine deletes the file.
+
+`dialog:allow-save` came back into the capability for this: a new list and an
+export both name a file that does not exist yet.
+
+**Change passphrase… asks for the current one again**, rather than using the one
+the window holds: an unlocked window left on a desk should not be enough to lock
+its owner out of the list. The held passphrase is replaced only when the engine
+says the re-seal worked, since every later save re-opens the file with it.
+
+One gap, stated. **A restarted sidecar has locked the list** while the window
+still shows it unlocked, and the next preview fails with the engine's
+"the term list is locked" rather than the window noticing first; Lock and unlock
+again.
+
+## Pasted text, as a third mode
+
+Paste text → review it → scrubbed text to copy → paste the reply → values back.
+A mode, `'text'`, with the scrub's three steps. Only the first screen is new
+(`TextStep.svelte`, a text area); the review screen is `ReviewStep.svelte`
+unchanged, because the paste is its one "file" under the engine's own name
+`pasted.txt` and `loadInspection` asks `inspect_text` instead of `inspect`.
+Kept spans are built from the engine's offsets by `keptSpanFor` in `steps.ts`,
+which is tested with an emoji in front of the value — pasted text is where emoji
+are.
+
+**The scrub mode's files are set aside, not cleared.** Borrowing `files`,
+`inspections` and the decisions is what lets the review screen be reused, and
+putting them back on the way out is what keeps a loaded batch from vanishing
+because somebody pasted a paragraph in between. A file dropped on the window in
+text mode is ignored.
+
+**Where the mapping goes is chosen per text, beside the preview**, in place of
+the key-file card: nothing (the default), kept until FreeDocs closes (the engine
+holds it under a handle), or a key file. Not remembered, because a remembered
+"keep" is a default nobody chose. The handle is released on New text, on a new
+inspection of the paste, on a mode change and when the sidecar ends. The result
+step shows the scrubbed text read-only with Copy — a failed copy is announced,
+because it pastes the previous clipboard into a model — and, when there is a way
+back, a text area for the reply. A key file asks its passphrase again at restore
+time and drops it afterwards; a failed scrub shows no text at all.
+
+**Steps are pure now.** `ORDER` and the reachability rule moved to `steps.ts` so
+`vitest` covers them; `+page.svelte` and the rail read from there. The term list
+stays unlocked across scrub and text mode and is locked on entering restore mode,
+which uses none.
+
+Stated gaps: a reply to a text sealed into a key file on another day is restored
+in restore mode from a saved file, not pasted; the window close does not send a
+`forget`, because the sidecar ends with the window.
+

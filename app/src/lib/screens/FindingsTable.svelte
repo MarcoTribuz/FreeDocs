@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { Inspection } from '$lib/engine';
-	import { dropValue, isMine, session, toggleSpan } from '$lib/app.svelte';
+	import { dropValue, isFromTerms, isMine, session, toggleSpan } from '$lib/app.svelte';
 	import { review, visibleFindings } from '$lib/review.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
@@ -58,6 +58,7 @@
 							{m.entity[finding.entity]?.() ?? finding.entity}
 						</Badge>
 						{#if isMine(finding)}<em>{m.mine()}</em>{/if}
+						{#if isFromTerms(finding)}<em>{m.fromTermList()}</em>{/if}
 					</td>
 					<th scope="row" class="value"><code>{finding.text}</code></th>
 					<td class="mono">{finding.part}</td>

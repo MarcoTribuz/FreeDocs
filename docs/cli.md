@@ -14,7 +14,7 @@ detected** — a build that finds less has to say so.
 ## `inspect` — report, write nothing
 
 ```bash
-uv run freedocs inspect FILE [FILE ...] [--min-confidence F] [--detectors SPEC] [--countries CODES]
+uv run freedocs inspect FILE [FILE ...] [--min-confidence F] [--detectors SPEC] [--countries CODES] [--remove VALUE] [--terms FILE]
 ```
 
 ```console
@@ -44,17 +44,21 @@ span, which is how a surprising finding gets traced to one place.
 
 ```bash
 uv run freedocs scrub FILE [FILE ...] -o DIR
+pbpaste | uv run freedocs scrub - | pbcopy      # text on stdin, scrubbed text on stdout
 ```
 
 | Flag | What it does |
 |---|---|
-| `-o, --output-dir DIR` | required; scrubbed copies keep their filename |
+| `-o, --output-dir DIR` | required for files, refused with `-`; scrubbed copies keep their filename |
 | `--report PATH` | machine-readable JSON summary — counts and positions, never values |
 | `--min-confidence F` | ignore findings below this confidence (default 0.5) |
 | `--keep ENTITY` | leave an entity type untouched everywhere; repeatable |
 | `--placeholder-language {de,en,fr,it}` | language of the placeholder stems written into the output |
 | `--countries CODES` | e.g. `ch,it,de`; defaults to every supported country |
 | `--detectors SPEC` | `l1`, `ner`, `all`, `all:presidio` |
+| `--remove VALUE` | also remove every occurrence of this exact text; repeatable. Also on `inspect` |
+| `--terms FILE` | also remove every entry of an encrypted term list — see [terms.md](terms.md). Also on `inspect` |
+| `--terms-passphrase-file PATH` | the term list's passphrase; otherwise `FREEDOCS_TERMS_PASSPHRASE`, otherwise a prompt |
 | `--allow-leaks` | write the output even when verification finds a survivor |
 | `--review MODEL` | ask a local Ollama model to read the result — see [llm-review.md](llm-review.md) |
 | `--review-host URL` | which Ollama (default `http://127.0.0.1:11434`) |
@@ -123,12 +127,13 @@ line is in the shell history and visible through `ps`. Read
 
 ```bash
 uv run freedocs restore FILE [FILE ...] --map KEYFILE -o DIR
+pbpaste | uv run freedocs restore - --map keys/pasted.fdmap   # a pasted reply
 ```
 
 | Flag | What it does |
 |---|---|
 | `--map PATH` | required; the key file written by `scrub --map` |
-| `-o, --output-dir DIR` | required; restored copies keep their filename |
+| `-o, --output-dir DIR` | required for files, refused with `-`; restored copies keep their filename |
 | `--map-passphrase-file PATH` | read the passphrase from the first line of this file |
 | `--report PATH` | machine-readable JSON summary — placeholders and counts, never values |
 
@@ -158,6 +163,34 @@ somebody else's data in the document.
 Runs no detector and loads no model, so it works the same on a build without the
 `ner` extra. Needs the `restore` extra for the cipher; `freedocs doctor` says
 whether this build has it.
+
+### `-`: text on stdin
+
+`scrub -` and `restore -` read text from stdin and write the result to stdout.
+Stdout carries **only** the text, so a pipe into a model gets nothing else; the
+summary, the key file's path and every warning go to stderr. `-` stands alone:
+it cannot be mixed with files, and `-o` is refused beside it. A scrub that fails
+verification writes nothing to stdout. With `--map DIR` the key file is
+`DIR/pasted.fdmap`; a CLI process ends, so there is no held mapping here — that
+is the window's text mode, over the pipe. The text is capped at 2 000 000
+characters.
+
+## `terms` — the encrypted term list
+
+```bash
+uv run freedocs terms create|list|add|remove|import|export|rekey FILE ...
+```
+
+Values removed on every scrub that passes `--terms FILE`. Every change is saved
+before the command returns. `import` tells you to delete its source and does not
+do it itself; `export` writes the list **unencrypted** and asks first. The full
+reference, and what the encryption does and does not protect, is in
+[terms.md](terms.md).
+
+A value that `--remove` or the list names and the document does not contain is
+counted in the report, never quoted. `--remove` values are also named on the
+console, which already shows what was found; term-list entries are not, because
+most of a list is absent from any one document.
 
 ## `entities`, `countries`, `doctor`
 

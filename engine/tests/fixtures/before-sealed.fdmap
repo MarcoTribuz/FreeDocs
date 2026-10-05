@@ -1,0 +1,19 @@
+{
+  "cipher": "AES-256-GCM",
+  "document": {
+    "format": "plaintext",
+    "name": "scheda-cliente.txt",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "entries": "tCyXmByYCbe32iIceEzk+0G9mqkJu4D6/xieNZzA5qSsG6IkiGzLOPjRXowBvXp6C2w2i3KDcFkQ/Uk7X7ncjOV0G2u8LG1YUjdbIHJio3NocnoPHg/3AtrHDuKNUcOwUmuu5XOvklseFEv8+lyZpZPpSPxlR3IYTsiJPkjrg14Mp7bpOi+XqB2UtEmJ/ZMpd0wDvuThylJdlUFmMZR+qRJkAd+PaYi4i92g+xlnK76B3dwo0d6Gnbm5vY8C03KfilOD8PLwwbx/IsLujG8kmiSxmRDFJ/A5qCt9+t5/wIbwdypIrChv8rWwEdWrH46rJDhlXIKiLTgVXUZR6YGKsqKGkd38Wl+Ge/MvzyM4BEMV8FJSJmjbw4rDYhgiQYEhxQg=",
+  "freedocs_map": 1,
+  "kdf": {
+    "algorithm": "scrypt",
+    "n": 32768,
+    "p": 1,
+    "r": 8,
+    "salt": "AAECAwQFBgcICQoLDA0ODw=="
+  },
+  "nonce": "AAECAwQFBgcICQoL",
+  "placeholder_language": "en"
+}

@@ -38,7 +38,8 @@ the preview a caller can excuse one occurrence or name a value the detectors
 missed, through `core/overrides.py`, and stage 6 verifies the result either way.
 There is also an opt-in reverse path: `scrub --map` writes an encrypted key file
 and `freedocs restore` puts the values back into whatever came back from the
-model. Off by default, because it is the one thing that makes a scrub reversible —
+model. A firm can keep an encrypted term list (`freedocs terms`, `--terms`) of
+values removed on every scrub; see `docs/terms.md`. Off by default, because it is the one thing that makes a scrub reversible —
 see *The reverse path*.
 Anything further is new work, not a remaining milestone.
 
@@ -69,6 +70,8 @@ uv run freedocs inspect FILE           # report findings, write nothing
 uv run freedocs scrub FILE -o out/     # write a scrubbed copy
 uv run freedocs scrub FILE -o out/ --map keys/   # ... plus an encrypted key file
 uv run freedocs restore FILE --map keys/FILE.fdmap -o back/   # put the values back
+uv run freedocs terms create firm.fdterms     # an encrypted term list (FREEDOCS_TERMS_PASSPHRASE)
+uv run freedocs scrub FILE -o out/ --terms firm.fdterms --remove "Acme"   # plus firm-wide removals
 uv run freedocs entities               # list supported entity types
 uv run freedocs countries              # list countries and what each one gets
 uv run freedocs doctor                 # what this machine can actually do
@@ -129,11 +132,29 @@ PyMuPDF, not FreeDocs, is what runs Tesseract. And `tauri build` is given
 **`check` ends with a dependency audit and `build` ends with a manifest.** The
 audit is `pip-audit` over the *lockfile* (`uv export --all-extras`, so torch is
 covered even though `check` does not install `ner`), `npm audit --omit=dev`, and
-`cargo audit`. No ignore list, and that was measured: `cargo audit` fails only on
-vulnerabilities and this tree has zero, plus seventeen *warnings* that are the
-unmaintained GTK3 bindings and the `glib` unsoundness `dependabot.yml` explains
-cannot be fixed from here — so `-D warnings` would turn a standing fact into a
-red gate. `cargo-audit` and `cargo-cyclonedx` are separate binaries and go
+`cargo audit`. There was no ignore list, and that was measured: `cargo audit`
+fails only on vulnerabilities and this tree has zero, plus seventeen *warnings*
+that are the unmaintained GTK3 bindings and the `glib` unsoundness
+`dependabot.yml` explains cannot be fixed from here — so `-D warnings` would turn
+a standing fact into a red gate.
+
+**There is now one, `EXCUSED_ADVISORIES` in `scripts/ci.py`, and upgrading was
+the wrong answer.** `PYSEC-2026-3804` is a path traversal in `accelerate`'s
+`load_checkpoint_in_model` and `load_checkpoint_and_dispatch` via a sharded
+checkpoint's `weight_map`. `accelerate 1.15.0` makes `pip-audit` pass — the
+advisory reads "through 1.14.0" — while both functions are byte-identical to
+1.14.0, so the upgrade would have turned the gate green with the code unchanged,
+and red again the day the advisory's range is corrected. Nothing in this build
+calls either function: `accelerate` arrives only through `peft`, which uses its
+hooks and device map, and the model is one `model.safetensors` with no shard
+index. So the advisory is excused, with that sentence printed on every run.
+
+Two rules for the list. **An entry is bound to the locked version it was judged
+against**: `excused_arguments()` reads `uv.lock` and stops excusing the moment the
+pin moves, so an exception cannot outlive its reasoning silently. And **the reason
+names what ends it** — here, a release that sanitises `weight_map`. The workflow
+repeats the flag without the version guard, because YAML cannot read the lock;
+re-enabling CI should call the list rather than copy it. `cargo-audit` and `cargo-cyclonedx` are separate binaries and go
 through the `skip=` mechanism; `pip-audit` does not need to, because
 `uv run --with` fetches it the way the sidecar step already fetches PyInstaller.
 
@@ -527,7 +548,10 @@ calls it on every path that drops a document: removing one file, clearing them
 all, changing mode. Fire and forget from the window — nothing the user is doing
 depends on the answer, and a tidy-up that can fail a screen transition is worse
 than one occasionally skipped. Passphrases are not in this list because they never
-reach the engine's memory beyond the request that carried them.
+reach the engine's memory beyond the request that carried them. Two things are,
+and each is released only when named: the unlocked term list (`forget {terms}`,
+`terms_lock`), and a pasted text's mapping held under a handle
+(`forget {text_maps}`) — see *Pasted text* under *The reverse path*.
 
 **Extractions are cached per `(path, mtime, size)`, four at a time.** Every kept
 occurrence re-inspects, because propagation means one decision can change other
@@ -875,6 +899,20 @@ has to act on.
 **structural** canaries — a sheet name, an attachment name — because a body canary
 cannot reach either channel. Both assert the second half too: the warning must
 still say what the sheet is called now, since deleting it would also have passed.
+
+**A value a caller named is a value, and the absent ones are the ones that
+leaked.** A removal that matched nothing produced a sentence quoting it, that
+sentence rode `Inspection.notes` into `ScrubResult.warnings`, and
+`build_report` wrote it to disk — so a requested value reached the report
+*exactly when it was not in the document*. One list of client names over a
+folder of contracts put most of that list into every report. A found value was
+never the problem: it becomes a placeholder and a count. `Inspection.unmatched`
+and `ScrubResult.unmatched` now carry them apart from the value-free notes; the
+report says `requested_values_not_found: N`, and `caller_warnings` is the
+quoting form for the console and the pipe, which already carry matched text.
+`test_the_report_does_not_quote_a_requested_value_it_did_not_find` is the
+guard, and it was confirmed to fail on the code before the fix. This had to
+land before a persistent term list, which would have made it the normal path.
 
 **Who may read an output is decided by what is in it, and one module decides.**
 `core/outputs.py` answers both halves. A file from which the document could be
@@ -1426,6 +1464,36 @@ Four decisions, each of which has a failure it prevents:
   checked against the first file's spans and fails as stale — the check working on
   a question nobody asked.
 
+**The term list is the persistent half of `remove`, and there is deliberately
+no persistent half of `keep`.** `core/terms.py` holds a firm's client register
+encrypted (`.fdterms`), and `with_terms` merges it into an `Override` as
+removals marked `detector="terms"` — layer `H` like a person's, because both are
+instructions, but told apart on every finding. A standing "never redact X" would
+be an allowance applied to documents nobody has read, which is the dangerous
+half of this module with the preview taken away; asking for one gets a no.
+
+Three things in it were each a bug first. **An absent term is never an
+unmatched value**: `Override.unmatched` reads only caller-named removals, and the
+report carries `terms: {loaded, matched}`, because a register is mostly absent
+from any document and quoting its misses is the G0 leak made routine.
+**`matched` is read from the findings**, not by searching again — an entry
+counts when it removed something, and the second search was half of a 2.6 s
+inspect at `MAX_TERMS`. **Nested values go longest first** in `_added`: in the
+caller's order `Acme` claimed its characters before `Acme Corp` and left ` Corp`
+in the document, and a list of a thousand names makes that order the alphabet's.
+That last one changed the existing override too, in the direction of removing a
+superset.
+
+Over the pipe the unlocked list is `Session` state, like the model weights,
+because a passphrase asked per document is how passphrases get weak. A locked
+list with `use_terms` is `INVALID_REQUEST` and nothing is scrubbed. A plain
+`forget` does **not** lock it — the window forgets after every batch — only
+`forget {terms: true}` or `terms_lock` does. `terms_update` and `terms_import`
+re-open the file with the passphrase they were given before saving: a save under
+a mistyped one would re-key the register to a passphrase nobody knows and
+succeed. `docs/terms.md` has the protection table, and nothing may claim more
+than it.
+
 **Stage 6 needed an allowance, and it is a count rather than an exemption.**
 Verification is value-based and an override is occurrence-based, so keeping one
 `Zurigo` and removing the next leaves the string in the document and the search
@@ -1779,6 +1847,21 @@ back into whatever came back from the model. `core/mapping.py` owns the file,
 write-back -> verify`. Off by default, an optional `restore` extra for the cipher,
 and `docs/restore.md` is the long version.
 
+**The envelope lives in `core/sealed.py`, and moving it changed no byte.** The
+term list is sealed exactly as the key file is, and two copies of a cipher recipe
+are two places for a fix to land in one of. `core/mapping.py` and
+`core/terms.py` say only what goes inside; each passes its own error subclass of
+`MalformedSealed`, and each kind refuses the other by name.
+`tests/fixtures/before-sealed.fdmap` was written by the pre-extraction code with
+`secrets.token_bytes` pinned, and `test_sealed.py` both opens it and rewrites it
+byte for byte — a key file somebody kept last month is one they will open next
+year. `cipher_unavailable_reason()` is the one authority for both features;
+`mapping_unavailable_reason()` and `terms_unavailable_reason()` ask it. The term
+list adds two things the key file does not need: `outputs.replace_private`, the
+first atomic writer, because it is the only output that is its own source; and a
+payload padded to 4 KiB, because its header promises no count and AES-GCM's
+ciphertext length would otherwise be one.
+
 **The default did not change and neither did the allocator.**
 `SurrogateAllocator` gains no accessor and `pipeline.py` does not import
 `core/mapping.py`. The key file is built from a finished `ScrubResult`, whose
@@ -1787,6 +1870,35 @@ and `docs/restore.md` is the long version.
 direction is a front-end decision about a finished result, not a branch inside the
 pipeline — and if this ever needs a method on the allocator, the design has gone
 wrong.
+
+**Pasted text is the plaintext handler over a string, and the mapping it may
+hold is a stated widening.** `text_mode.py` hands `PlainTextHandler(Path("pasted.txt"), ...)`
+straight to `Scrubber.scrub` and `Restorer.restore`, which both take a handler now,
+so no routing happens and `router` is not announced; nothing is cached and nothing
+reaches disk. The name is a constant, because a name the caller typed is one more
+way a client's name reaches a report. What is new is `TextMaps`: with
+`keep_map: true`, `scrub_text` holds the `KeyMap` under a random handle so a
+reply pasted minutes later can be restored without a passphrase and a folder.
+That weakens "a crash cannot leave a re-identification key in a live process"
+for the life of the handle, and it is bounded rather than denied: opt-in per
+text and never the default, at most eight with the oldest dropped, released by
+`forget {text_maps}` and by the process ending, no idle timer (a second thread in
+a process that deliberately has one), and not consumed by a restore. A plain
+`forget` leaves them, and `forget {text_maps}` leaves the file cache, because
+dropping a paste is not dropping the documents on another screen. A leak returns
+the per-file failure shape with no `text` and holds nothing. `MAX_TEXT_CHARS` is
+2 000 000 and was measured, like every ceiling in `core/limits.py`: the pipe was
+not the bound — `json.loads` of a 5 MB line is 0.01 s — detection was, and
+measuring it is what found the quadratic overlap scans (1 MB of one-IBAN-a-line
+text was 178 s and 14 GB before `detect/propagate.Occupied`).
+
+**In the window, text mode borrows the review screen rather than copying it.**
+The paste is `session.files = ['pasted.txt']`, so `ReviewStep`, `DocumentText`
+and every decision control are the scrub's own, and `loadInspection` is the one
+place that branches. The scrub mode's files are stashed on the way in and put
+back on the way out. Reachability moved to `lib/steps.ts` so it is tested, and a
+kept span is built by `keptSpanFor` from the engine's offsets, because pasted
+text is where an emoji before a value is most likely.
 
 **Restore's verification asks two questions, and the second is the load-bearing
 one.** Placeholder gone *and* value present. `PdfTextHandler.write_back` stamps a
@@ -1890,6 +2002,17 @@ characters, the engine refusing inside the `scrub` request, and the failure
 arriving after the scrubbed copies were written. With no capabilities answer yet
 the window treats *no* passphrase as long enough, which disables the button rather
 than restating the number.
+
+**The term list's passphrase is the exception, and it is bounded by the unlock.**
+`session.termsPassphrase` outlives a single call because `terms_update` and
+`terms_import` re-open the file with it before every save; dropping it would
+mean retyping it per entry. `forgetSecrets()` deliberately leaves it alone, since
+a scrub finishing is not the list closing, and `lockTerms()` is the one place it
+is cleared — Lock, Close, another file and a mode change all go through it. The
+path is in `localStorage` and comes back locked; the entries never leave the
+engine beyond the slice the editor shows. A finding from the list is told apart
+by `detector === 'terms'` (`isFromTerms`), not by its layer, which is `H` like
+the person's own.
 
 **Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
 entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
