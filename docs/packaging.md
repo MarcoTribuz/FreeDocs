@@ -98,7 +98,8 @@ Two platforms are absent and the reasons differ:
 Both are gaps rather than decisions about who to support.
 
 How to build and launch on each of these by hand, and where to record the result,
-is [building](building.md).
+is [building](building.md). Deploying the Windows `.msi` through Intune is
+[intune](intune.md).
 
 **Nothing is signed, and nothing is set up to be.** The repository has no secrets
 at all, and `app.yml` deliberately sets no Apple signing variables: an unset
