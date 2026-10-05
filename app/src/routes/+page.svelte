@@ -1,7 +1,10 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { fly } from 'svelte/transition';
-	import { ORDER, goTo, session, start, type Step } from '$lib/app.svelte';
+	import { ORDER, goTo, locateTesseract, session, start, type Step } from '$lib/app.svelte';
+	import { reachable as reachableIn } from '$lib/steps';
+	import { NEEDS_OCR } from '$lib/engine';
+	import Button from '$lib/components/Button.svelte';
 	import { announce } from '$lib/announce.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
@@ -14,6 +17,8 @@
 	import RestoreResult from '$lib/screens/RestoreResult.svelte';
 	import RestoreStep from '$lib/screens/RestoreStep.svelte';
 	import ReviewStep from '$lib/screens/ReviewStep.svelte';
+	import TextResult from '$lib/screens/TextResult.svelte';
+	import TextStep from '$lib/screens/TextStep.svelte';
 
 	/**
 	 * The orchestrator: which step is showing, what may be reached, and the
@@ -45,21 +50,24 @@
 	 * that fact is a window showing the review screen with nothing to review.
 	 */
 	const reachable = $derived<Record<Step, boolean>>(
-		session.mode === 'restore'
-			? // Restoring has no review step: the decisions were made in the scrub
-				// that produced the key file, and there is nothing here to preview.
-				{ file: true, review: false, result: session.restoreResult !== null }
-			: {
-					file: true,
-					review: session.files.length > 0,
-					result: session.results.length > 0
-				}
+		// In `steps.ts`, pure, so the rule is tested rather than restated here.
+		reachableIn(session.mode, {
+			files: session.files.length,
+			results: session.results.length,
+			restored: session.restoreResult !== null,
+			textScrubbed: session.textResult !== null
+		})
 	);
 
 	const step = $derived<Step>(reachable[session.step] ? session.step : 'file');
 
 	const labels = $derived<Record<Step, string>>({
-		file: session.mode === 'restore' ? m.stepRestoreFile() : m.stepFile(),
+		file:
+			session.mode === 'restore'
+				? m.stepRestoreFile()
+				: session.mode === 'text'
+					? m.stepText()
+					: m.stepFile(),
 		review: m.stepReview(),
 		result: m.stepResult()
 	});
@@ -138,6 +146,30 @@
 			{#if session.problem}
 				<Callout tone="danger" live verbatim>
 					<p>{session.problem}</p>
+					{#if session.problemCode === NEEDS_OCR}
+						<!--
+							The repair, offered where the failure happened. A refused scan is
+							the moment the user cares about OCR, and until now this message
+							was a dead end with the fix behind a disclosure on another
+							screen.
+
+							The code decides that the controls appear; it never touches what
+							the message says. `describe()` still passes the engine's sentence
+							through untouched, because that sentence already names the pages
+							and what to install — a preamble in front of it would be the
+							window competing with a complete answer.
+						-->
+						<div class="repair">
+							<Button
+								variant="secondary"
+								size="sm"
+								loading={session.rechecking}
+								onclick={locateTesseract}
+							>
+								{i18n.m.locateTesseract()}
+							</Button>
+						</div>
+					{/if}
 				</Callout>
 			{/if}
 
@@ -199,6 +231,10 @@
 						{:else}
 							<RestoreStep />
 						{/if}
+					{:else if session.mode === 'text' && step === 'file'}
+						<TextStep />
+					{:else if session.mode === 'text' && step === 'result'}
+						<TextResult />
 					{:else if step === 'file'}
 						<FileStep />
 					{:else if step === 'review'}
@@ -213,6 +249,12 @@
 {/if}
 
 <style>
+	/* The repair sits under the engine's sentence, which is quoted English; the
+	   button's own label is in the reader's language and is outside that region. */
+	.repair {
+		margin-top: var(--space-2);
+	}
+
 	.shell {
 		display: grid;
 		grid-template-columns: 15rem minmax(0, 1fr);

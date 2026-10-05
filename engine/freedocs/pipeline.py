@@ -32,11 +32,12 @@ from pathlib import Path
 
 from .core.errors import MissingDependency
 from .core.findings import Finding
-from .core.overrides import Override
+from .core.overrides import Override, TermsUse
 from .core.policy import Action, Policy, SurrogateAllocator, placeholder_labels
 from .core.stream import Edit, TextStream
 from .detect.llm_review import LlmReviewer, ReviewOutcome
 from .detect.registry import DetectorRegistry
+from .detect.suppress import Suppression
 from .detect.validators import ValidatorDetector
 from .formats.base import FormatHandler, HiddenItem
 from .formats.router import handler_for
@@ -77,8 +78,8 @@ class Inspection:
 
     extraction: Extraction
     findings: list[Finding]
-    #: What the *configuration* has to say: the registry's notes and any value a
-    #: caller asked to remove that is not in this document.
+    #: What the *configuration* has to say: the registry's notes. Value-free, so
+    #: they may travel anywhere a warning does, the report included.
     #:
     #: Kept apart from the handler's own warnings rather than merged, because the
     #: two are collected at different times. A handler goes on warning during
@@ -87,6 +88,23 @@ class Inspection:
     #: preview and short for a scrub. Merging them here dropped three of those,
     #: and the tests said so.
     notes: list[str]
+    #: Occurrences the detection layer dropped on purpose and which therefore
+    #: stay in the output: a city in a governing-law clause, a lowercase word
+    #: that is also a company name. Carried out of the registry rather than
+    #: recomputed, because stage 6 has to be told about exactly these and a
+    #: second opinion about which they are would be a second rule.
+    suppressed: list[Suppression] = field(default_factory=list)
+    #: Values a caller asked to remove that appear nowhere in this document.
+    #: Kept apart from ``notes`` because these *are* values: somebody thought
+    #: each one confidential enough to name. They used to be folded into
+    #: ``notes`` as a quoting sentence, and from there into ``ScrubResult.warnings``
+    #: and the JSON report - so a value reached disk exactly when it was absent
+    #: from the document it was reported against. One list of client names over
+    #: a folder of contracts wrote most of that list into every report.
+    unmatched: list[str] = field(default_factory=list)
+    #: The term list's counts for this document, or ``None`` when no list was
+    #: used - which is not the same as a list that matched nothing.
+    terms: TermsUse | None = None
 
     @property
     def stream(self) -> TextStream:
@@ -94,8 +112,13 @@ class Inspection:
 
     @property
     def warnings(self) -> list[str]:
-        """Everything a preview should say. Complete as of extraction."""
-        return [*self.extraction.warnings, *self.notes]
+        """Everything a preview should say. Complete as of extraction.
+
+        Quotes the unmatched values. A preview travels the local pipe, which
+        already carries every matched value, and a caller who pasted a name
+        needs to hear *which* one was not found.
+        """
+        return [*self.extraction.warnings, *self.notes, *map(unmatched_note, self.unmatched)]
 
 
 @dataclass
@@ -112,6 +135,25 @@ class ScrubResult:
     #: The optional review of the scrubbed text. ``None`` when nobody asked for
     #: one, which is not the same as a review that found nothing.
     review: ReviewOutcome | None = None
+    #: Occurrences left in the output on purpose. Reported rather than merely
+    #: allowed: without this the change that stopped these failing verification
+    #: would have turned a loud refusal into a silence, and a reader who is told
+    #: nothing believes the city is gone from the document when it is not.
+    suppressed: list[Suppression] = field(default_factory=list)
+    #: Requested removals that matched nothing. Values, so the report carries
+    #: only their count; see ``Inspection.unmatched``.
+    unmatched: list[str] = field(default_factory=list)
+    #: See ``Inspection.terms``.
+    terms: TermsUse | None = None
+
+    @property
+    def caller_warnings(self) -> list[str]:
+        """``warnings`` plus a sentence naming each unmatched value.
+
+        For the console and the local pipe, which already carry matched text,
+        and for nothing that reaches disk. ``build_report`` reads ``warnings``.
+        """
+        return [*self.warnings, *map(unmatched_note, self.unmatched)]
 
     @property
     def removed(self) -> list[Finding]:
@@ -161,6 +203,16 @@ class StageEvent:
 
 
 ProgressFn = Callable[[StageEvent], None]
+
+
+def unmatched_note(value: str) -> str:
+    """The sentence for a requested removal that matched nothing.
+
+    It quotes the value, so it belongs on a channel that already carries values
+    and never in a report. "Removed" and "was not there" look identical in the
+    output, which is why the caller is told at all.
+    """
+    return f"the value {value!r} was asked to be removed but does not appear in this document"
 
 
 #: Layer combinations addressable by name, for the CLI and the benchmark.
@@ -471,20 +523,15 @@ class Scrubber:
         """
         self._announce(plan, "detect")
         text = extraction.stream.text
-        findings = self.overrides.apply(text, self.registry.detect(text))
+        detected, suppressed = self.registry.detect_with_suppressions(text)
+        findings = self.overrides.apply(text, detected)
         return Inspection(
             extraction=extraction,
             findings=findings,
-            notes=[
-                *self.registry.notes,
-                # "Removed" and "was not there" look identical in the output, and
-                # a caller who pasted a value expects to hear which happened.
-                *(
-                    f"the value {value!r} was asked to be removed but does not "
-                    f"appear in this document"
-                    for value in self.overrides.unmatched(text)
-                ),
-            ],
+            suppressed=suppressed,
+            notes=list(self.registry.notes),
+            unmatched=self.overrides.unmatched(text),
+            terms=self.overrides.terms_use(findings),
         )
 
     def scrub(self, source: Path | FormatHandler) -> ScrubResult:
@@ -520,7 +567,17 @@ class Scrubber:
             handler.path,
             output,
             removed,
-            kept=[kept.text for kept in self.overrides.keep],
+            # Two sources, one mechanism, and the discipline is the same for
+            # both: an allowance is a count granted by something that named the
+            # occurrence. A person naming one in the preview is the original
+            # case; the suppression passes are the second, and they name spans
+            # too. Nothing else may add to this list - see
+            # `DetectorRegistry.detect_with_suppressions` for the three places
+            # that drop a finding without leaving anything behind.
+            kept=[
+                *(kept.text for kept in self.overrides.keep),
+                *(entry.finding.text for entry in inspection.suppressed),
+            ],
         )
 
         result = ScrubResult(
@@ -536,6 +593,9 @@ class Scrubber:
             # that say a placeholder did not fit or a sheet was renamed.
             warnings=[*handler.warnings, *inspection.notes],
             review=self._review(verify, plan),
+            suppressed=inspection.suppressed,
+            unmatched=inspection.unmatched,
+            terms=inspection.terms,
         )
         if self.strict and not verify.ok:
             raise LeakDetected(verify)

@@ -17,9 +17,11 @@ scrubbed document already published; the value behind it never appears here.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from .core.policy import Action
+from .detect.suppress import Suppression
 from .pipeline import ScrubResult
 from .restore import RestoreResult
 
@@ -120,6 +122,27 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
             for item in result.hidden_removed
         ],
         "warnings": list(result.warnings),
+        # A count and never the values. Each one is a string somebody named as
+        # confidential, and it is reported here precisely because it is *not*
+        # in this document - quoting it would put it on disk beside a file it
+        # has nothing to do with. The console and the pipe name them.
+        "requested_values_not_found": len(result.unmatched),
+        # The firm's term list, as two counts. Absent when no list was used, so
+        # "not used" cannot read as "used and matched nothing". Its misses are
+        # not in `requested_values_not_found` either: nearly every entry of a
+        # client register is absent from nearly every document, and quoting them
+        # is the G0 leak made routine.
+        **(
+            {"terms": {"loaded": result.terms.loaded, "matched": result.terms.matched}}
+            if result.terms is not None
+            else {}
+        ),
+        # Occurrences the detection layer left in place on purpose, so nobody
+        # reads a clean verification as "the value is gone from the document".
+        # Entity, rule and count and nothing else: this file reaches disk and
+        # gets attached to tickets, and the rule name is a closed vocabulary for
+        # the same reason the stage names are.
+        "suppressed": suppressed_section(result.suppressed),
         # The review quotes the *scrubbed* text, so its quotes are not
         # confidential values — they are what survived redaction, which is the
         # whole point of showing them. Absent entirely when no review was asked
@@ -143,6 +166,24 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
         "key_file_written": key_file,
         "caveats": [*CAVEATS, KEY_FILE_CAVEAT] if key_file else CAVEATS,
     }
+
+
+def suppressed_section(entries: Sequence[Suppression]) -> list[dict[str, Any]]:
+    """What was deliberately left behind, counted per entity and rule.
+
+    A count rather than the occurrences themselves, and never the text. The
+    value is confidential in the sentence it was removed from - that is why it
+    was removed there - so naming it here would put it back on disk through the
+    one channel that is meant to be safe to forward.
+    """
+    counts: dict[tuple[str, str], int] = {}
+    for entry in entries:
+        key = (entry.finding.entity.value, entry.rule)
+        counts[key] = counts.get(key, 0) + 1
+    return [
+        {"entity": entity, "rule": rule, "occurrences": count}
+        for (entity, rule), count in sorted(counts.items())
+    ]
 
 
 def _review_section(result: ScrubResult) -> dict[str, Any] | None:
@@ -181,7 +222,21 @@ def format_console(result: ScrubResult) -> str:
             f"    {item.part:<12} {item.kind:<26} {item.detail}" for item in result.hidden_removed
         )
 
-    lines.extend(f"  warning: {message}" for message in result.warnings)
+    if result.terms is not None:
+        lines.append(
+            f"  term list: {result.terms.matched} of {result.terms.loaded} entries "
+            "removed something in this document"
+        )
+    lines.extend(f"  warning: {message}" for message in result.caller_warnings)
+    # Said out loud, and before the verification line. A clean verify now means
+    # "nothing survived that was meant to go", which is not the same as "none of
+    # these words is in the output" — and the difference is invisible unless the
+    # decision is printed.
+    for entry in suppressed_section(result.suppressed):
+        lines.append(
+            f"  left in place: {entry['occurrences']} {entry['entity']} "
+            f"occurrence(s) judged {entry['rule']}"
+        )
     lines.append(f"  verify: {result.verify.summary()}")
 
     if result.review is not None:

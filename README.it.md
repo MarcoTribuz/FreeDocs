@@ -9,7 +9,7 @@
 
 <p align="center">
   PDF, Word, Excel, PowerPoint e scansioni — entrano, escono ripuliti, nello stesso formato.<br>
-  Sulla tua macchina. Nessun cloud, nessuna API key, nessuna telemetria, nessun account.
+  Sulla tua macchina, senza nessuno in mezzo: nessun cloud, nessun intermediario, nessuna API key, nessuna telemetria, nessun account.
 </p>
 
 <p align="center">
@@ -34,6 +34,16 @@ oppure disegnano rettangoli neri sopra un testo che sotto resta selezionabile.
 FreeDocs modifica il documento sul posto — e poi riapre quello che ha scritto, lo
 riestrae comprese le parti che non si vedono, e **fa fallire l'esecuzione se un
 solo valore rimosso è sopravvissuto**.
+
+**Tra te e il modello non c'è nessuno.** Un servizio di mascheramento che gira sul
+server di qualcun altro riceve il documento prima del modello, e per questo è un
+responsabile del trattamento: un accordo sul trattamento dei dati, un elenco di
+sub-responsabili e, per un avvocato o un fiduciario, una questione di segreto
+professionale. FreeDocs non ha niente di tutto questo perché il documento non va
+da nessuna parte — e il motore blocca le connessioni in uscita verso qualsiasi
+cosa non sia questa macchina, così una dipendenza che prova a chiamare casa
+fallisce come su un portatile scollegato. Ferma la chiamata accidentale, non il
+codice ostile; [SECURITY.md](SECURITY.md) dice esattamente fin dove arriva.
 
 <p align="center">
   <img src="docs/images/review.png" alt="Lo step Review: il documento estratto con ogni ritrovamento marcato, e il pannello di dettaglio che mostra cosa lo ha trovato, quanto ne è sicuro e i due modi per tenerlo" width="900">
@@ -113,11 +123,11 @@ la tabella e gli stili intatti.
 - **Numeri che puoi rieseguire.** `freedocs benchmark` misura i layer su un
   corpus annotato, e lo strumento stampa il proprio caveat ogni volta.
   → [benchmark](docs/benchmark.md)
-- **Se vuoi, anche la strada di ritorno.** `--map` scrive un file chiave cifrato,
-  e `freedocs restore` rimette i valori veri in ciò che il modello restituisce.
-  Disattivato per default, perché è l'unica cosa che rende una pulizia
-  annullabile: senza, la mappa viene distrutta alla fine del run e nessuno può
-  annullarla, tu compreso. → [il percorso inverso](docs/restore.md)
+- **Irreversibile per default; la strada di ritorno solo se la chiedi.** `--map`
+  scrive un file chiave cifrato, e `freedocs restore` rimette i valori veri in ciò
+  che il modello restituisce. Disattivato per default, perché è l'unica cosa che
+  rende una pulizia annullabile: senza, la mappa viene distrutta alla fine del run
+  e nessuno può annullarla, tu compreso. → [il percorso inverso](docs/restore.md)
 
 ## Partire subito
 
@@ -253,6 +263,9 @@ per natura.
   insieme alla copia pulita. Non può nemmeno riportare ciò che è stato *rimosso*
   invece che sostituito — miniature, metadati, slide nascoste — perché a quelle non
   è mai stato dato un segnaposto. → [il percorso inverso](docs/restore.md)
+- **Non parla con il modello al posto tuo.** Incolli la copia pulita
+  nell'assistente che usi, e FreeDocs non vede mai la conversazione. È il prezzo
+  di non avere nessuno in mezzo.
 - **Non è una garanzia di conformità e non dichiara mai che l'output è pulito.**
   `report.CAVEATS` mette i limiti nel report stesso.
 

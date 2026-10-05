@@ -100,7 +100,22 @@ describe('the catalogues', () => {
 		restoredSummary: { values: 3, occurrences: 7 },
 		restoreIncomplete: { count: 2 },
 		announceRestored: { count: 5 },
-		announceRestoredWithProblems: { count: 1 }
+		announceRestoredWithProblems: { count: 1 },
+		engineBuiltOn: { when: '23 August 2026 at 16:34' },
+		termsNeedsPassphrase: { min: 8 },
+		termsCount: { count: 40 },
+		termsRemoveOne: { value: 'Nordwind Holding' },
+		termsImportedTitle: { added: 38, skipped: 2 },
+		termsDeleteSource: { file: 'clients.csv' },
+		termsUnlocked: { count: 40 },
+		termsAdded: { count: 1 },
+		termsRemoved: { count: 1 },
+		termsImportedAnnounce: { count: 38 },
+		termsExportedAnnounce: { count: 40 },
+		termsMatched: { matched: 3, loaded: 50 },
+		textCount: { count: 1204 },
+		textTooLong: { max: 2000000 },
+		announceTextScrubbed: { count: 3 }
 	};
 
 	for (const [name, catalogue] of catalogues) {
@@ -123,7 +138,12 @@ describe('the catalogues', () => {
 				restoredSummary: catalogue.restoredSummary({ values: 1, occurrences: 1 }),
 				restoreIncomplete: catalogue.restoreIncomplete({ count: 1 }),
 				announceRestored: catalogue.announceRestored({ count: 1 }),
-				announceRestoredWithProblems: catalogue.announceRestoredWithProblems({ count: 1 })
+				announceRestoredWithProblems: catalogue.announceRestoredWithProblems({ count: 1 }),
+				termsCount: catalogue.termsCount({ count: 1 }),
+				termsImportedTitle: catalogue.termsImportedTitle({ added: 1, skipped: 1 }),
+				termsMatched: catalogue.termsMatched({ matched: 1, loaded: 1 }),
+				textCount: catalogue.textCount({ count: 1 }),
+				announceTextScrubbed: catalogue.announceTextScrubbed({ count: 1 })
 			};
 			for (const [key, produced] of Object.entries(ones)) {
 				expect(produced, `${name}.${key}`).toBeTruthy();

@@ -9,7 +9,7 @@
 
 <p align="center">
   PDF, Word, Excel, PowerPoint and scans — in, redacted, and out in the same format.<br>
-  On your machine. No cloud, no API key, no telemetry, no account.
+  On your machine, with nobody in between: no cloud, no processor, no API key, no telemetry, no account.
 </p>
 
 <p align="center">
@@ -31,6 +31,15 @@ Most tools that promise this hand you back a text file, or draw black rectangles
 over text that is still selectable underneath. FreeDocs edits the document in
 place — and then it re-opens what it wrote, re-extracts it including the parts you
 cannot see, and **fails the run if a single redacted value survived**.
+
+**Nobody sits between you and the model.** A masking service that runs on someone
+else's server receives the document before the model does, which makes it a data
+processor: a processing agreement, a sub-processor list and, for a lawyer or a
+fiduciary, a professional-secrecy question. FreeDocs has none of those because the
+document goes nowhere — and the engine blocks outbound connections to anything but
+this machine, so a dependency that tries to phone home fails as it would on an
+air-gapped laptop. That stops the accidental call, not hostile code;
+[SECURITY.md](SECURITY.md) says exactly how far it goes.
 
 <p align="center">
   <img src="docs/images/review.png" alt="The Review step: the extracted document with every finding marked, and the detail panel showing what found the selected value, how sure it is, and the two ways to keep it" width="900">
@@ -106,11 +115,11 @@ one placeholder, with the paragraph's formatting, the table and the styles intac
 - **Numbers you can re-run.** `freedocs benchmark` scores the layers against an
   annotated corpus, and the tool prints its own caveat every time.
   → [benchmark](docs/benchmark.md)
-- **Optionally, the way back.** `--map` writes an encrypted key file, and
-  `freedocs restore` puts the real values into whatever the model hands back. Off
-  by default, because it is the one thing that makes a scrub reversible: without
-  it the mapping is destroyed at the end of the run and nobody can undo it,
-  including you. → [the reverse path](docs/restore.md)
+- **Irreversible by default; the way back only if you ask.** `--map` writes an
+  encrypted key file, and `freedocs restore` puts the real values into whatever
+  the model hands back. Off by default, because it is the one thing that makes a
+  scrub reversible: without it the mapping is destroyed at the end of the run and
+  nobody can undo it, including you. → [the reverse path](docs/restore.md)
 
 ## Quickstart
 
@@ -241,6 +250,9 @@ The honest list, because the failures of a tool like this are silent by nature.
   send it with the scrubbed copy. It also cannot bring back content that was
   *removed* rather than replaced — thumbnails, metadata, hidden slides — because
   those were never given a placeholder. → [the reverse path](docs/restore.md)
+- **It does not talk to the model for you.** You paste the scrubbed copy into
+  whichever assistant you use, and FreeDocs never sees the conversation. That is
+  the cost of having nothing in between.
 - **It is not a compliance guarantee and never claims the output is clean.**
   `report.CAVEATS` states the limits in the report itself.
 

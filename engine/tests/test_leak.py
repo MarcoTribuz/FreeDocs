@@ -13,6 +13,7 @@ import pytest
 pytest.importorskip("stdnum", reason="python-stdnum is required for the L1 layer")
 
 from freedocs.core.findings import EntityType
+from freedocs.core.overrides import Override, RemovedValue
 from freedocs.core.policy import Action, Policy
 from freedocs.report import build_report
 from freedocs.verify import LeakDetected
@@ -256,6 +257,35 @@ def test_the_report_names_no_sheet_it_renamed(tmp_path: Path):
     )
 
 
+def test_the_report_does_not_quote_a_requested_value_it_did_not_find(tmp_path: Path):
+    """A value somebody asked to remove is a value, found or not.
+
+    The absent ones are the dangerous half. A found value becomes a placeholder
+    and a count; an absent one used to become a sentence quoting it, and that
+    sentence went into ``warnings`` and from there into the report - onto disk,
+    attached to a document it has nothing to do with. One list of client names
+    over a folder of contracts put most of the list into every report.
+
+    Both halves are asserted, because deleting the notice would also pass: the
+    report must still count what was not found, and the caller must still be
+    told which value it was.
+    """
+    absent = "Nordwind Holding"
+    present = "Scheda cliente"
+    path = tmp_path / "scheda.txt"
+    path.write_text(f"{present}: nessun dato\n", encoding="utf-8", newline="")
+
+    override = Override(remove=(RemovedValue(absent), RemovedValue(present)))
+    result = l1_scrubber(overrides=override).scrub_file(path)
+    report = build_report(result)
+
+    assert absent not in repr(report), "the report quotes a value that was not found"
+    assert present not in repr(report)
+    assert report["requested_values_not_found"] == 1
+    assert any(absent in message for message in result.caller_warnings)
+    assert not any(absent in message for message in result.warnings)
+
+
 def test_the_report_does_not_name_an_attachment(tmp_path: Path):
     """An attachment is routinely named after the person or the case it concerns.
 
@@ -307,3 +337,107 @@ def test_a_stale_override_never_reaches_the_report(tmp_path: Path):
     assert "re-inspect" in str(caught.value)
     # And nothing was written, so there is no report and no output to leak into.
     assert list(tmp_path.glob("*")) == [path]
+
+
+# -- the term list ------------------------------------------------------------------
+#
+# A term is a string no detector finds - that is the reason to keep a list - so
+# the only thing between it and the output is `Override._added` and write-back.
+# Run on every format, because the removal is only as good as the handler that
+# writes it, and searched for inside the container, because a docx's bytes lie.
+
+TERM = "Progetto Aurora Nordwind"
+
+
+def _term_scrub(path: Path):
+    from freedocs.core.terms import Term, TermList, with_terms
+
+    terms = TermList((Term(TERM, EntityType.ORGANISATION),))
+    return l1_scrubber(overrides=with_terms(Override(), terms)).scrub_file(path)
+
+
+def _term_source(tmp_path: Path, kind: str) -> Path:
+    sentence = f"Riunione interna sul {TERM} di lunedì."
+    if kind == "txt":
+        path = tmp_path / "nota.txt"
+        path.write_text(sentence + "\n", encoding="utf-8", newline="")
+        return path
+    if kind == "docx":
+        pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+        from .docx_builder import DocxSpec, write_docx
+
+        spec = DocxSpec(
+            paragraphs=[["Riunione interna sul Progetto ", "Aurora Nordwind di lunedì."]],
+            creator="",
+            last_modified_by="",
+            title="",
+            subject="",
+            keywords="",
+            company="",
+            manager="",
+            template="",
+        )
+        return write_docx(tmp_path / "nota.docx", spec)
+    if kind == "xlsx":
+        pytest.importorskip("lxml", reason="lxml is required for OOXML support")
+        from .xlsx_builder import Sheet, XlsxSpec, write_xlsx
+
+        spec = XlsxSpec(sheets=[Sheet(name="Note", rows=[["Progetto", TERM]])], company="")
+        return write_xlsx(tmp_path / "nota.xlsx", spec)
+    pymupdf = pytest.importorskip("pymupdf", reason="PyMuPDF is required for PDF support")
+    path = tmp_path / "nota.pdf"
+    doc = pymupdf.open()
+    doc.new_page().insert_text((60, 80), sentence, fontname="helv", fontsize=11)
+    doc.save(str(path), garbage=4, clean=True, deflate=True)
+    doc.close()
+    return path
+
+
+def _survives(kind: str, data: bytes) -> bool:
+    if kind == "txt":
+        return TERM in data.decode("utf-8")
+    if kind in ("docx", "xlsx"):
+        from .xlsx_builder import survives_anywhere
+
+        return survives_anywhere(data, TERM) or survives_anywhere(data, "Aurora")
+    from .test_pdf import survives_anywhere
+
+    return survives_anywhere(data, TERM) or survives_anywhere(data, "Aurora")
+
+
+@pytest.mark.parametrize("kind", ["txt", "docx", "xlsx", "pdf"])
+def test_a_term_no_detector_finds_does_not_survive(tmp_path: Path, kind: str):
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    result = _term_scrub(_term_source(tmp_path, kind))
+    assert result.verify.ok, result.verify.summary()
+    assert any(f.detector == "terms" for f in result.removed)
+    assert not _survives(kind, result.output), f"the term survived in the {kind} output"
+
+
+def test_the_report_counts_the_list_and_quotes_none_of_it(tmp_path: Path):
+    """Fifty entries, three in the document. The forty-seven absent ones are the
+    ones that would have been quoted before G0, into every report."""
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    from freedocs.core.terms import Term, TermList, with_terms
+
+    entries = [f"Cliente riservato {i:02d}" for i in range(50)]
+    path = tmp_path / "nota.txt"
+    path.write_text(
+        f"Incontro con {entries[3]}, {entries[17]} e {entries[41]}.\n",
+        encoding="utf-8",
+        newline="",
+    )
+    terms = TermList(tuple(Term(value) for value in entries))
+    result = l1_scrubber(overrides=with_terms(Override(), terms)).scrub_file(path)
+    report = build_report(result)
+    serialised = repr(report)
+
+    assert report["terms"] == {"loaded": 50, "matched": 3}
+    assert report["requested_values_not_found"] == 0
+    assert not [value for value in entries if value in serialised]
+    assert not [value for value in entries if value in " ".join(result.caller_warnings)]
+
+
+def test_a_scrub_without_a_list_reports_no_terms_section(source: Path):
+    """ "Not used" and "used and matched nothing" are different facts."""
+    assert "terms" not in build_report(l1_scrubber().scrub_file(source))

@@ -126,18 +126,6 @@ export interface Messages {
 	stageOf(a: { name: string; index: number; count: number }): string;
 	stagePages(a: { done: number; of: number }): string;
 
-	// ---- what this machine can do ------------------------------------------
-	diagnosticsTitle(): string;
-	diagnosticsOk(): string;
-	diagnosticsFix(): string;
-	/** A layer that is absent: this build does less, not nothing. */
-	diagnosticsDegraded(): string;
-	/** Something this build needs and does not have. */
-	diagnosticsBroken(): string;
-	countryModelOnly(): string;
-	rulesSilenced(a: { count: number }): string;
-	placeholderExample(a: { example: string }): string;
-
 	// ---- the result ---------------------------------------------------------
 	resultTitle(): string;
 	removedAndFlagged(a: { removed: number; flagged: number }): string;
@@ -213,6 +201,40 @@ export interface Messages {
 	detectorSpecHint(): string;
 
 	// ---- what this machine can do ------------------------------------------
+	/** The pane's re-ask control. */
+	diagnosticsRecheck(): string;
+	announceRechecked(): string;
+	copyFix(): string;
+	copied(): string;
+	copyUnavailable(): string;
+	locateTesseract(): string;
+	locateTesseractHint(): string;
+	/** The file dialog's own title, like `chooseKeyFile`. */
+	chooseTesseract(): string;
+	/**
+	 * Worded about the *binary*, never about OCR.
+	 *
+	 * An accepted Tesseract with no language data is still an OCR this build
+	 * cannot do, and the two halves install separately — so a message saying "OCR
+	 * is ready" would be the window making a claim only the engine can.
+	 */
+	tesseractAccepted(): string;
+	/**
+	 * The engine's refusal, by key.
+	 *
+	 * A literal-union record rather than `Record<string, ...>`, so `satisfies
+	 * Messages` proves every entry present in all four catalogues. The looser
+	 * shape used by `stage` cannot see a missing one.
+	 */
+	tesseractRefusal: Record<'not_executable' | 'wrong_name', () => string>;
+	/** A refusal key added in Python later must still render as something. */
+	tesseractRefusalOther(): string;
+	engineBuild(): string;
+	/** Where the engine came from, by key. A closed vocabulary from Rust. */
+	engineSource: Record<'override' | 'bundled' | 'checkout', () => string>;
+	engineBuiltOn(a: { when: string }): string;
+	/** Absent, which is not the same as a wrong date. */
+	engineBuildDateUnknown(): string;
 	diagnosticsTitle(): string;
 	diagnosticsOk(): string;
 	diagnosticsFix(): string;
@@ -260,6 +282,113 @@ export interface Messages {
 	chooseKeyDirectory(): string;
 	chooseKeyFile(): string;
 	keyFileFilter(): string;
+
+	// ---- text mode: paste in, scrubbed text out, the reply back ---------------
+	modeText(): string;
+	stepText(): string;
+	textTitle(): string;
+	/** What the mode is, and that nothing is written to disk. */
+	textHint(): string;
+	textLabel(): string;
+	textPlaceholder(): string;
+	textCount(a: { count: number }): string;
+	/** The engine's ceiling, from capabilities. */
+	textTooLong(a: { max: number }): string;
+	textInspect(): string;
+	textReviewTitle(): string;
+	textScrub(): string;
+	textKeepTitle(): string;
+	textKeepNone(): string;
+	textKeepNoneHint(): string;
+	textKeepMemory(): string;
+	textKeepMemoryHint(): string;
+	/** The one mapping the engine keeps past the request that made it. */
+	textKeepMemoryWarning(): string;
+	textKeepFile(): string;
+	textKeepFileHint(): string;
+	textKeyNeedsDirectory(): string;
+	textResultTitle(): string;
+	textScrubbedTitle(): string;
+	textNew(): string;
+	textCopy(): string;
+	textCopied(): string;
+	/** Said aloud: a failed copy pastes the previous clipboard into a model. */
+	textCopyFailed(): string;
+	textHeld(): string;
+	textNotKept(): string;
+	textNothingProduced(): string;
+	textReplyTitle(): string;
+	textReplyLabel(): string;
+	textReplyPlaceholder(): string;
+	textRestore(): string;
+	textRestoredTitle(): string;
+	announceTextScrubbed(a: { count: number }): string;
+
+	// ---- the term list: the persistent half of "also remove" -----------------
+	termsTitle(): string;
+	/** What the list is, said where it is opened. */
+	termsHint(): string;
+	/** The build has no cipher for the list. */
+	termsUnavailable(): string;
+	termsOpen(): string;
+	termsNew(): string;
+	termsCancel(): string;
+	termsPassphrase(): string;
+	termsConfirm(): string;
+	termsUnlock(): string;
+	termsCreate(): string;
+	termsLock(): string;
+	/** Lock, and stop remembering which file it was. */
+	termsForget(): string;
+	termsNeedsPassphrase(a: { min: number }): string;
+	termsMismatch(): string;
+	/** Said before the list exists: nothing recovers a forgotten passphrase. */
+	termsNewWarning(): string;
+	termsCount(a: { count: number }): string;
+	termsUse(): string;
+	termsSearch(): string;
+	termsNoMatch(): string;
+	termsEmpty(): string;
+	termsNewValue(): string;
+	termsEntity(): string;
+	/** OTHER, in the entity picker: the person has not said. */
+	termsEntityUnspecified(): string;
+	termsAdd(): string;
+	/** Accessible name of the per-row remove button. */
+	termsRemoveOne(a: { value: string }): string;
+	termsImport(): string;
+	termsExport(): string;
+	/** The cost of an export, said before the file is chosen. */
+	termsExportWarning(): string;
+	termsExportConfirm(): string;
+	termsExportedTitle(): string;
+	termsImportedTitle(a: { added: number; skipped: number }): string;
+	/** The engine never deletes the source; the person must. */
+	termsDeleteSource(a: { file: string }): string;
+	termsDismiss(): string;
+	termsFilter(): string;
+	termsRekey(): string;
+	termsCurrentPassphrase(): string;
+	termsNextPassphrase(): string;
+	termsRekeyConfirm(): string;
+	termsRekeyed(): string;
+	termsImportFilter(): string;
+	termsChooseFile(): string;
+	termsChooseNew(): string;
+	termsChooseImport(): string;
+	termsChooseExport(): string;
+	termsUnlocked(a: { count: number }): string;
+	termsLocked(): string;
+	termsAdded(a: { count: number }): string;
+	termsAlreadyThere(): string;
+	termsRemoved(a: { count: number }): string;
+	termsImportedAnnounce(a: { count: number }): string;
+	termsExportedAnnounce(a: { count: number }): string;
+	/** Tag on a finding the term list put there, beside `mine`. */
+	fromTermList(): string;
+	foundByTermList(): string;
+	/** Counts from the report. The entries that matched nothing are named nowhere. */
+	termsMatched(a: { matched: number; loaded: number }): string;
 
 	stepRestoreFile(): string;
 	restoreTitle(): string;

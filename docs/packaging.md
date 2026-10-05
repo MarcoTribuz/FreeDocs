@@ -97,6 +97,9 @@ Two platforms are absent and the reasons differ:
 
 Both are gaps rather than decisions about who to support.
 
+How to build and launch on each of these by hand, and where to record the result,
+is [building](building.md).
+
 **Nothing is signed, and nothing is set up to be.** The repository has no secrets
 at all, and `app.yml` deliberately sets no Apple signing variables: an unset
 secret does not arrive absent, it arrives as a set-and-empty variable, which
@@ -144,3 +147,10 @@ of bug that motivated the bundle on PRs is still caught early.
 Do not add a `paths` filter to it: the same filter would apply to the tag trigger,
 and a release tag whose commit touches nothing under `app/` would silently skip
 the build that makes the release.
+
+The tag is now checked before it can leave the machine. `app.yml` hands `tagName`
+to `tauri-action` verbatim and compares it against nothing, so `v0.3.0` on a tree
+whose `tauri.conf.json` says `0.2.0` would have produced a release named one
+thing and installers named another. The `pre-push` hook refuses that pairing, and
+refuses a tag pointing at a development version at all. How a version is set and
+where the tag comes from is [docs/gitflow.md](gitflow.md).

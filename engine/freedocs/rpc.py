@@ -26,6 +26,7 @@ reach a report, a warning or an error's ``data`` block.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
@@ -44,6 +45,7 @@ from .core.errors import (
     OutputRefused,
 )
 from .core.findings import EntityType
+from .core.limits import MAX_TERM_CHARS, MAX_TERMS, MAX_TEXT_CHARS
 from .core.mapping import (
     MIN_PASSPHRASE,
     BadPassphrase,
@@ -68,6 +70,20 @@ from .core.policy import (
 )
 from .core.sandbox import describe as describe_sandbox
 from .core.sandbox import harden
+from .core.terms import (
+    MIN_TERM_CHARS,
+    TermList,
+    TermListError,
+    create_terms,
+    open_terms,
+    parse_terms,
+    read_import,
+    rekey_terms,
+    save_terms,
+    terms_unavailable_reason,
+    with_terms,
+    write_export,
+)
 from .detect.llm_review import (
     DEFAULT_HOST as REVIEW_HOST,
 )
@@ -79,7 +95,13 @@ from .detect.llm_review import (
 )
 from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import engine_version, run_checks
-from .formats.pdf import ScannedPdfNotSupported, ocr_unavailable_reason
+from .formats.base import FormatHandler
+from .formats.pdf import (
+    ScannedPdfNotSupported,
+    adopt_tesseract,
+    ocr_unavailable_reason,
+    tesseract_binary,
+)
 from .formats.router import UnsupportedFormat
 from .pipeline import (
     LAYER_SPEC_NOTES,
@@ -90,8 +112,15 @@ from .pipeline import (
     country_coverage,
     default_registry,
 )
-from .report import CAVEATS, RESTORE_CAVEATS, build_report, build_restore_report
+from .report import (
+    CAVEATS,
+    RESTORE_CAVEATS,
+    build_report,
+    build_restore_report,
+    suppressed_section,
+)
 from .restore import Restorer
+from .text_mode import PASTED_NAME, TextMaps, UnknownHandle, decoded, handler_for_text
 from .verify import LeakDetected
 
 #: Application error codes. Distinct from JSON-RPC's own range so the app can
@@ -171,6 +200,16 @@ class Session:
     #: one it belongs to. A caller with two requests in flight would otherwise
     #: have to guess, and the answer would be wrong exactly when it mattered.
     current: Any = None
+    #: The one unlocked term list, and where it lives. Held for the life of the
+    #: unlock rather than per request, as the model weights are: a passphrase
+    #: asked on every document is how passphrases become "12345678". Released by
+    #: ``terms_lock``, by ``forget`` with ``terms``, and by the process ending.
+    _terms: TermList | None = None
+    _terms_path: Path | None = None
+    #: Mappings held for pasted text, under opaque handles, and only when the
+    #: scrub asked. The one place this process keeps a re-identification key past
+    #: the request that made it - bounded and released; see ``text_mode``.
+    _text_maps: TextMaps = field(default_factory=TextMaps)
 
     # -- transport -------------------------------------------------------------
 
@@ -287,17 +326,199 @@ class Session:
         this calls it on every exit path, including the ones where nothing was
         ever inspected.
         """
+        # The term list only when named. The window calls this with no
+        # arguments every time it drops its documents - clearing a batch,
+        # changing mode - and locking the list there too would ask for the
+        # passphrase after every batch, which is the habit that makes weak ones.
+        terms_locked = bool(params.get("terms")) and self._lock_terms()
+
+        # Held text mappings only when named, like the list: `"all"` or a list
+        # of handles. A request naming only these leaves the file cache alone -
+        # dropping a paste is not dropping the documents on another screen.
+        maps_released = 0
+        if "text_maps" in params:
+            try:
+                maps_released = self._text_maps.release(params["text_maps"])
+            except TypeError as exc:
+                raise RpcError(INVALID_REQUEST, str(exc)) from exc
+            if "paths" not in params:
+                return {
+                    "released": 0,
+                    "terms_locked": terms_locked,
+                    "text_maps_released": maps_released,
+                }
+
         wanted = params.get("paths")
         if wanted is None:
             released = len(self._extractions)
             self._extractions.clear()
-            return {"released": released}
+            return {
+                "released": released,
+                "terms_locked": terms_locked,
+                "text_maps_released": maps_released,
+            }
 
         names = {str(_as_path(value)) for value in wanted}
         keys = [key for key in self._extractions if key[0] in names]
         for key in keys:
             del self._extractions[key]
-        return {"released": len(keys)}
+        return {
+            "released": len(keys),
+            "terms_locked": terms_locked,
+            "text_maps_released": maps_released,
+        }
+
+    # -- the term list -----------------------------------------------------------
+    #
+    # Values travel this pipe in both directions, which is the channel that
+    # already carries every matched value and, on request, the whole document.
+    # What must not happen is a term or a passphrase inside an *error*: every
+    # failure below comes from `core/terms.py` or `core/sealed.py`, which quote
+    # line numbers and counts, and `_terms_errors` forwards those and nothing
+    # composed near a value.
+
+    def _lock_terms(self) -> bool:
+        was = self._terms is not None
+        self._terms = None
+        self._terms_path = None
+        return was
+
+    def _unlocked(self) -> tuple[TermList, Path]:
+        if self._terms is None or self._terms_path is None:
+            raise RpcError(INVALID_REQUEST, "the term list is locked; unlock it first")
+        return self._terms, self._terms_path
+
+    def _hold(self, path: Path, terms: TermList) -> dict[str, Any]:
+        self._terms, self._terms_path = terms, path
+        return {"path": str(path), "count": len(terms)}
+
+    def terms_create(self, params: dict[str, Any]) -> dict[str, Any]:
+        """A new, empty list, unlocked. Refused over anything that exists."""
+        path = _require_path(params, "path", must_exist=False)
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            return self._hold(path, create_terms(path, passphrase))
+
+    def terms_unlock(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Decrypt a list into this session. Answers with its size, not its terms."""
+        path = _require_path(params, "path")
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            return self._hold(path, open_terms(path, passphrase))
+
+    def terms_lock(self, _params: dict[str, Any]) -> dict[str, Any]:
+        return {"locked": True, "was_unlocked": self._lock_terms()}
+
+    def terms_list(self, params: dict[str, Any]) -> dict[str, Any]:
+        """The unlocked list, or the entries matching ``query``."""
+        terms, path = self._unlocked()
+        query = params.get("query")
+        if query is not None and not isinstance(query, str):
+            raise RpcError(INVALID_REQUEST, "'query' must be a string")
+        shown = terms.search(query)
+        return {
+            "path": str(path),
+            "count": len(terms),
+            "terms": [{"value": term.value, "entity": term.entity.value} for term in shown],
+        }
+
+    def terms_update(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Add and remove entries and save, in one request.
+
+        One request so there is no unsaved state anywhere: the window never holds
+        an edit the engine has not written, and a crash loses nothing that was
+        acknowledged.
+
+        **The list is re-read from disk with the passphrase given, not edited in
+        memory.** That is the check that the passphrase is the list's own - a save
+        under a mistyped one would re-key the client register to a passphrase
+        nobody knows, and succeed - and it also means a second window that saved
+        in between is merged into rather than overwritten.
+        """
+        _, path = self._unlocked()
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            add = parse_terms(_list_param(params, "add"))
+            remove = [str(value) for value in _list_param(params, "remove")]
+            current = open_terms(path, passphrase)
+            current, removed = current.without(remove)
+            current, added = current.with_added(add)
+            save_terms(path, current, passphrase)
+        return {**self._hold(path, current), "added": added, "removed": removed}
+
+    def terms_import(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Read a plaintext or CSV list into the unlocked one, and save.
+
+        The source is never deleted, and the response says it should be. Both
+        halves are deliberate: a plaintext copy beside the encrypted list is the
+        encryption defeated, and deleting a person's file is not this tool's
+        call. ``delete_source`` is a flag so the window can say it in the
+        reader's language; ``notice`` is the English sentence for everyone else.
+        """
+        _, path = self._unlocked()
+        source = _require_path(params, "source")
+        passphrase = _passphrase(params, "passphrase")
+        with _terms_errors():
+            incoming = read_import(source)
+            current = open_terms(path, passphrase)
+            current, added = current.with_added(incoming)
+            save_terms(path, current, passphrase)
+        return {
+            **self._hold(path, current),
+            "added": added,
+            "skipped": len(incoming) - added,
+            "delete_source": True,
+            "notice": (
+                f"{source.name} is not encrypted and still holds every entry; "
+                "delete it now that the term list has them"
+            ),
+        }
+
+    def terms_export(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Write the unlocked list out in plaintext, owner only.
+
+        The window confirms before it asks, and the response repeats the
+        warning, because this is the one way the list leaves its encryption and
+        the person should hear it at both ends.
+        """
+        terms, path = self._unlocked()
+        output = _require_path(params, "output", must_exist=False)
+        with _terms_errors():
+            write_export(output, terms, refuse=[path])
+        return {
+            "output": str(output),
+            "count": len(terms),
+            "warning": (
+                f"{output.name} is not encrypted; anyone who can read it can read "
+                "every entry, so delete it when you are done with it"
+            ),
+        }
+
+    def terms_rekey(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Change the unlocked list's passphrase. The old one must open it."""
+        _, path = self._unlocked()
+        old = _passphrase(params, "old")
+        new = _passphrase(params, "new")
+        with _terms_errors():
+            return self._hold(path, rekey_terms(path, old, new))
+
+    def _override_from(self, params: dict[str, Any]) -> Override:
+        """The caller's decisions, plus the term list when ``use_terms`` asks.
+
+        A locked list is a refusal, never a quiet skip. A scrub that ignored it
+        would produce a document the person believes had the firm's names taken
+        out, and the only sign otherwise would be those names in it.
+        """
+        override = _override_from(params)
+        if not params.get("use_terms"):
+            return override
+        if self._terms is None:
+            raise RpcError(
+                INVALID_REQUEST,
+                "use_terms was asked for and the term list is locked; unlock it, "
+                "or scrub without it",
+            )
+        return with_terms(override, self._terms)
 
     # -- methods ---------------------------------------------------------------
 
@@ -345,6 +566,18 @@ class Session:
             # the `scrub` request, and the failure landing after the scrubbed
             # copies were written.
             "passphrase_min_characters": MIN_PASSPHRASE,
+            # The term list is sealed with the key file's cipher, so this is the
+            # same answer under its own name: a window should not have to know
+            # the two features share an extra to offer the right controls.
+            "terms_available": terms_unavailable_reason() is None,
+            "terms_unavailable_reason": terms_unavailable_reason(),
+            "terms_max_entries": MAX_TERMS,
+            "term_min_characters": MIN_TERM_CHARS,
+            "term_max_characters": MAX_TERM_CHARS,
+            # The longest paste `inspect_text` and `scrub_text` accept, so the
+            # window can say so before sending two million characters down the
+            # pipe to be refused.
+            "text_max_characters": MAX_TEXT_CHARS,
             # Whether this process will refuse an outbound connection that is not
             # to this machine, and one sentence saying what else it gives up.
             # Published because "nothing leaves the machine" is the claim the
@@ -419,6 +652,54 @@ class Session:
             ],
         }
 
+    def use_tesseract(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Take a Tesseract the caller chose, and answer with what is true now.
+
+        A control, not a rule - the same shape as :meth:`forget`. Nothing here
+        decides what counts as a Tesseract: :func:`adopt_tesseract` validates it
+        with the same two checks that govern ``FREEDOCS_TESSERACT`` and
+        ``_SYSTEM_BINARIES``, so a caller cannot be more permissive than the
+        environment variable already is. There is no ``force`` or ``trust``
+        parameter, because one would put the capability and the refusal back into
+        the disagreement ``ocr_unavailable_reason`` is the single authority to
+        prevent.
+
+        **A refusal is a field, not an error.** Raising was the obvious shape and
+        it is the wrong one: the window would render an error and then separately
+        re-ask ``capabilities``, and those two answers could disagree. One payload
+        carrying the refusal *and* the resulting state makes that impossible by
+        construction - the two state fields below are the same two expressions
+        ``capabilities`` publishes, read from the same process after the attempt.
+
+        ``refused`` is an enum rather than a sentence so the window can translate
+        it, per the rule that an enum is translated and an f-string is quoted. The
+        two values are kept apart because the next move differs: pick another
+        file, versus rename this one.
+
+        ``accepted`` and ``ocr_available`` may honestly differ - an accepted
+        binary with the language data still missing is the two halves, not a
+        contradiction - and ``tesseract`` names what will be used *now*, which on
+        a refusal is whatever was already answering. "I refused yours, and here is
+        what I am using instead" is more useful than a bare no.
+
+        Needs no cache invalidation. A document that required OCR was *refused*
+        rather than cached, so nothing in ``_extractions`` was read without it,
+        and clearing the cache here would discard extractions that cost nothing to
+        keep.
+        """
+        # `must_exist=False`: a path that is gone and a path that is not runnable
+        # are the same user mistake - picked the wrong file - so they share the
+        # refusal channel. INVALID_REQUEST stays for a malformed request.
+        candidate = _require_path(params, "path", must_exist=False)
+        refused = adopt_tesseract(candidate)
+        return {
+            "accepted": refused is None,
+            "refused": refused,
+            "tesseract": tesseract_binary(),
+            "ocr_available": ocr_unavailable_reason() is None,
+            "ocr_unavailable_reason": ocr_unavailable_reason(),
+        }
+
     def countries(self, params: dict[str, Any]) -> dict[str, Any]:
         """Which countries get what, and what narrowing to some of them costs."""
         selection = _countries_from(params)
@@ -481,7 +762,7 @@ class Session:
         """
         path = _require_path(params, "path")
         policy = _policy_from(params)
-        scoped = _override_from(params).for_path(str(path))
+        scoped = self._override_from(params).for_path(str(path))
         scrubber = Scrubber(
             policy=policy,
             registry=self.registry(  # type: ignore[arg-type]
@@ -492,75 +773,15 @@ class Session:
         )
 
         extraction = self.extraction(scrubber, path)
-        try:
-            inspection = scrubber.detect_in(extraction)
-        except StaleOverride as exc:
-            # A decision pointing at text that has since changed is refused, never
-            # applied to whatever moved into that range. See overrides.py.
-            raise RpcError(INVALID_REQUEST, str(exc)) from exc
-        except (MissingDependency, ModelNotFound) as exc:
-            # A detector backend loads its model on first use, so a missing one
-            # surfaces here rather than at construction. Without this the app was
-            # told "internal error" for what is really "a component is missing".
-            #
-            # ModelNotFound rides along because it is the same answer to the
-            # user: FREEDOCS_NER_MODEL naming an incomplete directory is a
-            # portable build missing its weights, not an engine fault, and it
-            # reached no mapping at all before - so the window reported a
-            # misconfigured bundle as an internal error.
-            raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+        inspection = _detect(scrubber, extraction)
 
-        stream = inspection.stream
-        payload: dict[str, Any] = {
-            "path": str(path),
-            "format": extraction.format_name,
-            "characters": len(stream.text),
-            # The registry's notes belong here too. A preview taken with the
-            # checksum layer narrowed to two countries looks exactly like a
-            # preview taken with all thirteen, and the difference is the whole
-            # point of the option.
-            "warnings": inspection.warnings,
-            # What would be dropped that is not text. `freedocs inspect` has
-            # named the thumbnail, the comments and the tracked changes since
-            # `15ee0e1`; this payload did not, so the window's preview was silent
-            # about the leak users do not expect and learned of it only after a
-            # scrub. The same read produced both - `Scrubber.read` already calls
-            # `scrub_hidden` - so this was a missing field rather than missing
-            # work. `detail` is a description and never a value, which is what
-            # makes it safe to render on a screen and, one channel over, safe to
-            # write to a report.
-            "hidden": [
-                {"part": item.part, "kind": item.kind, "detail": item.detail}
-                for item in extraction.hidden
-            ],
-            "findings": [
-                {
-                    "start": finding.span.start,
-                    "end": finding.span.end,
-                    "entity": finding.entity.value,
-                    "action": policy.action_for(finding).value,
-                    "confidence": round(finding.confidence, 3),
-                    "detector": finding.detector,
-                    # Which layer claimed it: L1 a checksum, L2 the model, H the
-                    # caller. The most useful thing on a row a person is judging,
-                    # and computed here rather than guessed from the detector
-                    # string — which is what the window was reduced to doing.
-                    "layer": finding.layer.value,
-                    # Reaches the report and never the placeholder. Without it a
-                    # narrowed country selection is unverifiable from the preview.
-                    "country": finding.country,
-                    "part": stream.part_at(finding.span.start),
-                    # The value itself: a preview that cannot show what is about
-                    # to be removed is not a preview. See the module docstring on
-                    # why this is safe down this channel and nowhere else.
-                    "text": finding.text,
-                }
-                for finding in inspection.findings
-            ],
-        }
-        if params.get("include_text"):
-            payload.update(_preview(stream))
-        return payload
+        return _inspection_payload(
+            str(path),
+            extraction,
+            inspection,
+            policy,
+            include_text=bool(params.get("include_text")),
+        )
 
     def scrub(self, params: dict[str, Any]) -> dict[str, Any]:
         """Write scrubbed copies, reporting progress per file."""
@@ -582,7 +803,7 @@ class Session:
             strict=not bool(params.get("allow_leaks")),
             reviewer=_reviewer_from(params),
         )
-        override = _override_from(params)
+        override = self._override_from(params)
 
         results: list[dict[str, Any]] = []
         for index, path in enumerate(paths):
@@ -624,38 +845,8 @@ class Session:
         """
         try:
             result = scrubber.scrub_file(path)
-        except StaleOverride as exc:
-            # In place rather than raised, like every other per-file failure: a
-            # batch must not stop because one file moved under a decision.
-            return _failure(path, INVALID_REQUEST, str(exc))
-        except UnsupportedFormat as exc:
-            return _failure(path, UNSUPPORTED_FORMAT, str(exc))
-        except InputTooLarge as exc:
-            return _failure(path, INPUT_TOO_LARGE, str(exc))
-        except MalformedDocument as exc:
-            return _failure(path, MALFORMED_DOCUMENT, str(exc))
-        except ScannedPdfNotSupported as exc:
-            return _failure(path, NEEDS_OCR, str(exc))
-        except (MissingDependency, ModelNotFound) as exc:
-            # ModelNotFound is a broken bundle rather than an absent extra, but
-            # it is the same code and the same sentence to whoever reads it.
-            return _failure(path, MISSING_DEPENDENCY, str(exc))
-        except LeakDetected as exc:
-            # Nothing is written. The message is composed here rather than taken
-            # from the exception: this response may be logged by the app, and an
-            # error about confidential values surviving must not carry them.
-            # Leak.describe() is value-free too, but not relying on that is
-            # cheaper than depending on it staying that way.
-            return _failure(
-                path,
-                LEAK_DETECTED,
-                f"verification found {len(exc.result.leaks)} value(s) still present "
-                "in the scrubbed output, so nothing was written",
-                data={
-                    "leaks": len(exc.result.leaks),
-                    "entities": sorted({leak.entity for leak in exc.result.leaks}),
-                },
-            )
+        except _SCRUB_REFUSALS as exc:
+            return _scrub_refusal(path, exc)
 
         destination = output_dir / path.name
         try:
@@ -694,12 +885,19 @@ class Session:
             "output": str(destination),
             "removed": len(result.removed),
             "flagged": len(result.reported),
-            "warnings": [*result.warnings, *key_warnings],
+            # The quoting form: this response goes down the local pipe, which
+            # already carries matched text. The `report` below does not quote.
+            "warnings": [*result.caller_warnings, *key_warnings],
             "hidden_removed": [
                 {"part": item.part, "kind": item.kind, "detail": item.detail}
                 for item in result.hidden_removed
             ],
             "review": _review_payload(result),
+            # What was left in the output on purpose. The window needs it for
+            # the same reason the report does: a clean verification now means
+            # "nothing survived that was meant to go", and without this line a
+            # reader takes it to mean the word is not in the document.
+            "suppressed": suppressed_section(result.suppressed),
             "key_file": key_file,
             "report": build_report(result, key_file=key_file is not None),
         }
@@ -725,12 +923,7 @@ class Session:
         if not isinstance(passphrase, str) or not passphrase:
             raise RpcError(INVALID_REQUEST, "'passphrase' must be a non-empty string")
 
-        try:
-            key_map = read_key_map(map_path, passphrase)
-        except MissingDependency as exc:
-            raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
-        except (BadPassphrase, MalformedMap) as exc:
-            raise RpcError(INVALID_REQUEST, str(exc)) from exc
+        key_map = _open_key_map(map_path, passphrase)
 
         restorer = Restorer(key_map=key_map, progress=self.stage_reporter(str(path)))
         try:
@@ -762,30 +955,130 @@ class Session:
             raise RpcError(OUTPUT_REFUSED, str(exc)) from exc
         return {
             "path": str(path),
-            "ok": result.ok,
             "output": str(destination),
             "format": result.format_name,
-            "restored": [
-                {
-                    "placeholder": entry.placeholder,
-                    "entity": entry.entity,
-                    "occurrences": entry.occurrences,
-                    "expected": entry.expected,
-                }
-                for entry in result.restored
-            ],
-            "not_present": list(result.unused),
-            "unknown_placeholders": list(result.unknown),
-            "warnings": list(result.warnings),
-            "problems": [
-                {
-                    "placeholder": problem.placeholder,
-                    "entity": problem.entity,
-                    "kind": problem.kind,
-                }
-                for problem in result.problems
-            ],
-            "report": build_restore_report(result),
+            **_restore_payload(result),
+        }
+
+    # -- pasted text -----------------------------------------------------------
+    #
+    # The plaintext handler over a string, handed to the same `Scrubber` and
+    # `Restorer` a file goes through. Nothing is cached and nothing is written:
+    # re-extracting a paste costs nothing, and a cache entry is text held
+    # resident for no gain.
+
+    def inspect_text(self, params: dict[str, Any]) -> dict[str, Any]:
+        """`inspect` for a paste. The text is always returned: the caller sent it."""
+        handler = _text_handler(params)
+        policy = _policy_from(params)
+        scrubber = Scrubber(
+            policy=policy,
+            registry=self.registry(  # type: ignore[arg-type]
+                params.get("detectors"), _countries_from(params)
+            ),
+            overrides=self._override_from(params).for_path(PASTED_NAME),
+            progress=self.stage_reporter(PASTED_NAME),
+        )
+        extraction = _read(scrubber, handler)
+        inspection = _detect(scrubber, extraction)
+        return _inspection_payload(PASTED_NAME, extraction, inspection, policy, include_text=True)
+
+    def scrub_text(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Scrub a paste and return the scrubbed text. Nothing touches disk.
+
+        The mapping goes one of three ways, and the caller picks per text:
+        thrown away (the default, irreversible like every scrub), held under a
+        handle with ``keep_map`` until forgotten, or sealed into a key file with
+        ``map`` and ``map_passphrase``. Both at once is allowed and is two copies
+        of the same key the caller asked for.
+
+        A failure - a leak above all - comes back as `scrub`'s per-file failure
+        shape with **no** ``text``: a nearly-clean paste gets sent exactly as a
+        nearly-clean file does.
+        """
+        handler = _text_handler(params)
+        map_target, passphrase = _map_from(params, None)
+        placeholder_language = _locale_from(params)
+        scrubber = Scrubber(
+            policy=_policy_from(params),
+            registry=self.registry(  # type: ignore[arg-type]
+                params.get("detectors"), _countries_from(params)
+            ),
+            strict=not bool(params.get("allow_leaks")),
+            reviewer=_reviewer_from(params),
+            overrides=self._override_from(params).for_path(PASTED_NAME),
+            progress=self.stage_reporter(PASTED_NAME),
+        )
+        pasted = Path(PASTED_NAME)
+        try:
+            result = scrubber.scrub(handler)
+        except _SCRUB_REFUSALS as exc:
+            return _scrub_refusal(pasted, exc)
+
+        key_map = None
+        if map_target is not None or params.get("keep_map"):
+            key_map = key_map_from(result, placeholder_language=placeholder_language)
+
+        key_file: str | None = None
+        key_warnings: list[str] = []
+        if map_target is not None and key_map is not None:
+            key_path = map_path_for(map_target, pasted)
+            try:
+                write_key_map(key_path, key_map, passphrase)
+            except MissingDependency as exc:
+                return _failure(pasted, MISSING_DEPENDENCY, str(exc))
+            except OutputRefused as exc:
+                return _failure(pasted, OUTPUT_REFUSED, str(exc))
+            except ValueError as exc:
+                return _failure(pasted, INVALID_REQUEST, str(exc))
+            key_file = str(key_path)
+            key_warnings = key_map.warnings()
+
+        handle: str | None = None
+        if params.get("keep_map") and key_map is not None:
+            handle = self._text_maps.hold(key_map)
+            key_warnings = key_map.warnings()
+
+        return {
+            "path": PASTED_NAME,
+            "ok": True,
+            "text": decoded(handler, result.output),
+            "removed": len(result.removed),
+            "flagged": len(result.reported),
+            "warnings": [*result.caller_warnings, *key_warnings],
+            "review": _review_payload(result),
+            "suppressed": suppressed_section(result.suppressed),
+            "handle": handle,
+            "key_file": key_file,
+            # Returned, never saved. The caller may write it; the engine has no
+            # reason to put a paste's report anywhere.
+            "report": build_report(result, key_file=key_file is not None),
+        }
+
+    def restore_text(self, params: dict[str, Any]) -> dict[str, Any]:
+        """Put the values back into a pasted reply, from a handle or a key file.
+
+        A handle is not consumed: a second reply from the same model is normal
+        use. One that is not held - forgotten, evicted, or from before a restart
+        - is ``INVALID_REQUEST`` with a message naming no value.
+        """
+        handler = _text_handler(params)
+        if "handle" in params:
+            try:
+                key_map = self._text_maps.get(params["handle"])
+            except UnknownHandle as exc:
+                raise RpcError(INVALID_REQUEST, str(exc)) from exc
+        elif "map" in params:
+            key_map = _open_key_map(_require_path(params, "map"), _passphrase(params, "passphrase"))
+        else:
+            raise RpcError(INVALID_REQUEST, "restore_text needs a 'handle' or a 'map'")
+
+        restorer = Restorer(key_map=key_map, progress=self.stage_reporter(PASTED_NAME))
+        result = restorer.restore(handler)
+        return {
+            "path": PASTED_NAME,
+            "text": decoded(handler, result.output),
+            **_restore_payload(result),
         }
 
 
@@ -892,7 +1185,7 @@ def _locale_from(params: dict[str, Any]) -> str:
     return str(locale)
 
 
-def _map_from(params: dict[str, Any], output_dir: Path) -> tuple[Path | None, str]:
+def _map_from(params: dict[str, Any], output_dir: Path | None) -> tuple[Path | None, str]:
     """Where the key file goes and what opens it, or (None, "") for no key file.
 
     Validated here rather than at the moment of writing, so a request that cannot
@@ -917,7 +1210,8 @@ def _map_from(params: dict[str, Any], output_dir: Path) -> tuple[Path | None, st
             "'map' asks for a key file, so 'map_passphrase' is required: there is "
             "no unencrypted form of it",
         )
-    if not bool(params.get("map_in_output_dir")):
+    # A paste has no output directory, so there is nothing to land inside.
+    if output_dir is not None and not bool(params.get("map_in_output_dir")):
         complaint = refuse_inside(target, output_dir)
         if complaint:
             raise RpcError(INVALID_REQUEST, complaint)
@@ -935,6 +1229,39 @@ def _override_from(params: dict[str, Any]) -> Override:
     try:
         return parse_override(params.get("keep_spans"), params.get("remove"))
     except ValueError as exc:
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
+
+
+def _passphrase(params: dict[str, Any], key: str) -> str:
+    value = params.get(key)
+    if not isinstance(value, str) or not value:
+        raise RpcError(INVALID_REQUEST, f"{key!r} must be a non-empty string")
+    return value
+
+
+def _list_param(params: dict[str, Any], key: str) -> list[Any]:
+    value = params.get(key)
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise RpcError(INVALID_REQUEST, f"{key!r} must be a list")
+    return value
+
+
+@contextlib.contextmanager
+def _terms_errors() -> Iterator[None]:
+    """The term list's failures as codes. Every message is value-free at source."""
+    try:
+        yield
+    except MissingDependency as exc:
+        raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+    except InputTooLarge as exc:
+        raise RpcError(INPUT_TOO_LARGE, str(exc)) from exc
+    except OutputRefused as exc:
+        raise RpcError(OUTPUT_REFUSED, str(exc)) from exc
+    except (BadPassphrase, TermListError, ValueError) as exc:
+        # ValueError covers the passphrase floor, which `core/sealed.py` raises
+        # without quoting what it refused.
         raise RpcError(INVALID_REQUEST, str(exc)) from exc
 
 
@@ -977,7 +1304,7 @@ def _review_payload(result: Any) -> dict[str, Any] | None:
     }
 
 
-def _read(scrubber: Scrubber, path: Path) -> Extraction:
+def _read(scrubber: Scrubber, path: Path | FormatHandler) -> Extraction:
     """Route and extract, with the engine's refusals mapped to codes.
 
     The path goes in rather than a handler: routing is the first stage, and a
@@ -996,6 +1323,75 @@ def _read(scrubber: Scrubber, path: Path) -> Extraction:
         raise RpcError(NEEDS_OCR, str(exc)) from exc
     except MissingDependency as exc:
         raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+
+
+def _detect(scrubber: Scrubber, extraction: Extraction) -> Any:
+    """Stage three with the engine's refusals mapped to codes, for both inspects."""
+    try:
+        return scrubber.detect_in(extraction)
+    except StaleOverride as exc:
+        # A decision pointing at text that has since changed is refused, never
+        # applied to whatever moved into that range. See overrides.py.
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
+    except (MissingDependency, ModelNotFound) as exc:
+        # A detector backend loads its model on first use, so a missing one
+        # surfaces here rather than at construction. Without this the app was
+        # told "internal error" for what is really "a component is missing".
+        #
+        # ModelNotFound rides along because it is the same answer to the
+        # user: FREEDOCS_NER_MODEL naming an incomplete directory is a
+        # portable build missing its weights, not an engine fault, and it
+        # reached no mapping at all before - so the window reported a
+        # misconfigured bundle as an internal error.
+        raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+
+
+def _text_handler(params: dict[str, Any]) -> Any:
+    """The handler over a paste, with its refusals mapped to codes."""
+    try:
+        return handler_for_text(params.get("text"))
+    except TypeError as exc:
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
+    except InputTooLarge as exc:
+        raise RpcError(INPUT_TOO_LARGE, str(exc)) from exc
+
+
+def _open_key_map(map_path: Path, passphrase: str) -> Any:
+    """Read a key file, with the reasons it will not open mapped to codes."""
+    try:
+        return read_key_map(map_path, passphrase)
+    except MissingDependency as exc:
+        raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+    except (BadPassphrase, MalformedMap) as exc:
+        raise RpcError(INVALID_REQUEST, str(exc)) from exc
+
+
+def _restore_payload(result: Any) -> dict[str, Any]:
+    """What a restore did, for a file and for a paste alike. No path, no output."""
+    return {
+        "ok": result.ok,
+        "restored": [
+            {
+                "placeholder": entry.placeholder,
+                "entity": entry.entity,
+                "occurrences": entry.occurrences,
+                "expected": entry.expected,
+            }
+            for entry in result.restored
+        ],
+        "not_present": list(result.unused),
+        "unknown_placeholders": list(result.unknown),
+        "warnings": list(result.warnings),
+        "problems": [
+            {
+                "placeholder": problem.placeholder,
+                "entity": problem.entity,
+                "kind": problem.kind,
+            }
+            for problem in result.problems
+        ],
+        "report": build_restore_report(result),
+    }
 
 
 def _preview(stream: Any) -> dict[str, Any]:
@@ -1029,6 +1425,149 @@ def _preview(stream: Any) -> dict[str, Any]:
     }
 
 
+def _inspection_payload(
+    label: str,
+    extraction: Extraction,
+    inspection: Any,
+    policy: Policy,
+    *,
+    include_text: bool,
+) -> dict[str, Any]:
+    """One inspection as the wire carries it, for a file and for a paste alike.
+
+    One builder, because two would be how a pasted text comes to be previewed
+    differently from the same words in a file.
+    """
+    stream = inspection.stream
+    payload: dict[str, Any] = {
+        "path": label,
+        "format": extraction.format_name,
+        "characters": len(stream.text),
+        # The registry's notes belong here too. A preview taken with the
+        # checksum layer narrowed to two countries looks exactly like a
+        # preview taken with all thirteen, and the difference is the whole
+        # point of the option.
+        "warnings": inspection.warnings,
+        # Occurrences the detection layer will deliberately leave behind, so
+        # the preview can say why a value it shows as confidential is still
+        # visible three lines further down.
+        "suppressed": suppressed_section(inspection.suppressed),
+        # What would be dropped that is not text. `freedocs inspect` has
+        # named the thumbnail, the comments and the tracked changes since
+        # `15ee0e1`; this payload did not, so the window's preview was silent
+        # about the leak users do not expect and learned of it only after a
+        # scrub. The same read produced both - `Scrubber.read` already calls
+        # `scrub_hidden` - so this was a missing field rather than missing
+        # work. `detail` is a description and never a value, which is what
+        # makes it safe to render on a screen and, one channel over, safe to
+        # write to a report.
+        "hidden": [
+            {"part": item.part, "kind": item.kind, "detail": item.detail}
+            for item in extraction.hidden
+        ],
+        "findings": [
+            {
+                "start": finding.span.start,
+                "end": finding.span.end,
+                "entity": finding.entity.value,
+                "action": policy.action_for(finding).value,
+                "confidence": round(finding.confidence, 3),
+                "detector": finding.detector,
+                # Which layer claimed it: L1 a checksum, L2 the model, H the
+                # caller. The most useful thing on a row a person is judging,
+                # and computed here rather than guessed from the detector
+                # string — which is what the window was reduced to doing.
+                "layer": finding.layer.value,
+                # Reaches the report and never the placeholder. Without it a
+                # narrowed country selection is unverifiable from the preview.
+                "country": finding.country,
+                "part": stream.part_at(finding.span.start),
+                # The value itself: a preview that cannot show what is about
+                # to be removed is not a preview. See the module docstring on
+                # why this is safe down this channel and nowhere else.
+                "text": finding.text,
+            }
+            for finding in inspection.findings
+        ],
+    }
+    if inspection.terms is not None:
+        payload["terms"] = {
+            "loaded": inspection.terms.loaded,
+            "matched": inspection.terms.matched,
+        }
+    if include_text:
+        payload.update(_preview(stream))
+    return payload
+
+
+#: What one document's scrub can fail with, reported in place so a batch goes on.
+_SCRUB_REFUSALS = (
+    StaleOverride,
+    UnsupportedFormat,
+    InputTooLarge,
+    MalformedDocument,
+    ScannedPdfNotSupported,
+    MissingDependency,
+    ModelNotFound,
+    LeakDetected,
+)
+
+
+def _scrub_refusal(path: Path, exc: Exception) -> dict[str, Any]:
+    """One scrub failure as data rather than as an exception.
+
+    Shared by a file's scrub and a paste's, so the leak shape - value-free, and
+    carrying no output - is one definition.
+    """
+    if isinstance(exc, StaleOverride):
+        # In place rather than raised, like every other per-file failure: a
+        # batch must not stop because one file moved under a decision.
+        return _failure(path, INVALID_REQUEST, str(exc))
+    if isinstance(exc, UnsupportedFormat):
+        return _failure(path, UNSUPPORTED_FORMAT, str(exc))
+    if isinstance(exc, InputTooLarge):
+        return _failure(path, INPUT_TOO_LARGE, str(exc))
+    if isinstance(exc, MalformedDocument):
+        return _failure(path, MALFORMED_DOCUMENT, str(exc))
+    if isinstance(exc, ScannedPdfNotSupported):
+        return _failure(path, NEEDS_OCR, str(exc))
+    if isinstance(exc, (MissingDependency, ModelNotFound)):
+        # ModelNotFound is a broken bundle rather than an absent extra, but
+        # it is the same code and the same sentence to whoever reads it.
+        return _failure(path, MISSING_DEPENDENCY, str(exc))
+    if isinstance(exc, LeakDetected):
+        # Nothing is written. The message is composed here rather than taken
+        # from the exception: this response may be logged by the app, and an
+        # error about confidential values surviving must not carry them.
+        # Leak.describe() is value-free too, but not relying on that is
+        # cheaper than depending on it staying that way.
+        return _failure(
+            path,
+            LEAK_DETECTED,
+            f"verification found {len(exc.result.leaks)} value(s) still present "
+            "in the scrubbed output, so nothing was written",
+            data={
+                "leaks": len(exc.result.leaks),
+                "entities": sorted({leak.entity for leak in exc.result.leaks}),
+                # Per leak as well as in total. All three fields are
+                # value-free - the entity, which layer nominated it and how
+                # many times it survived - and without them the window can
+                # only say "4 value(s)", which is where every diagnosis of
+                # this error has had to start from scratch.
+                "detail": [
+                    {
+                        "entity": leak.entity,
+                        "detector": leak.detector,
+                        "occurrences": leak.occurrences,
+                        "allowed": leak.allowed,
+                    }
+                    for leak in exc.result.leaks
+                ],
+            },
+        )
+    raise exc  # pragma: no cover - _SCRUB_REFUSALS lists every branch above
+
+
 def _failure(path: Path, code: int, message: str, data: Any = None) -> dict[str, Any]:
     return {
         "path": str(path),
@@ -1051,6 +1590,18 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "scrub": session.scrub,
         "restore": session.restore,
         "forget": session.forget,
+        "use_tesseract": session.use_tesseract,
+        "terms_create": session.terms_create,
+        "terms_unlock": session.terms_unlock,
+        "terms_lock": session.terms_lock,
+        "terms_list": session.terms_list,
+        "terms_update": session.terms_update,
+        "terms_import": session.terms_import,
+        "terms_export": session.terms_export,
+        "terms_rekey": session.terms_rekey,
+        "inspect_text": session.inspect_text,
+        "scrub_text": session.scrub_text,
+        "restore_text": session.restore_text,
     }
 
 

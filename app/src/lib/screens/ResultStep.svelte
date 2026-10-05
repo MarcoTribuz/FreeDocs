@@ -51,6 +51,11 @@
 				<p class="hint">
 					{m.verificationPassedHint({ checked: result.report.verification.values_checked })}
 				</p>
+				{#if result.report.terms}
+					<!-- Counts from the report. The entries that matched nothing are
+					     named nowhere, which is the point of the section. -->
+					<p class="hint">{m.termsMatched(result.report.terms)}</p>
+				{/if}
 			{/if}
 
 			<p class="path">

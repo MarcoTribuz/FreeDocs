@@ -90,6 +90,18 @@ export interface Capabilities {
 	 * screen sentences that do not apply to what they are looking at.
 	 */
 	restore_caveats: string[];
+	/**
+	 * Whether this build can open a term list. The same cipher as the key file,
+	 * published under its own name so the window need not know they share it.
+	 */
+	terms_available: boolean;
+	terms_unavailable_reason: string | null;
+	/** The engine's limits on a list and on one entry, so a refusal is not the first word. */
+	terms_max_entries: number;
+	term_min_characters: number;
+	term_max_characters: number;
+	/** The longest paste the engine accepts, in code points. Asked, never restated. */
+	text_max_characters: number;
 }
 
 export interface Concern {
@@ -172,6 +184,20 @@ export interface Inspection {
 	text_end?: number;
 	text_truncated?: boolean;
 	parts?: Part[];
+	/** Present only when the term list was used. See `TermsUse`. */
+	terms?: TermsUse;
+}
+
+/**
+ * How much of the term list one document met. Counts, never values.
+ *
+ * `matched` counts entries that removed something. The ones that did not are
+ * named nowhere, on purpose: a client register is mostly absent from any given
+ * document, and listing its misses would write the register into every report.
+ */
+export interface TermsUse {
+	loaded: number;
+	matched: number;
 }
 
 export interface HiddenItem {
@@ -209,6 +235,11 @@ export interface Report {
 	totals: { removed: number; reported_only: number };
 	hidden_content_removed: HiddenItem[];
 	warnings: string[];
+	/**
+	 * How many requested removals matched nothing. A count, because each one is a
+	 * value somebody named; the response's own `warnings` is where they are named.
+	 */
+	requested_values_not_found: number;
 	verification: Verification;
 	/**
 	 * Whether a key file was written for this document. A boolean and not a path:
@@ -216,6 +247,8 @@ export interface Report {
 	 * thing about it worth not writing down.
 	 */
 	key_file_written: boolean;
+	/** Absent when no term list was used, so "not used" cannot read as "matched nothing". */
+	terms?: TermsUse;
 	caveats: string[];
 }
 
@@ -236,6 +269,25 @@ export interface ScrubResult {
 	 * local pipe to the process that chose the location, while the report is a file
 	 * that may travel.
 	 */
+	key_file?: string | null;
+	report?: Report;
+	error?: { code: number; message: string; data?: unknown };
+}
+
+/**
+ * What `scrub_text` answers. `text` is absent on a failure - a leak above all -
+ * because a nearly-clean paste gets sent exactly as a nearly-clean file does.
+ */
+export interface TextScrubResult {
+	path: string;
+	ok: boolean;
+	text?: string;
+	removed?: number;
+	flagged?: number;
+	warnings?: string[];
+	review?: Review | null;
+	/** The engine's name for the held mapping, or null when none was kept. */
+	handle?: string | null;
 	key_file?: string | null;
 	report?: Report;
 	error?: { code: number; message: string; data?: unknown };
@@ -289,6 +341,9 @@ export interface RestoreResult {
 	problems: { placeholder: string; entity: string; kind: string }[];
 	report?: Record<string, unknown>;
 }
+
+/** What `restore_text` answers: a restore without a file, carrying the text. */
+export type TextRestoreResult = Omit<RestoreResult, 'output' | 'format'> & { text: string };
 
 export interface EntityInfo {
 	name: string;
@@ -445,6 +500,13 @@ export interface ScrubOptions {
 	 * sending the scrubbed document along with the key to undo it.
 	 */
 	mapInOutputDir?: boolean;
+	/**
+	 * Merge the unlocked term list into this request's removals. The terms stay in
+	 * the engine: this is a flag, never the list. A locked list with this set is
+	 * refused rather than skipped — a scrub that quietly left the firm's names in
+	 * is the failure the list exists to prevent.
+	 */
+	useTerms?: boolean;
 }
 
 /**
@@ -497,16 +559,88 @@ async function request<T>(method: string, params: Record<string, unknown> = {}):
  * that is occasionally skipped.
  */
 export function forget(paths?: string[]): void {
+	// Never `terms: true` from here. The window forgets after every batch, and the
+	// term list is unlocked once per session - locking it on every tidy-up would
+	// ask for the passphrase after every scrub. `termsLock` is the explicit call.
 	void request<{ released: number }>('forget', paths ? { paths } : {}).catch(() => {});
 }
 
-export async function engineStatus(): Promise<string | null> {
+/**
+ * Release held text mappings, named or all. Only these: the file cache and the
+ * term list are left alone, because dropping a paste is not dropping the
+ * documents on another screen. Fire and forget, like `forget`.
+ */
+export function forgetTextMaps(handles: string[] | 'all'): void {
+	void request('forget', { text_maps: handles }).catch(() => {});
+}
+
+/** Which of `locate`'s three routes named the engine executable. */
+export type EngineSource = 'override' | 'bundled' | 'checkout';
+
+/**
+ * Which engine this session is talking to, as the shell that started it sees it.
+ *
+ * Not asked of the engine, and it cannot be: in a checkout the shell spawns
+ * `freedocs-rpc` while the engine's own `sys.executable` is the interpreter, so a
+ * build date from Python would be the mtime of Python.
+ *
+ * It exists because a sidecar from before a fix reports the missing capability
+ * perfectly correctly and therefore reads as a broken machine. Both builds call
+ * themselves the same version, so the route and the date are the only facts that
+ * tell them apart.
+ */
+export interface EngineIdentity {
+	executable: string;
+	source: EngineSource;
+	/** Seconds since the epoch. Null when unreadable — never zero, which would
+	 *  render as 1 January 1970: a wrong date rather than an absent one. */
+	modified: number | null;
+}
+
+export async function engineStatus(): Promise<{
+	identity: EngineIdentity | null;
+	problem: string | null;
+}> {
 	try {
-		await invoke('engine_status');
-		return null;
+		return { identity: await invoke<EngineIdentity>('engine_status'), problem: null };
 	} catch (raw) {
-		return String(raw);
+		return { identity: null, problem: String(raw) };
 	}
+}
+
+/**
+ * The two refusals `use_tesseract` can answer with.
+ *
+ * An enum rather than a sentence, so the window says it in the reader's language
+ * — the engine's rule is that an enum is translated and an f-string is quoted.
+ * Two values because the next move differs: pick a different file, versus rename
+ * or symlink this one.
+ */
+export type TesseractRefusal = 'not_executable' | 'wrong_name';
+
+export interface TesseractChoice {
+	accepted: boolean;
+	/** Null when the choice took. */
+	refused: TesseractRefusal | null;
+	/**
+	 * What the engine will use *now* — which on a refusal is whatever was already
+	 * answering, not the path just offered.
+	 */
+	tesseract: string | null;
+	ocr_available: boolean;
+	ocr_unavailable_reason: string | null;
+}
+
+/**
+ * Offer the engine a Tesseract, and take its answer for what is true afterwards.
+ *
+ * A refusal arrives as a field rather than a thrown error, deliberately: an error
+ * would mean the window rendered one message and then separately re-asked
+ * capabilities, and those two answers could disagree. One payload carrying both
+ * makes that impossible.
+ */
+export function useTesseract(path: string): Promise<TesseractChoice> {
+	return request<TesseractChoice>('use_tesseract', { path });
 }
 
 export function capabilities(): Promise<Capabilities> {
@@ -562,6 +696,38 @@ export function scrub(
 }
 
 /**
+ * `inspect` over pasted text. The text is always returned: the caller sent it.
+ * `includeText` is therefore ignored.
+ */
+export function inspectText(text: string, options: ScrubOptions = {}): Promise<Inspection> {
+	return request<Inspection>('inspect_text', toParams({ text }, options));
+}
+
+/**
+ * Scrub pasted text. Nothing reaches disk unless a key file was asked for.
+ *
+ * `keepMap` asks the engine to hold the mapping under a handle until it is
+ * forgotten, so a reply can be restored without a passphrase. Off unless the
+ * person chose it, per text: the default is irreversible like every scrub.
+ */
+export function scrubText(
+	text: string,
+	options: ScrubOptions & { keepMap?: boolean } = {}
+): Promise<TextScrubResult> {
+	const params = toParams({ text }, options);
+	if (options.keepMap) params.keep_map = true;
+	return request<TextScrubResult>('scrub_text', params);
+}
+
+/** Put the values back into a pasted reply, from a held handle or a key file. */
+export function restoreText(
+	text: string,
+	from: { handle: string } | { map: string; passphrase: string }
+): Promise<TextRestoreResult> {
+	return request<TextRestoreResult>('restore_text', { text, ...from });
+}
+
+/**
  * Put one document's values back from its key file.
  *
  * One path, not a list: a key file describes one document, so a batch would
@@ -580,6 +746,85 @@ export function restore(
 		passphrase,
 		output_dir: outputDir
 	});
+}
+
+/** One entry of the term list, as the engine names it. */
+export interface Term {
+	value: string;
+	/** An `EntityType` name; `OTHER` when the person did not say what it is. */
+	entity: string;
+}
+
+/** Where the unlocked list lives and how many entries it holds. Never the entries. */
+export interface TermsHeld {
+	path: string;
+	count: number;
+}
+
+/**
+ * The term list over the pipe. The unlocked list lives in the engine's session,
+ * like the model weights: a passphrase asked per document is how passphrases get
+ * weak. Every call below that changes the file carries the passphrase, because the
+ * engine re-opens the file with it before saving — a save under a mistyped one
+ * would otherwise re-key the list to a passphrase nobody knows, and succeed.
+ */
+export function termsCreate(path: string, passphrase: string): Promise<TermsHeld> {
+	return request<TermsHeld>('terms_create', { path, passphrase });
+}
+
+export function termsUnlock(path: string, passphrase: string): Promise<TermsHeld> {
+	return request<TermsHeld>('terms_unlock', { path, passphrase });
+}
+
+export function termsLock(): Promise<{ locked: boolean; was_unlocked: boolean }> {
+	return request('terms_lock');
+}
+
+/** The entries matching `query`, ignoring case and accents; all of them without one. */
+export function termsList(query?: string): Promise<TermsHeld & { terms: Term[] }> {
+	return request('terms_list', query ? { query } : {});
+}
+
+export function termsUpdate(
+	passphrase: string,
+	change: { add?: Term[]; remove?: string[] }
+): Promise<TermsHeld & { added: number; removed: number }> {
+	return request('terms_update', {
+		passphrase,
+		add: change.add ?? [],
+		remove: change.remove ?? []
+	});
+}
+
+/**
+ * Read a plaintext or CSV file into the list.
+ *
+ * `delete_source` is always true and is a flag so the window can say it in the
+ * reader's language; `notice` is the engine's English sentence. The engine never
+ * deletes the file itself, and neither does this window.
+ */
+export function termsImport(
+	source: string,
+	passphrase: string
+): Promise<
+	TermsHeld & { added: number; skipped: number; delete_source: boolean; notice: string }
+> {
+	return request('terms_import', { source, passphrase });
+}
+
+/**
+ * Change the passphrase. The old one must open the file; the engine re-seals it
+ * atomically, so a failure leaves the list under the passphrase it had.
+ */
+export function termsRekey(old: string, next: string): Promise<TermsHeld> {
+	return request<TermsHeld>('terms_rekey', { old, new: next });
+}
+
+/** Write the list out **unencrypted**. The window confirms before it calls this. */
+export function termsExport(
+	output: string
+): Promise<{ output: string; count: number; warning: string }> {
+	return request('terms_export', { output });
 }
 
 function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<string, unknown> {
@@ -603,6 +848,7 @@ function toParams(base: Record<string, unknown>, options: ScrubOptions): Record<
 	// Both or neither. A `map` without a passphrase is refused by the engine, and
 	// sending one alone would make an unused field look like it had an effect — the
 	// same rule the review host above follows.
+	if (options.useTerms) params.use_terms = true;
 	if (options.map && options.mapPassphrase) {
 		params.map = options.map;
 		params.map_passphrase = options.mapPassphrase;

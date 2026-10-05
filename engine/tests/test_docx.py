@@ -27,7 +27,14 @@ from freedocs.formats.ooxml.docx import DOCUMENT, DocxHandler
 from freedocs.formats.router import handler_for
 
 from .conftest import CANARIES, l1_scrubber
-from .docx_builder import DocxSpec, all_part_text, part_names, part_text, write_docx
+from .docx_builder import (
+    DocxSpec,
+    all_part_text,
+    build_docx,
+    part_names,
+    part_text,
+    write_docx,
+)
 
 #: A name deliberately split across three runs, the case that breaks naive tools.
 SPLIT_NAME_PARAGRAPH = ["Cliente: ", "Mario", " Rossi"]
@@ -378,3 +385,76 @@ def test_a_document_with_nothing_hidden_reports_nothing_removed(tmp_path: Path):
         rsid_table=False,
     )
     assert l1_scrubber().scrub_file(path).hidden_removed == []
+
+
+# -- a hyperlink is a text boundary -------------------------------------------
+
+
+def test_a_run_after_a_hyperlink_does_not_fuse_with_the_link_text():
+    """Word writes no structural element between a link and the words after it.
+
+    So the flat stream read `Malakoff Humanisconsulte` on a real document - the
+    company name complete, with the next word glued to it. Nothing about that is
+    visible in Word, and it is not a cosmetic problem: `propagate.py` matches on
+    `(?<!\\w)`/`(?!\\w)`, so the second sighting of a name that ends fused is
+    invisible to propagation while stage 6, which counts substrings, finds it in
+    the output and calls it a leak. The company name stays in the document.
+
+    A space rather than a newline: a link sits inside a sentence, and a line
+    break there would stop `detect/addresses.py` assembling an address written
+    around one.
+    """
+    spec = DocxSpec(
+        paragraphs=[["Fonte:"]],
+        hyperlink=("Malakoff Humanis", "https://example.invalid/etude"),
+        hyperlink_tail="consulte en janvier 2025",
+    )
+    handler = DocxHandler(Path("link.docx"), build_docx(spec))
+    text = handler.extract().text
+    assert "Malakoff Humanisconsulte" not in text
+    assert "Malakoff Humanis consulte" in text
+
+
+def test_a_run_before_a_hyperlink_does_not_fuse_either():
+    spec = DocxSpec(
+        paragraphs=[],
+        hyperlink=("Malakoff Humanis", "https://example.invalid/etude"),
+    )
+    spec.paragraphs = []
+    handler = DocxHandler(Path("link.docx"), build_docx(spec))
+    text = handler.extract().text
+    assert "Malakoff Humanis" in text
+
+
+def test_the_boundary_does_not_break_a_name_split_across_runs():
+    """The filler is only at the link boundary, never between ordinary runs.
+
+    Word routinely splits `Mario Rossi` across three runs after a spell-check,
+    and joining those is the reason `core/stream.py` exists. A boundary emitted
+    between every run would undo it.
+    """
+    spec = DocxSpec(paragraphs=[["Mario", " ", "Rossi"]])
+    handler = DocxHandler(Path("split.docx"), build_docx(spec))
+    assert "Mario Rossi" in handler.extract().text
+
+
+def test_an_edit_still_lands_when_it_touches_the_link_text():
+    """Filler has no source location: an edit covering only filler raises.
+
+    The link text is a real anchor either side of the new boundary, so a finding
+    inside it still writes back.
+    """
+    spec = DocxSpec(
+        paragraphs=[["Fonte:"]],
+        hyperlink=("Malakoff Humanis", "https://example.invalid/etude"),
+        hyperlink_tail="consulte en janvier 2025",
+    )
+    handler = DocxHandler(Path("link.docx"), build_docx(spec))
+    stream = handler.extract()
+    start = stream.text.index("Malakoff Humanis")
+    output = handler.write_back(
+        stream.plan_edits([Edit(span=Span(start, start + 16), replacement="[ORGANISATION_1]")])
+    )
+    body = part_text(output, "word/document.xml")
+    assert "[ORGANISATION_1]" in body
+    assert "Malakoff" not in body

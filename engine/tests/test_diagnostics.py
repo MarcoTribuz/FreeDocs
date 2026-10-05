@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -64,7 +65,13 @@ def test_the_ocr_check_names_which_half_is_missing(monkeypatch):
     check = diagnostics._ocr_check()
     assert not check.ok
     assert "executable" in check.detail
-    assert check.fix and "package manager" in check.fix
+    # The binary half, whichever route this machine gets: the command for a
+    # package manager that is actually installed, or the sentence naming both
+    # routes when none is. Asserted on the *subject* rather than the wording,
+    # because the wording is now machine-dependent - and it must never be the
+    # tessdata advice, which is the other half.
+    assert check.fix and "tesseract" in check.fix.casefold()
+    assert "FREEDOCS_TESSDATA" not in check.fix
 
     monkeypatch.setattr(pdf, "tesseract_binary", lambda: "/usr/bin/tesseract")
     monkeypatch.setattr(pdf, "tessdata_path", lambda: None)
@@ -183,3 +190,104 @@ def test_a_packaged_build_gets_no_key_file_fix(monkeypatch):
     )
     monkeypatch.setattr(diagnostics, "_frozen", lambda: True)
     assert diagnostics._mapping_check().fix is None
+
+
+def test_a_frozen_build_advises_no_layer_fix_it_cannot_run(monkeypatch):
+    """`_layers_check` was the one check that composed its own `uv sync`.
+
+    It skipped `_sync_fix`, so it went on printing advice a packaged user cannot
+    act on - there is no virtualenv in a bundle to sync - while the module around
+    it was fixed. The empty registry has to be forced: on a machine with the
+    `ner` extra installed this check has no fix at all, so an unforced assertion
+    passes without exercising the branch.
+    """
+    monkeypatch.setattr(diagnostics, "_frozen", lambda: True)
+    monkeypatch.setattr("freedocs.pipeline.default_registry", lambda: SimpleNamespace(detectors=[]))
+    check = diagnostics._layers_check()
+    assert not check.ok
+    assert check.fix is None
+
+    monkeypatch.setattr(diagnostics, "_frozen", lambda: False)
+    check = diagnostics._layers_check()
+    assert check.fix == "uv sync --extra ner"
+
+
+def test_no_frozen_fix_names_a_virtualenv(monkeypatch):
+    """The loop, so the next check that hardcodes one fails here too."""
+    monkeypatch.setattr(diagnostics, "_frozen", lambda: True)
+    for check in run_checks("http://127.0.0.1:1"):
+        assert check.fix is None or "uv sync" not in check.fix, check.name
+
+
+# -- the install command, which is as far towards an installer as this goes -----
+
+
+def hide_the_binary(monkeypatch) -> None:
+    """Pretend no package manager has installed Tesseract.
+
+    `_SYSTEM_BINARIES` names real paths, so on any machine with Homebrew's
+    Tesseract the fallback answers and a test about the absent case would be
+    measuring this machine rather than the code.
+    """
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", "/nonexistent")
+
+
+def test_the_ocr_fix_names_the_package_manager_this_machine_has(monkeypatch, tmp_path):
+    """Detected, not guessed: naming apt on a Fedora box is advice that fails."""
+    hide_the_binary(monkeypatch)
+    manager = tmp_path / "opt" / "brew"
+    manager.parent.mkdir(parents=True, exist_ok=True)
+    manager.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(
+        diagnostics, "_PACKAGE_MANAGERS", ((str(manager), "brew install tesseract tesseract-lang"),)
+    )
+    check = diagnostics._ocr_check()
+    assert not check.ok
+    assert check.fix == "brew install tesseract tesseract-lang"
+
+
+def test_no_package_manager_leaves_the_advice_generic(monkeypatch, tmp_path):
+    """A command naming a manager that is not installed is worse than a sentence."""
+    hide_the_binary(monkeypatch)
+    monkeypatch.setattr(diagnostics, "_PACKAGE_MANAGERS", ((str(tmp_path / "absent"), "nope"),))
+    check = diagnostics._ocr_check()
+    assert check.fix and "FREEDOCS_TESSERACT" in check.fix
+
+
+def test_a_packaged_build_still_advises_a_system_package(monkeypatch, tmp_path):
+    """The distinction `_sync_fix` draws, asserted in the opposite direction.
+
+    A missing *extra* is suppressed when frozen because the engine cannot see
+    which build shape it is in. A *platform* it can see, and a system package
+    installs the same way whatever build asked - so this one must survive.
+    """
+    hide_the_binary(monkeypatch)
+    monkeypatch.setattr(diagnostics, "_frozen", lambda: True)
+    manager = tmp_path / "brew"
+    manager.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(
+        diagnostics, "_PACKAGE_MANAGERS", ((str(manager), "brew install tesseract tesseract-lang"),)
+    )
+    assert diagnostics._ocr_check().fix == "brew install tesseract tesseract-lang"
+
+
+def test_every_install_command_names_the_language_data():
+    """`brew install tesseract` ships English only, and that reads as working.
+
+    `tessdata_path()` counts a directory holding *any* `.traineddata`, so an
+    English-only install makes `ocr_available` true while an Italian scan reads
+    badly - and a value OCR misreads fails its checksum, is never detected, and
+    survives. Shortening one of these lines is a quiet leak.
+    """
+    for manager, command in diagnostics._PACKAGE_MANAGERS:
+        assert "tesseract" in command, manager
+        # Every one names at least one language beyond the base package: a
+        # `-lang` metapackage, a `-langpack-xx`, a `-ocr-xxx`, or `tesseract-ita`.
+        beyond_base = [
+            word
+            for word in command.split()
+            if word.startswith("tesseract") and word not in {"tesseract", "tesseract-ocr"}
+        ]
+        assert beyond_base, manager

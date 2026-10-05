@@ -7,6 +7,7 @@ and the app cannot be unit-tested nearly as cheaply as this can.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
@@ -506,7 +507,10 @@ def test_a_backend_that_cannot_load_reports_a_missing_component(
     def refuse(self, text):
         raise MissingDependency("gliner2 is required for the GLiNER2 backend")
 
-    monkeypatch.setattr(registry_module.DetectorRegistry, "detect", refuse)
+    # `detect_with_suppressions` rather than `detect`, which is now a thin
+    # wrapper over it. Patching the wrapper leaves the pipeline calling the real
+    # thing, and this test passed vacuously for a moment because of it.
+    monkeypatch.setattr(registry_module.DetectorRegistry, "detect_with_suppressions", refuse)
     assert error_of(session, "inspect", path=str(document))["code"] == MISSING_DEPENDENCY
 
 
@@ -615,6 +619,28 @@ def test_a_requested_value_that_is_absent_is_reported_as_a_warning(
     """ "Removed" and "was not there" look identical in the output."""
     found = result_of(session, "inspect", path=str(document), remove=["Cognome Assente"])
     assert any("Cognome Assente" in warning for warning in found["warnings"])
+
+
+def test_a_scrub_names_an_absent_value_on_the_pipe_and_not_in_its_report(
+    session: Session, document: Path, tmp_path: Path
+):
+    """The response and the report inside it are two channels with two rules.
+
+    ``warnings`` goes down this pipe, which already carries matched text, so it
+    names the value; ``report`` is what gets written to disk, so it counts it.
+    """
+    result = result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        remove=["Cognome Assente"],
+    )
+    one = result["results"][0]
+    assert one["ok"], one
+    assert any("Cognome Assente" in warning for warning in one["warnings"])
+    assert "Cognome Assente" not in json.dumps(one["report"])
+    assert one["report"]["requested_values_not_found"] == 1
 
 
 def test_a_stale_kept_span_is_refused_rather_than_reinterpreted(session: Session, document: Path):
@@ -1489,3 +1515,428 @@ def test_restore_announces_its_stages(document: Path, tmp_path: Path):
     assert "match" in restore_stages
     # Same guard as the scrub's: there is no honest overall fraction here either.
     assert not any("percent" in item for item in stages)
+
+
+# -- pointing the engine at a Tesseract somebody chose -------------------------
+
+
+def _fake_tesseract(root: Path, name: str = "tesseract") -> Path:
+    """A file this platform agrees is runnable, named what PyMuPDF looks for."""
+    binary = root / ("tesseract.exe" if sys.platform == "win32" else name)
+    binary.parent.mkdir(parents=True, exist_ok=True)
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    binary.chmod(0o755)
+    return binary
+
+
+def test_use_tesseract_and_capabilities_never_disagree(session: Session, monkeypatch, tmp_path):
+    """The single-authority test, and the reason a refusal is a field not an error.
+
+    Both answers are read from `ocr_unavailable_reason()` in the same process, so
+    a caller cannot be shown "accepted" by one call and "unavailable" by the next.
+    """
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+    # Registered with monkeypatch so teardown restores it: `adopt_tesseract`
+    # writes this variable directly, and a test that never named it leaks the
+    # choice into whatever runs next.
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    chosen = _fake_tesseract(tmp_path / "chosen")
+    answer = result_of(session, "use_tesseract", path=str(chosen))
+    caps = result_of(session, "capabilities")
+    assert answer["accepted"] is True
+    assert answer["tesseract"] == str(chosen)
+    assert answer["ocr_available"] == caps["ocr_available"]
+    assert answer["ocr_unavailable_reason"] == caps["ocr_unavailable_reason"]
+
+
+def test_a_refused_choice_names_a_reason_the_caller_can_translate(
+    session: Session, monkeypatch, tmp_path
+):
+    """Enum, not prose: the window says it in the reader's language."""
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+    # Registered with monkeypatch so teardown restores it: `adopt_tesseract`
+    # writes this variable directly, and a test that never named it leaks the
+    # choice into whatever runs next.
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    misnamed = _fake_tesseract(tmp_path / "odd", name="tesseract-5.3.4")
+    answer = result_of(session, "use_tesseract", path=str(misnamed))
+    assert answer["accepted"] is False
+    assert answer["refused"] in {"not_executable", "wrong_name"}
+
+
+def test_a_refused_choice_does_not_claim_ocr_became_available(
+    session: Session, monkeypatch, tmp_path
+):
+    """The failure this whole shape exists to make impossible."""
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+    monkeypatch.setattr("freedocs.formats.pdf.tessdata_path", lambda: None)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    answer = result_of(session, "use_tesseract", path=str(tmp_path / "nowhere"))
+    assert answer["accepted"] is False
+    assert answer["ocr_available"] is False
+    assert answer["ocr_unavailable_reason"]
+
+
+def test_use_tesseract_needs_a_path(session: Session):
+    """A malformed request is still an error; a wrong choice is not."""
+    assert error_of(session, "use_tesseract")["code"] == INVALID_REQUEST
+
+
+def test_a_refused_choice_still_names_what_is_being_used(session: Session, monkeypatch, tmp_path):
+    """ "I refused yours, and here is what I am using instead"."""
+    working = _fake_tesseract(tmp_path / "installed")
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(working),))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    answer = result_of(session, "use_tesseract", path=str(tmp_path / "nowhere"))
+    assert answer["accepted"] is False
+    assert answer["tesseract"] == str(working)
+
+
+def test_no_method_but_the_one_that_says_so_changes_the_environment(session: Session, tmp_path):
+    """A `set_env` would be an escalation, so the dispatch table is pinned.
+
+    `_report_crash` reads `FREEDOCS_DEBUG` per crash, so a caller that could set it
+    would restore full tracebacks to a stderr the shell inherits on a packaged
+    build - the regression `7afeb24` closed. The same method would repoint
+    `FREEDOCS_NER_MODEL`, clear `HF_HUB_OFFLINE`, or set `PATH` outright.
+
+    Fails the day somebody adds a general one, which is the point: this is a test
+    about the shape of the surface rather than about any single method.
+    """
+    from freedocs.rpc import _handlers
+
+    handlers = _handlers(session)
+    assert "set_env" not in handlers
+    assert "configure" not in handlers
+
+    # The variables this engine reads, rather than the whole environment: torch
+    # writes its own compile-cache path when the model loads, and a dependency
+    # caching its artefacts is not the escalation being guarded against.
+    watched = (
+        "FREEDOCS_TESSERACT",
+        "FREEDOCS_TESSDATA",
+        "FREEDOCS_NER_MODEL",
+        "FREEDOCS_DEBUG",
+        "FREEDOCS_MAP_PASSPHRASE",
+        "HF_HUB_OFFLINE",
+        "TRANSFORMERS_OFFLINE",
+        "TESSDATA_PREFIX",
+        "PATH",
+    )
+    document = tmp_path / "nota.txt"
+    document.write_text("nothing confidential here\n", encoding="utf-8")
+    before = {name: os.environ.get(name) for name in watched}
+    for name, handler in handlers.items():
+        if name == "use_tesseract":
+            # The one that says so in its name, and it is asserted on separately.
+            continue
+        # A method refusing a request it cannot serve is fine; changing the
+        # environment on the way past is not.
+        with contextlib.suppress(Exception):
+            # `detectors="l1"` like the rest of this file: the question is what a
+            # method does to the environment, and letting `inspect` load the model
+            # would make one assertion cost ten seconds.
+            handler({"path": str(document), "paths": [str(document)], "detectors": "l1"})
+    assert {name: os.environ.get(name) for name in watched} == before
+
+
+# -- what was left in place ---------------------------------------------------
+#
+# The window can only see this channel, and the decision it carries is one a
+# reader cannot infer: a clean verification now means "nothing survived that was
+# meant to go", which is not "none of these words is in the document".
+
+
+@pytest.fixture
+def clause_document(tmp_path: Path) -> Path:
+    path = tmp_path / "avancement.txt"
+    path.write_text(
+        "Bureau a Lugano.\nLes tribunaux de Lugano sont seuls competents.\n",
+        encoding="utf-8",
+    )
+    return path
+
+
+@pytest.fixture
+def _stub_free_text(monkeypatch):
+    """A stub in place of the model, for the reason `call` pins ``detectors=l1``.
+
+    L1 nominates no LOCATION at all, so the suppression passes cannot be reached
+    from a checksum-only stack - and loading GLiNER2 to assert the shape of a
+    JSON payload is what this whole file exists not to do.
+    """
+    from freedocs.core.findings import EntityType, Finding, Layer, Span
+    from freedocs.detect import registry as registry_module
+    from freedocs.detect.suppress import JURISDICTION, Suppression
+
+    def stub(self, text: str):
+        first, second = text.index("Lugano"), text.rindex("Lugano")
+        return (
+            [
+                Finding(
+                    span=Span(first, first + 6),
+                    entity=EntityType.LOCATION,
+                    text="Lugano",
+                    layer=Layer.NER,
+                    detector="stub:location",
+                    confidence=0.9,
+                )
+            ],
+            [
+                Suppression(
+                    JURISDICTION,
+                    Finding(
+                        span=Span(second, second + 6),
+                        entity=EntityType.LOCATION,
+                        text="Lugano",
+                        layer=Layer.NER,
+                        detector="stub:location",
+                        confidence=0.9,
+                    ),
+                )
+            ],
+        )
+
+    monkeypatch.setattr(registry_module.DetectorRegistry, "detect_with_suppressions", stub)
+
+
+def test_a_scrub_says_what_it_left_in_place(
+    session: Session, clause_document: Path, tmp_path: Path, _stub_free_text
+):
+    result = result_of(
+        session, "scrub", paths=[str(clause_document)], output_dir=str(tmp_path / "out")
+    )
+    file_result = result["results"][0]
+    assert file_result["ok"] is True
+    assert file_result["suppressed"] == [
+        {"entity": "LOCATION", "rule": "jurisdiction", "occurrences": 1}
+    ]
+
+
+def test_the_preview_says_it_too(session: Session, clause_document: Path, _stub_free_text):
+    result = result_of(session, "inspect", path=str(clause_document))
+    assert result["suppressed"] == [
+        {"entity": "LOCATION", "rule": "jurisdiction", "occurrences": 1}
+    ]
+
+
+def test_neither_payload_names_the_value(
+    session: Session, clause_document: Path, tmp_path: Path, _stub_free_text
+):
+    """Same rule as the report: entity, rule and count, never the text."""
+    preview = json.dumps(result_of(session, "inspect", path=str(clause_document))["suppressed"])
+    scrub = result_of(
+        session, "scrub", paths=[str(clause_document)], output_dir=str(tmp_path / "out")
+    )
+    assert "Lugano" not in preview
+    assert "Lugano" not in json.dumps(scrub["results"][0]["suppressed"])
+
+
+def test_a_leak_is_described_per_value(session: Session, tmp_path: Path, monkeypatch):
+    """Four leaks and only a count is where every diagnosis of this has started.
+
+    The three fields added here are the ones that separate the shapes: which
+    entity, which layer nominated it, and whether an allowance was in play.
+    """
+    from freedocs.core.findings import EntityType, Finding, Layer, Span
+    from freedocs.detect import registry as registry_module
+
+    document = tmp_path / "due.txt"
+    document.write_text("Bureau a Lugano. Siege a Lugano.\n", encoding="utf-8")
+
+    def one_only(self, text: str):
+        start = text.index("Lugano")
+        return (
+            [
+                Finding(
+                    span=Span(start, start + 6),
+                    entity=EntityType.LOCATION,
+                    text="Lugano",
+                    layer=Layer.NER,
+                    detector="stub:location",
+                    confidence=0.9,
+                )
+            ],
+            [],
+        )
+
+    monkeypatch.setattr(registry_module.DetectorRegistry, "detect_with_suppressions", one_only)
+    result = result_of(session, "scrub", paths=[str(document)], output_dir=str(tmp_path / "out"))
+    failure = result["results"][0]["error"]
+    assert failure["code"] == LEAK_DETECTED
+    assert failure["data"]["detail"] == [
+        {
+            "entity": "LOCATION",
+            "detector": "stub:location",
+            "occurrences": 1,
+            "allowed": 0,
+        }
+    ]
+    assert "Lugano" not in json.dumps(failure)
+
+
+# -- the term list ------------------------------------------------------------------
+
+TERMS_PASSPHRASE = "correct horse battery staple"
+SECRET_TERM = "Nordwind Holding"
+
+
+def _unlocked_list(session: Session, tmp_path: Path, *values: str) -> Path:
+    pytest.importorskip("cryptography", reason="the restore extra is required")
+    path = tmp_path / "firm.fdterms"
+    result_of(session, "terms_create", path=str(path), passphrase=TERMS_PASSPHRASE)
+    if values:
+        result_of(session, "terms_update", add=list(values), passphrase=TERMS_PASSPHRASE)
+    return path
+
+
+def test_capabilities_says_whether_a_term_list_can_be_held(session: Session):
+    caps = result_of(session, "capabilities")
+    assert caps["terms_available"] == (caps["terms_unavailable_reason"] is None)
+    assert caps["terms_max_entries"] > 0
+    assert caps["term_min_characters"] <= caps["term_max_characters"]
+
+
+def test_create_unlock_list_and_lock(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    listed = result_of(session, "terms_list")
+    assert listed["count"] == 1
+    assert listed["terms"] == [{"value": SECRET_TERM, "entity": "OTHER"}]
+
+    assert result_of(session, "terms_lock") == {"locked": True, "was_unlocked": True}
+    assert error_of(session, "terms_list")["code"] == INVALID_REQUEST
+
+    unlocked = result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    # The size and nothing else: the terms come from `terms_list`, on request.
+    assert unlocked == {"path": str(path), "count": 1}
+
+
+def test_create_refuses_an_existing_file(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    error = error_of(session, "terms_create", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert error["code"] == INVALID_REQUEST
+    result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert result_of(session, "terms_list")["count"] == 1
+
+
+def test_forget_locks_the_list_only_when_asked(session: Session, tmp_path: Path):
+    """The window forgets its documents after every batch. Locking the list with
+    them would ask for the passphrase after every batch."""
+    _unlocked_list(session, tmp_path, SECRET_TERM)
+    assert result_of(session, "forget")["terms_locked"] is False
+    assert result_of(session, "terms_list")["count"] == 1
+    assert result_of(session, "forget", terms=True)["terms_locked"] is True
+    assert error_of(session, "terms_list")["code"] == INVALID_REQUEST
+
+
+def test_use_terms_with_a_locked_list_is_refused_and_writes_nothing(
+    session: Session, document: Path, tmp_path: Path
+):
+    """A scrub that skipped a locked list would be believed to have used it."""
+    out = tmp_path / "out"
+    for method, params in (
+        ("inspect", {"path": str(document)}),
+        ("scrub", {"paths": [str(document)], "output_dir": str(out)}),
+    ):
+        error = error_of(session, method, use_terms=True, **params)
+        assert error["code"] == INVALID_REQUEST
+        assert "locked" in error["message"]
+    assert not (out / document.name).exists()
+
+
+def test_a_scrub_with_the_list_removes_it_and_reports_counts(
+    session: Session, document: Path, tmp_path: Path
+):
+    document.write_text(
+        document.read_text(encoding="utf-8") + f"Cliente: {SECRET_TERM}\n", encoding="utf-8"
+    )
+    _unlocked_list(session, tmp_path, SECRET_TERM, "Progetto Aurora")
+
+    preview = result_of(session, "inspect", path=str(document), use_terms=True)
+    assert preview["terms"] == {"loaded": 2, "matched": 1}
+    assert any(f["detector"] == "terms" and f["layer"] == "H" for f in preview["findings"])
+
+    scrubbed = result_of(
+        session,
+        "scrub",
+        paths=[str(document)],
+        output_dir=str(tmp_path / "out"),
+        use_terms=True,
+    )["results"][0]
+    assert scrubbed["ok"], scrubbed
+    assert SECRET_TERM not in Path(scrubbed["output"]).read_text(encoding="utf-8")
+    assert scrubbed["report"]["terms"] == {"loaded": 2, "matched": 1}
+    blob = json.dumps(scrubbed)
+    # The absent entry is named nowhere: not in the report, not in a warning.
+    assert "Progetto Aurora" not in blob
+
+
+def test_an_update_with_the_wrong_passphrase_changes_nothing(session: Session, tmp_path: Path):
+    """A save under a mistyped passphrase would re-key the register to a
+    passphrase nobody knows, and succeed. The update re-reads first."""
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    response = call(session, "terms_update", add=["Giulia Verdi"], passphrase="mistyped phrase")
+    assert response["error"]["code"] == INVALID_REQUEST
+    blob = json.dumps(response)
+    assert "mistyped phrase" not in blob
+    assert SECRET_TERM not in blob
+    result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert result_of(session, "terms_list")["count"] == 1
+
+
+def test_update_adds_and_removes_and_saves(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM, "Progetto Aurora")
+    changed = result_of(
+        session,
+        "terms_update",
+        add=[{"value": "Giulia Verdi", "entity": "person"}],
+        remove=["Progetto Aurora"],
+        passphrase=TERMS_PASSPHRASE,
+    )
+    assert (changed["count"], changed["added"], changed["removed"]) == (2, 1, 1)
+    result_of(session, "terms_lock")
+    result_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert {t["value"]: t["entity"] for t in result_of(session, "terms_list")["terms"]} == {
+        SECRET_TERM: "OTHER",
+        "Giulia Verdi": "PERSON",
+    }
+
+
+def test_import_says_to_delete_the_source_and_does_not(session: Session, tmp_path: Path):
+    _unlocked_list(session, tmp_path)
+    source = tmp_path / "clients.txt"
+    source.write_text(f"{SECRET_TERM}\nPERSON\tGiulia Verdi\n", encoding="utf-8")
+    imported = result_of(session, "terms_import", source=str(source), passphrase=TERMS_PASSPHRASE)
+    assert (imported["count"], imported["added"], imported["delete_source"]) == (2, 2, True)
+    assert source.exists()
+
+
+def test_export_refuses_the_list_itself(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    assert error_of(session, "terms_export", output=str(path))["code"] == INVALID_REQUEST
+    out = tmp_path / "export.txt"
+    exported = result_of(session, "terms_export", output=str(out))
+    assert "not encrypted" in exported["warning"]
+    assert SECRET_TERM in out.read_text(encoding="utf-8")
+
+
+def test_rekey_changes_what_opens_the_list(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    result_of(session, "terms_rekey", old=TERMS_PASSPHRASE, new="a brand new passphrase")
+    result_of(session, "terms_lock")
+    error = error_of(session, "terms_unlock", path=str(path), passphrase=TERMS_PASSPHRASE)
+    assert error["code"] == INVALID_REQUEST
+    result_of(session, "terms_unlock", path=str(path), passphrase="a brand new passphrase")
+
+
+def test_a_wrong_unlock_passphrase_leaks_neither_it_nor_a_term(session: Session, tmp_path: Path):
+    path = _unlocked_list(session, tmp_path, SECRET_TERM)
+    result_of(session, "terms_lock")
+    response = call(session, "terms_unlock", path=str(path), passphrase="not the passphrase")
+    blob = json.dumps(response)
+    assert response["error"]["code"] == INVALID_REQUEST
+    assert "not the passphrase" not in blob
+    assert SECRET_TERM not in blob

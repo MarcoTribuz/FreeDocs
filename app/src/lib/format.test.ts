@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { basename, countryName, languageName } from './format';
+import { basename, buildDate, countryName, languageName } from './format';
 
 describe('basename', () => {
 	it('takes the filename on either platform separator', () => {
@@ -35,5 +35,17 @@ describe('display names', () => {
 		// Region", which is a name and not a fallback. A code that is not a
 		// well-formed subtag at all is what exercises this path.
 		expect(countryName('q1', 'en')).toBe('Q1');
+	});
+});
+
+describe('buildDate', () => {
+	it('renders a build date in the reader’s language', () => {
+		// 2026-08-23T14:12:00Z, the shape of the stale sidecar this exists for.
+		const when = Date.UTC(2026, 7, 23, 14, 12) / 1000;
+		expect(buildDate(when, 'en')).toMatch(/2026/);
+		expect(buildDate(when, 'de')).toMatch(/2026/);
+		// The four locales must not agree, or the formatting is doing nothing.
+		const rendered = new Set(['en', 'it', 'de', 'fr'].map((l) => buildDate(when, l)));
+		expect(rendered.size).toBeGreaterThan(1);
 	});
 });

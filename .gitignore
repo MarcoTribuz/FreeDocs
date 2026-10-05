@@ -25,6 +25,12 @@ htmlcov/
 # Key files. Cheap insurance: one of these is every value a scrub removed, and a
 # committed one is a re-identification key in the history for good.
 *.fdmap
+# The one exception: written by the pre-`core/sealed.py` code with its
+# randomness pinned, over invented values, so the refactor can be held to the
+# old format byte for byte. See tests/test_sealed.py.
+!engine/tests/fixtures/before-sealed.fdmap
+# A term list is a firm's client register, for the same reason.
+*.fdterms
 
 # Models downloaded at first run, never bundled
 engine/models/

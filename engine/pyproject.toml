@@ -1,6 +1,6 @@
 [project]
 name = "freedocs"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local, offline removal of confidential data from documents before they reach an LLM"
 # No `readme` key: the project README lives at the repository root, outside this
 # package directory, and duplicating it here would leave two copies to drift.

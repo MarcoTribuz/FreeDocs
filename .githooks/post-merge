@@ -1,0 +1,4 @@
+#!/bin/sh
+# Advance the development counter when a feature lands on develop.
+# See scripts/hooks.py; install with `python3 scripts/version.py install-hooks`.
+exec python3 "$(git rev-parse --show-toplevel)/scripts/hooks.py" post-merge "$@"

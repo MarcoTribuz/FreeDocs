@@ -34,8 +34,22 @@ from .core.mapping import (
     write_key_map,
 )
 from .core.outputs import private_directory, write_output, write_private, write_private_json
+from .core.overrides import Override, parse_override
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .core.sandbox import harden
+from .core.sealed import MalformedSealed
+from .core.terms import (
+    Term,
+    TermList,
+    create_terms,
+    open_terms,
+    read_import,
+    rekey_terms,
+    save_terms,
+    with_terms,
+    write_export,
+)
+from .core.terms import check_passphrase as check_terms_passphrase
 from .detect.llm_review import DEFAULT_HOST, LlmReviewer, RemoteHostRefused, available_models
 from .detect.validators import SUPPORTED_COUNTRIES
 from .diagnostics import Check, engine_version, run_checks
@@ -49,6 +63,7 @@ from .report import (
     format_restore_console,
 )
 from .restore import Restorer
+from .text_mode import PASTED_NAME, decoded, handler_for_text
 from .verify import LeakDetected
 
 EXIT_OK = 0
@@ -83,9 +98,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     scrub = sub.add_parser("scrub", help="write a scrubbed copy of one or more files")
-    scrub.add_argument("files", nargs="+", type=Path)
     scrub.add_argument(
-        "-o", "--output-dir", type=Path, required=True, help="directory for scrubbed copies"
+        "files", nargs="+", type=Path, help="files to scrub, or - to read text from stdin"
+    )
+    scrub.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        help="directory for scrubbed copies; not used with -, which writes to stdout",
     )
     scrub.add_argument("--report", type=Path, help="write a JSON report to this path")
     scrub.add_argument(
@@ -155,6 +175,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "hands over the scrubbed document and the key to undo it together"
         ),
     )
+    _add_removal_arguments(scrub)
     scrub.add_argument(
         "--allow-leaks",
         action="store_true",
@@ -193,7 +214,9 @@ def _build_parser() -> argparse.ArgumentParser:
         "restore",
         help="put the real values back into a document that came back from a model",
     )
-    restore.add_argument("files", nargs="+", type=Path)
+    restore.add_argument(
+        "files", nargs="+", type=Path, help="files to restore, or - to read text from stdin"
+    )
     restore.add_argument(
         "--map",
         type=Path,
@@ -202,7 +225,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the key file written by 'freedocs scrub --map'",
     )
     restore.add_argument(
-        "-o", "--output-dir", type=Path, required=True, help="directory for restored copies"
+        "-o",
+        "--output-dir",
+        type=Path,
+        help="directory for restored copies; not used with -, which writes to stdout",
     )
     restore.add_argument(
         "--map-passphrase-file",
@@ -220,6 +246,62 @@ def _build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("--min-confidence", type=float, default=0.5)
     inspect.add_argument("--detectors", default=None)
     inspect.add_argument("--countries", default=None, metavar="CODES")
+    _add_removal_arguments(inspect)
+
+    terms = sub.add_parser(
+        "terms",
+        help="manage an encrypted term list: values removed on every scrub that uses it",
+    )
+    terms.set_defaults(files=[])
+    actions = terms.add_subparsers(dest="terms_command", required=True)
+    for name, text in (
+        ("create", "create a new, empty term list; refused if FILE exists"),
+        ("list", "print the entries, one ENTITY<TAB>value per line"),
+        ("add", "add entries and save"),
+        ("remove", "remove entries by exact value and save"),
+        ("import", "add every entry of a plaintext or CSV file, then tell you to delete it"),
+        ("export", "write the list out UNENCRYPTED; you are asked to confirm"),
+        ("rekey", "change the passphrase"),
+    ):
+        action = actions.add_parser(name, help=text)
+        action.add_argument("file", type=Path, metavar="FILE")
+        action.add_argument(
+            "--passphrase-file",
+            type=Path,
+            default=None,
+            metavar="PATH",
+            help=(
+                f"read the passphrase from the first line of this file; without it "
+                f"{TERMS_PASSPHRASE_ENV} is read, and failing that you are prompted"
+            ),
+        )
+        if name == "list":
+            action.add_argument("--query", default=None, help="only entries containing this")
+        if name in ("add", "remove"):
+            action.add_argument("values", nargs="+", metavar="VALUE")
+        if name == "add":
+            action.add_argument(
+                "--entity",
+                default="OTHER",
+                help="the placeholder family for these values (default: OTHER)",
+            )
+        if name == "import":
+            action.add_argument("source", type=Path, metavar="SOURCE")
+        if name == "export":
+            action.add_argument("output", type=Path, metavar="OUTPUT")
+            action.add_argument(
+                "--yes",
+                action="store_true",
+                help="do not ask for confirmation; the export is still unencrypted",
+            )
+        if name == "rekey":
+            action.add_argument(
+                "--new-passphrase-file",
+                type=Path,
+                default=None,
+                metavar="PATH",
+                help=f"the new passphrase; otherwise {TERMS_NEW_PASSPHRASE_ENV} or a prompt",
+            )
 
     entities = sub.add_parser("entities", help="list the entity types this build detects")
     entities.set_defaults(files=[])
@@ -453,6 +535,118 @@ def _warn_if_others_can_read(path: Path) -> None:
         )
 
 
+#: The term list's passphrase sources, apart from the key file's: they are two
+#: different secrets, and one variable for both would hand a scrub that asked
+#: for a key file the list's passphrase without anybody deciding that.
+TERMS_PASSPHRASE_ENV = "FREEDOCS_TERMS_PASSPHRASE"
+TERMS_NEW_PASSPHRASE_ENV = "FREEDOCS_TERMS_NEW_PASSPHRASE"
+
+
+def _add_removal_arguments(command: argparse.ArgumentParser) -> None:
+    """``--remove`` and ``--terms``, shared by scrub and inspect.
+
+    Both, because an inspect is how a person checks what a scrub is about to
+    take out, and a preview that ignores the list answers a different question.
+    """
+    command.add_argument(
+        "--remove",
+        action="append",
+        default=[],
+        metavar="VALUE",
+        help=(
+            "also remove every occurrence of this exact text; repeatable. The pipe "
+            "has had this since the preview could add a value, and the command line "
+            "had not"
+        ),
+    )
+    command.add_argument(
+        "--terms",
+        type=Path,
+        default=None,
+        metavar="FILE",
+        help="also remove every entry of this encrypted term list",
+    )
+    command.add_argument(
+        "--terms-passphrase-file",
+        type=Path,
+        default=None,
+        metavar="PATH",
+        help=(
+            f"read the term list's passphrase from this file; without it "
+            f"{TERMS_PASSPHRASE_ENV} is read, and failing that you are prompted"
+        ),
+    )
+
+
+def _secret(named: Path | None, env: str, prompt: str, what: str, *, confirm: bool) -> str:
+    """A passphrase from a file, the environment or a prompt, in that order.
+
+    The term list's copy of :func:`_passphrase_source`, with the same three
+    rules: no command-line argument, the variable popped so a Tesseract
+    subprocess does not inherit it, and no terminal with neither set is a usage
+    error rather than a silent skip.
+    """
+    if named is not None:
+        _warn_if_others_can_read(named)
+        try:
+            first = named.read_text(encoding="utf-8").splitlines()
+        except OSError as exc:
+            raise SystemExit(f"cannot read {named}: {exc.strerror or 'unreadable'}") from exc
+        value = first[0] if first else ""
+        if not value:
+            raise SystemExit(f"{named} is empty; it should hold the passphrase on its first line")
+        return value
+    from_env = os.environ.pop(env, None)
+    if from_env:
+        return from_env
+    if not sys.stdin.isatty():
+        raise SystemExit(
+            f"no passphrase for the {what}: pass a passphrase file, set {env}, or run "
+            "this where a terminal can prompt"
+        )
+    value = getpass.getpass(prompt)
+    if confirm and value != getpass.getpass("Again: "):
+        raise SystemExit("the two passphrases do not match; nothing was written")
+    return value
+
+
+def _terms_passphrase(args: argparse.Namespace, named: Path | None, *, confirm: bool) -> str:
+    value = _secret(
+        named, TERMS_PASSPHRASE_ENV, "Term list passphrase: ", "term list", confirm=confirm
+    )
+    try:
+        check_terms_passphrase(value)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    return value
+
+
+def _open_terms_or_exit(path: Path, passphrase: str) -> TermList:
+    """Open a list for this process. Every failure is configuration, not input."""
+    try:
+        return open_terms(path, passphrase)
+    except (BadPassphrase, MalformedSealed, InputTooLarge, MissingDependency) as exc:
+        raise SystemExit(str(exc)) from exc
+
+
+def _override(args: argparse.Namespace) -> Override:
+    """``--remove`` values and the ``--terms`` list, parsed before any file is read.
+
+    Through ``parse_override`` so the command line and the pipe agree on what a
+    removal is. The list is unlocked once for the run; a CLI process is its own
+    session, so there is nothing to lock afterwards.
+    """
+    try:
+        override = parse_override(None, list(getattr(args, "remove", []) or []))
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
+    path = getattr(args, "terms", None)
+    if path is None:
+        return override
+    passphrase = _terms_passphrase(args, args.terms_passphrase_file, confirm=False)
+    return with_terms(override, _open_terms_or_exit(path, passphrase))
+
+
 def _map_target(args: argparse.Namespace) -> Path | None:
     """Where the key file goes, refusing the output directory unless told.
 
@@ -470,24 +664,58 @@ def _map_target(args: argparse.Namespace) -> Path | None:
     return target
 
 
-def _scrubber(args: argparse.Namespace, *, strict: bool) -> Scrubber:
+def _scrubber(
+    args: argparse.Namespace, *, strict: bool, overrides: Override | None = None
+) -> Scrubber:
     spec = getattr(args, "detectors", None)
     countries = _countries(args)
     registry = build_registry(spec, countries=countries) if spec else default_registry(countries)
     return Scrubber(
-        policy=_policy(args), registry=registry, strict=strict, reviewer=_reviewer(args)
+        policy=_policy(args),
+        registry=registry,
+        strict=strict,
+        reviewer=_reviewer(args),
+        overrides=overrides or Override(),
     )
 
 
+def _reads_stdin(args: argparse.Namespace) -> bool | None:
+    """True for ``-``, False for files, None (and a message) for a usage error.
+
+    ``-`` stands alone. Text on stdin has no name to put a copy under, so it goes
+    to stdout, and one stream cannot carry a batch's worth of documents; a
+    directory is required for files and meaningless for stdin.
+    """
+    dash = [path for path in args.files if str(path) == "-"]
+    if dash and len(args.files) > 1:
+        print("- reads text from stdin and cannot be combined with files", file=sys.stderr)
+        return None
+    if dash:
+        if args.output_dir is not None:
+            print("-o is not used with -: the result goes to stdout", file=sys.stderr)
+            return None
+        return True
+    if args.output_dir is None:
+        print("-o/--output-dir is required for files", file=sys.stderr)
+        return None
+    return False
+
+
 def _cmd_scrub(args: argparse.Namespace) -> int:
+    stdin = _reads_stdin(args)
+    if stdin is None:
+        return EXIT_USAGE
+    if stdin:
+        return _cmd_scrub_text(args)
     args.output_dir.mkdir(parents=True, exist_ok=True)
     # Both resolved before anything is read. A bad passphrase rule or a key file
     # aimed at the output directory must stop the run, not interrupt it halfway
     # through with scrubbed copies already on disk.
     map_target = _map_target(args)
     passphrase = _passphrase(args, confirm=True) if map_target else ""
+    overrides = _override(args)
     try:
-        scrubber = _scrubber(args, strict=not args.allow_leaks)
+        scrubber = _scrubber(args, strict=not args.allow_leaks, overrides=overrides)
     except (ValueError, MissingDependency) as exc:
         # Unprefixed: this guard covers the detector spec, the country list and
         # the policy, and every one of those messages already names what it is
@@ -564,6 +792,60 @@ def _cmd_scrub(args: argparse.Namespace) -> int:
     return status
 
 
+def _cmd_scrub_text(args: argparse.Namespace) -> int:
+    """``freedocs scrub -``: stdin in, scrubbed text out, everything else on stderr.
+
+    Stdout is the output here, so the summary, the key file's path and every
+    warning go to stderr - a pipe into a model must carry nothing but the text.
+    A leak writes nothing to stdout at all, for the reason a leaking file is not
+    written. The key file is ``--map`` as for a file; a CLI process ends, so
+    there is nothing to hold a mapping in between.
+    """
+    target = getattr(args, "map", None)
+    passphrase = _passphrase(args, confirm=True) if target else ""
+    try:
+        scrubber = _scrubber(args, strict=not args.allow_leaks, overrides=_override(args))
+    except (ValueError, MissingDependency) as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    try:
+        handler = handler_for_text(sys.stdin.read())
+        result = scrubber.scrub(handler)
+    except ModelNotFound as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    except REFUSALS as exc:
+        print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+        return EXIT_UNSUPPORTED
+    except LeakDetected as exc:
+        print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+        print("  nothing written", file=sys.stderr)
+        return EXIT_LEAK
+
+    sys.stdout.write(decoded(handler, result.output))
+    sys.stdout.flush()
+    print(format_console(result), file=sys.stderr)
+
+    wrote_key = False
+    if target is not None:
+        key_path = map_path_for(target, Path(PASTED_NAME))
+        key_map = key_map_from(result, placeholder_language=args.placeholder_language)
+        try:
+            write_key_map(key_path, key_map, passphrase)
+        except (MissingDependency, OutputRefused) as exc:
+            print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+            return EXIT_UNSUPPORTED
+        wrote_key = True
+        print(f"  key file: {key_path}", file=sys.stderr)
+        for message in key_map.warnings():
+            print(f"  warning: {message}", file=sys.stderr)
+
+    if args.report:
+        write_private_json(args.report, [build_report(result, key_file=wrote_key)])
+        print(f"report: {args.report}", file=sys.stderr)
+    return EXIT_OK if result.verify.ok else EXIT_LEAK
+
+
 def _cmd_restore(args: argparse.Namespace) -> int:
     """Put the values back, per file, from one key file.
 
@@ -575,9 +857,13 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     produced the caller's best artifact with a visible defect in it, so the bytes
     go to disk, every problem is printed, and the exit code says so.
     """
+    stdin = _reads_stdin(args)
+    if stdin is None:
+        return EXIT_USAGE
     # Owner only when this call creates it, since what lands in it is the
     # originals. An existing directory is left as the user made it.
-    private_directory(args.output_dir)
+    if not stdin:
+        private_directory(args.output_dir)
     passphrase = _passphrase(args, confirm=False)
     try:
         key_map = read_key_map(args.map, passphrase)
@@ -594,6 +880,23 @@ def _cmd_restore(args: argparse.Namespace) -> int:
     # key file, and repeating it per document reads as a per-document problem.
     for message in key_map.warnings():
         print(f"warning: {message}", file=sys.stderr)
+
+    if stdin:
+        # The originals, on stdout: the caller chose where that goes, and a
+        # restored text is for reading, which is what a terminal or a pipe is.
+        try:
+            handler = handler_for_text(sys.stdin.read())
+            result = Restorer(key_map=key_map).restore(handler)
+        except REFUSALS as exc:
+            print(f"{PASTED_NAME}: {exc}", file=sys.stderr)
+            return EXIT_UNSUPPORTED
+        sys.stdout.write(decoded(handler, result.output))
+        sys.stdout.flush()
+        print(format_restore_console(result), file=sys.stderr)
+        if args.report:
+            write_private_json(args.report, [build_restore_report(result)])
+            print(f"report: {args.report}", file=sys.stderr)
+        return EXIT_OK if result.ok else EXIT_INCOMPLETE
 
     reports = []
     status = EXIT_OK
@@ -640,8 +943,9 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     `ner` extra silently reported reduced coverage. One read-and-detect path,
     used by the preview and the scrub.
     """
+    overrides = _override(args)
     try:
-        scrubber = _scrubber(args, strict=False)
+        scrubber = _scrubber(args, strict=False, overrides=overrides)
     except (ValueError, MissingDependency) as exc:
         print(exc, file=sys.stderr)
         return EXIT_USAGE
@@ -681,9 +985,102 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
             print("  hidden content found:")
             for item in extraction.hidden:
                 print(f"    {item.part:<12} {item.kind:<26} {item.detail}")
+        if inspection.terms is not None:
+            print(
+                f"  term list: {inspection.terms.matched} of {inspection.terms.loaded} "
+                "entries removed something in this document"
+            )
         for message in inspection.warnings:
             print(f"  warning: {message}")
     return status
+
+
+def _cmd_terms(args: argparse.Namespace) -> int:
+    """``freedocs terms ...``: one process, one unlock, nothing left open.
+
+    Every change is saved before the command returns, through the same atomic
+    writer the window's edits use. ``export`` asks first because it is the one
+    way out of the encryption; ``import`` ends by saying the source should be
+    deleted and does not delete it, because that is the person's file.
+    """
+    path: Path = args.file
+    command = args.terms_command
+    try:
+        if command == "create":
+            passphrase = _terms_passphrase(args, args.passphrase_file, confirm=True)
+            create_terms(path, passphrase)
+            print(f"created {path}: an empty term list")
+            return EXIT_OK
+
+        passphrase = _terms_passphrase(args, args.passphrase_file, confirm=False)
+        terms = _open_terms_or_exit(path, passphrase)
+
+        if command == "list":
+            for term in terms.search(args.query):
+                print(f"{term.entity.value}\t{term.value}")
+            return EXIT_OK
+        if command == "add":
+            try:
+                entity = EntityType(args.entity.upper())
+            except ValueError as exc:
+                raise SystemExit(
+                    f"unknown entity type {args.entity!r}; try 'freedocs entities'"
+                ) from exc
+            terms, added = terms.with_added(Term(value=v, entity=entity) for v in args.values)
+            save_terms(path, terms, passphrase)
+            print(f"added {added}, skipped {len(args.values) - added}; {len(terms)} entries")
+            return EXIT_OK
+        if command == "remove":
+            terms, removed = terms.without(args.values)
+            save_terms(path, terms, passphrase)
+            print(f"removed {removed}; {len(terms)} entries")
+            return EXIT_OK
+        if command == "import":
+            incoming = read_import(args.source)
+            terms, added = terms.with_added(incoming)
+            save_terms(path, terms, passphrase)
+            print(f"imported {added}, skipped {len(incoming) - added}; {len(terms)} entries")
+            print(
+                f"warning: {args.source} is not encrypted and still holds every entry; "
+                "delete it now that the term list has them",
+                file=sys.stderr,
+            )
+            return EXIT_OK
+        if command == "export":
+            if not args.yes:
+                if not sys.stdin.isatty():
+                    raise SystemExit(
+                        "an export is unencrypted; pass --yes to confirm when no terminal can ask"
+                    )
+                answer = input(
+                    f"{args.output} will NOT be encrypted: anyone who can read it can "
+                    "read every entry. Write it? [y/N] "
+                )
+                if answer.strip().lower() not in ("y", "yes"):
+                    print("nothing was written")
+                    return EXIT_OK
+            write_export(args.output, terms, refuse=[path])
+            print(f"exported {len(terms)} entries to {args.output} (unencrypted)")
+            return EXIT_OK
+        if command == "rekey":
+            new = _secret(
+                args.new_passphrase_file,
+                TERMS_NEW_PASSPHRASE_ENV,
+                "New passphrase: ",
+                "term list",
+                confirm=True,
+            )
+            rekey_terms(path, passphrase, new)
+            print(f"re-sealed {path} under the new passphrase")
+            return EXIT_OK
+    except (BadPassphrase, MalformedSealed, InputTooLarge, MissingDependency, OutputRefused) as exc:
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    except ValueError as exc:
+        # The passphrase floor, raised by `core/sealed.py` without quoting it.
+        print(exc, file=sys.stderr)
+        return EXIT_USAGE
+    raise AssertionError(f"unhandled terms command {command!r}")  # pragma: no cover
 
 
 def _cmd_entities(_: argparse.Namespace) -> int:
@@ -877,6 +1274,7 @@ def _dispatch(argv: list[str] | None) -> int:
         "review-models": _cmd_review_models,
         "doctor": _cmd_doctor,
         "benchmark": _cmd_benchmark,
+        "terms": _cmd_terms,
     }
     return handlers[args.command](args)
 

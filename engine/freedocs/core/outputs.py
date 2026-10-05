@@ -33,8 +33,10 @@ been launched on Windows, only built there.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import secrets
 from pathlib import Path
 from typing import Any
 
@@ -64,6 +66,33 @@ def write_output(path: Path, data: bytes) -> None:
 def write_private(path: Path, data: bytes) -> None:
     """Write a file that could re-identify the document. Owner only."""
     _write(path, data, mode=PRIVATE_MODE)
+
+
+def replace_private(path: Path, data: bytes) -> None:
+    """Write a private file so a crash leaves either the old one or the new one.
+
+    The first atomic writer in this module, and only the term list uses it. Every
+    other output here can be produced again from its source - a scrubbed copy,
+    a report, a key file for a scrub that can be re-run - so a half-written one
+    costs a re-run. The term list is edited in place and *is* the source: a
+    truncated write loses the firm's client register, and the passphrase that
+    would have re-created it is no help.
+
+    A sibling temporary file, through the same ``O_NOFOLLOW`` writer as the
+    rest, then ``os.replace``, which is atomic on one filesystem on every
+    platform this builds for. The temporary name is random so two sessions
+    saving the same list cannot write into each other's half-file; the last
+    replace wins, which is the ordinary meaning of saving. A failure removes the
+    temporary rather than leaving a second copy of the list beside the first.
+    """
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(8)}.tmp")
+    try:
+        _write(temporary, data, mode=PRIVATE_MODE)
+        os.replace(temporary, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            temporary.unlink()
+        raise
 
 
 def write_private_json(path: Path, payload: Any) -> None:

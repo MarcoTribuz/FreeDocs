@@ -53,6 +53,33 @@ PARAGRAPH_TAG = qn("w:p")
 TAB_TAG = qn("w:tab")
 BREAK_TAGS = frozenset({qn("w:br"), qn("w:cr")})
 
+#: A link's display text lives inside this, and the words around it do not.
+#: Word writes no structural element between the two, so without a boundary here
+#: the flat stream reads ``Malakoff Humanisconsulte`` - the company name whole,
+#: with the next word glued on. Nothing shows that in Word, and it is not
+#: cosmetic: ``detect/propagate.py`` matches on ``(?<!\w)``/``(?!\w)``, so a
+#: second sighting that ends fused is invisible to propagation, while stage 6
+#: counts substrings and finds it in the output. The name stays in the document
+#: and the scrub reports a leak against the occurrence that worked.
+HYPERLINK_TAG = qn("w:hyperlink")
+
+
+def _enclosing_link(element: object) -> object | None:
+    """The ``w:hyperlink`` this text sits in, or ``None``.
+
+    Walks up rather than being tracked on the way down, because ``iter()`` is a
+    flat document-order pass and reports no exit from an element. The walk is
+    two hops in an ordinary document (``w:t`` -> ``w:r`` -> ``w:hyperlink``) and
+    stops at the part root, so a text box nesting a paragraph inside a run costs
+    a few more and nothing is unbounded.
+    """
+    parent = element.getparent()  # type: ignore[attr-defined]
+    while parent is not None:
+        if parent.tag == HYPERLINK_TAG:
+            return parent
+        parent = parent.getparent()
+    return None
+
 
 class DocxHandler(FormatHandler):
     name = "docx"
@@ -97,9 +124,23 @@ class DocxHandler(FormatHandler):
             # paragraphs and then their descendants would visit the contents of a
             # text box twice, once as the outer paragraph's descendants and once
             # as its own paragraph.
+            # Only walked when the part has a link at all, because the check is a
+            # parent lookup per text element and most parts have none.
+            links = tree.find(f".//{HYPERLINK_TAG}") is not None
+            inside: object | None = None
             for element in tree.iter():
                 tag = element.tag
                 if tag in TEXT_TAGS:
+                    if links:
+                        link = _enclosing_link(element)
+                        # Crossing into a link, out of one, or straight from one
+                        # into the next are all boundaries. A space rather than a
+                        # newline: a link sits inside a sentence, and a line break
+                        # would stop `detect/addresses.py` assembling an address
+                        # written around one.
+                        if link is not inside:
+                            builder.add_filler(" ")
+                        inside = link
                     builder.add(element.text or "", part=part, locator=element)
                 elif tag == PARAGRAPH_TAG:
                     # Emitted before the paragraph's own content, which is what

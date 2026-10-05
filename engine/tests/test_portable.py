@@ -23,7 +23,14 @@ from freedocs.detect.backends.gliner_backend import (
     GlinerBackend,
     model_source,
 )
-from freedocs.formats.pdf import _tessdata_candidates, ocr_unavailable_reason, tesseract_binary
+from freedocs.formats.pdf import (
+    TESSERACT_NOT_EXECUTABLE,
+    TESSERACT_WRONG_NAME,
+    _tessdata_candidates,
+    adopt_tesseract,
+    ocr_unavailable_reason,
+    tesseract_binary,
+)
 
 
 def write_payload(root: Path, *, repo: str = DEFAULT_MODEL) -> Path:
@@ -413,3 +420,89 @@ def test_a_directory_with_no_manifest_is_left_alone(tmp_path: Path):
     root = write_payload(tmp_path / "ner-model")
     (root / MANIFEST_NAME).unlink()
     verify_bundled(str(root))
+
+
+# -- a Tesseract somebody chose, which is the only route that can be misnamed ---
+
+
+def test_a_binary_pymupdf_cannot_resolve_by_name_is_refused(monkeypatch, tmp_path):
+    """Runnable is not enough, and this is what makes a file picker safe.
+
+    `_adopt` puts the candidate's *directory* on `PATH` and PyMuPDF resolves the
+    bare name `tesseract` out of it. Every caller that existed before a person
+    could choose supplied a path already named that, so the gap was unreachable;
+    a picker reaches it, and in the worst direction - the capability would say
+    OCR is available and the first scan would fail inside Tesseract.
+    """
+    hide_system_binaries(monkeypatch)
+    chosen = executable(tmp_path / "opt" / "tesseract-5.3.4")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert adopt_tesseract(chosen) == TESSERACT_WRONG_NAME
+    assert tesseract_binary() is None
+    reason = ocr_unavailable_reason()
+    assert reason is not None and "executable" in reason
+
+
+def test_a_choice_that_is_not_runnable_is_refused_for_that_reason(monkeypatch, tmp_path):
+    """The two refusals are kept apart because the next move differs."""
+    hide_system_binaries(monkeypatch)
+    plain = tmp_path / "bin" / binary_name()
+    plain.parent.mkdir(parents=True, exist_ok=True)
+    plain.write_text("not runnable\n", encoding="utf-8")
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert adopt_tesseract(plain) == TESSERACT_NOT_EXECUTABLE
+
+
+def test_a_refused_choice_leaves_the_environment_as_it_was(monkeypatch, tmp_path):
+    """A rejected path left in the variable is state nobody chose.
+
+    It would also leave `doctor` naming an override that is not being used, which
+    is the report disagreeing with the behaviour.
+    """
+    hide_system_binaries(monkeypatch)
+    good = executable(tmp_path / "good" / binary_name())
+    monkeypatch.setenv("FREEDOCS_TESSERACT", str(good))
+    assert adopt_tesseract(tmp_path / "nowhere" / binary_name()) == TESSERACT_NOT_EXECUTABLE
+    assert os.environ["FREEDOCS_TESSERACT"] == str(good)
+
+
+def test_a_choice_that_takes_is_adopted_and_put_on_path(monkeypatch, tmp_path):
+    hide_system_binaries(monkeypatch)
+    chosen = executable(tmp_path / "elsewhere" / binary_name())
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert adopt_tesseract(chosen) is None
+    assert tesseract_binary() == str(chosen)
+    assert str(chosen.parent) in os.environ["PATH"].split(os.pathsep)
+
+
+def test_the_most_recent_choice_is_the_one_that_runs(monkeypatch, tmp_path):
+    """`PATH` order decides which binary PyMuPDF executes, so prepending matters.
+
+    Two adoptions in one session is what a user correcting a wrong pick does, and
+    appending instead of prepending would leave the first choice winning.
+    """
+    hide_system_binaries(monkeypatch)
+    first = executable(tmp_path / "one" / binary_name())
+    second = executable(tmp_path / "two" / binary_name())
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert adopt_tesseract(first) is None
+    assert adopt_tesseract(second) is None
+    entries = os.environ["PATH"].split(os.pathsep)
+    assert entries.index(str(second.parent)) < entries.index(str(first.parent))
+    assert tesseract_binary() == str(second)
+
+
+def test_the_system_locations_are_still_scanned_past_a_wrongly_named_file(monkeypatch, tmp_path):
+    """One unadoptable leftover in an early location must not hide a real install.
+
+    `return _adopt(path)` inside the loop would have ended the scan on the first
+    runnable file, adopted or not.
+    """
+    misnamed = executable(tmp_path / "early" / "tesseract-old")
+    real = executable(tmp_path / "late" / binary_name())
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(misnamed), str(real)))
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    assert tesseract_binary() == str(real)

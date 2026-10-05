@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -180,6 +181,20 @@ def cargo_path_env() -> dict[str, str]:
     return {"PATH": directory + os.pathsep + current}
 
 
+def version_steps() -> list[Step]:
+    """The version authority, checked and tested.
+
+    Nine lines in eight files carry the version and three of them are lockfile
+    entries, so a bump that missed one does not look wrong — it looks fine until
+    `uv sync --locked` or `npm ci` fails on somebody else's machine, which in
+    this repository means the engine job of a workflow nobody can currently run.
+    """
+    return [
+        Step("version: authority", [sys.executable, "scripts/version.py", "check"], ROOT),
+        Step("version: test", ["uv", "run", "pytest", "-q", "../scripts/test_version.py"], ENGINE),
+    ]
+
+
 def engine_steps(python: str, *, sync: bool, venv: str | None) -> list[Step]:
     """One matrix entry of `engine.yml`, for one interpreter.
 
@@ -232,6 +247,72 @@ def engine_steps(python: str, *, sync: bool, venv: str | None) -> list[Step]:
 AUDIT_REQUIREMENTS = ".audit-requirements.txt"
 
 
+@dataclass(frozen=True)
+class Excused:
+    """One Python advisory the audit is told to pass, and why.
+
+    Bound to the exact locked version it was judged against. The day the lock
+    moves, the advisory is no longer excused: if the new version is still named,
+    the gate goes red and somebody reads this entry again, rather than an ignore
+    quietly outliving the reasoning that justified it.
+    """
+
+    advisory: str
+    package: str
+    version: str
+    #: Why this build is not exposed, and what would end the exception. Printed
+    #: on every run, so the reason is in the output and not only in this file.
+    reason: str
+
+
+EXCUSED_ADVISORIES = (
+    Excused(
+        advisory="PYSEC-2026-3804",
+        package="accelerate",
+        version="1.14.0",
+        reason=(
+            "path traversal in load_checkpoint_in_model / load_checkpoint_and_dispatch "
+            "through a sharded checkpoint's weight_map. Nothing here calls either: "
+            "accelerate arrives only through peft, which uses its hooks and device "
+            "map, and the model is one model.safetensors with no shard index. 1.15.0 "
+            "is not a fix - both functions are byte-identical - so upgrading would "
+            "only hide the advisory. Remove this entry when a release sanitises "
+            "weight_map."
+        ),
+    ),
+)
+
+
+def locked_version(package: str) -> str | None:
+    """The version `uv.lock` pins for ``package``, read without a TOML parser.
+
+    This script runs on whatever `python3` the machine has, which may predate
+    `tomllib`. The anchor is the `[[package]]` block's own `name` line followed by
+    its `version` line, the same exact shape `scripts/version.py` edits.
+    """
+    lock = (ENGINE / "uv.lock").read_text(encoding="utf-8")
+    found = re.search(
+        rf'^name = "{re.escape(package)}"\nversion = "([^"]+)"$', lock, flags=re.MULTILINE
+    )
+    return found.group(1) if found else None
+
+
+def excused_arguments() -> list[str]:
+    """`--ignore-vuln` flags for the advisories still pinned as judged."""
+    flags: list[str] = []
+    for entry in EXCUSED_ADVISORIES:
+        pinned = locked_version(entry.package)
+        if pinned == entry.version:
+            print(f"note  excusing {entry.advisory} ({entry.package} {pinned}): {entry.reason}")
+            flags += ["--ignore-vuln", entry.advisory]
+        else:
+            print(
+                f"note  {entry.advisory} was excused for {entry.package} {entry.version} and "
+                f"the lock now pins {pinned}; it is audited again"
+            )
+    return flags
+
+
 def audit_steps() -> list[Step]:
     """Is anything this depends on known to be vulnerable?
 
@@ -256,6 +337,11 @@ def audit_steps() -> list[Step]:
     fact into a red gate. The `cookie` advisory is dev-only, which is what
     `--omit=dev` is for. If a real vulnerability ever does surface here it
     belongs in an ignore list with its sentence, not silenced.
+
+    That happened once, and `EXCUSED_ADVISORIES` is the list: one Python advisory
+    this build does not reach and no release yet fixes. Each entry carries its
+    sentence and the locked version it was judged for, and stops applying when
+    the lock moves.
     """
     audit = cargo_audit()
     return [
@@ -281,7 +367,17 @@ def audit_steps() -> list[Step]:
             # `--strict`: a dependency the database has nothing to say about and
             # one it could not look up at all are different answers, and only the
             # first is reassuring.
-            ["uv", "run", "--with", "pip-audit", "pip-audit", "--strict", "-r", AUDIT_REQUIREMENTS],
+            [
+                "uv",
+                "run",
+                "--with",
+                "pip-audit",
+                "pip-audit",
+                "--strict",
+                *excused_arguments(),
+                "-r",
+                AUDIT_REQUIREMENTS,
+            ],
             ENGINE,
         ),
         Step(
@@ -454,6 +550,10 @@ def main(argv: list[str] | None = None) -> int:
 
     steps: list[Step] = []
     if args.target in ("check", "all"):
+        # First, and it is the mirror of why `audit_steps()` is last: this costs
+        # milliseconds, and a version that would break `--locked` should be
+        # reported before a ninety-second dependency audit, not after it.
+        steps += version_steps()
         steps += engine_steps("3.12", sync=args.sync, venv=None)
         if not args.no_floor:
             # Always synced: the floor environment is not the one day-to-day work

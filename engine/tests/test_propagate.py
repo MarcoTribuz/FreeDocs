@@ -6,6 +6,7 @@ from freedocs.core.findings import EntityType, Finding, Layer, Span
 from freedocs.detect.propagate import (
     DETECTOR_SUFFIX,
     MIN_PROPAGATION_LENGTH,
+    Occupied,
     propagate_known_values,
 )
 
@@ -154,3 +155,176 @@ def test_regex_metacharacters_in_a_value_are_escaped():
     second = text.index("A.B(1)", 10)
     result = propagate_known_values(text, [found("A.B(1)", 7)], min_length=5)
     assert texts(result) == [(7, "A.B(1)"), (second, "A.B(1)")]
+
+
+def test_a_value_propagates_across_an_underscore():
+    """A filename is a sequence of words, and `_` is what separates them.
+
+    Found on a real document: `SWICA` was removed where the model saw it and
+    stayed inside
+    `2022-03-23_swica_resume_etude_prescriptions_arrets_travail.pdf` two lines
+    down. Stage 6 counts substrings, so it found the survivor and failed a scrub
+    where every other occurrence had gone - and the name of the insurer really
+    is in that filename, so it was right to.
+
+    `.` and `-` are already outside `\\w` and always propagated; the underscore
+    was the only separator this rule read as a letter.
+    """
+    text = "Etude SWICA de 2022.\nSource: 2022-03-23_swica_resume_etude.pdf\n"
+    start = text.index("SWICA")
+    found = [
+        Finding(
+            span=Span(start, start + 5),
+            entity=EntityType.ORGANISATION,
+            text="SWICA",
+            layer=Layer.NER,
+            detector="stub",
+            confidence=0.91,
+        )
+    ]
+    out = propagate_known_values(text, found)
+    assert [f.span.start for f in out] == [start, text.index("_swica_") + 1]
+
+
+def test_a_value_still_does_not_propagate_inside_a_word():
+    """The half that must not move. `Zug` is not in `Zugang`."""
+    text = "Sitz in Zug. Zugang nur fur Mitarbeitende."
+    found = [
+        Finding(
+            span=Span(8, 11),
+            entity=EntityType.LOCATION,
+            text="Zug",
+            layer=Layer.NER,
+            detector="stub",
+            confidence=0.9,
+        )
+    ]
+    assert len(propagate_known_values(text, found)) == 1
+
+
+def test_a_removable_template_wins_the_characters_a_flagged_one_also_wants():
+    """The placement order settles a contest, so it may not be the alphabet.
+
+    Templates were placed in sorted order, for determinism, and determinism was
+    the only requirement it met. On a real document `employeur` was a JOB_TITLE
+    template and `Etat-employeur` an ORGANISATION one; `employeur` sorts first,
+    took the characters, and the removable copy then found the span occupied and
+    skipped it. `resolve_overlaps` would have settled that pair the other way -
+    longer span wins - but it never saw the pair, because the copy it would have
+    preferred was never made.
+
+    Two criteria, each with its own reason: a `REPORT_ONLY` template never takes
+    characters from a removable one, which is the rule already written down for
+    overlaps; and the longer value goes first, which is what makes propagation's
+    order agree with the resolution that follows it.
+    """
+    text = (
+        "Le poste d'employeur est vacant.\n"
+        "Le cout pour l'Etat-employeur s'eleve a 136 millions.\n"
+        "L'Etat-employeur a subi une hausse.\n"
+    )
+
+    def at(value: str, entity: EntityType, confidence: float, *, last=False) -> Finding:
+        start = text.rindex(value) if last else text.index(value)
+        return Finding(
+            span=Span(start, start + len(value)),
+            entity=entity,
+            text=value,
+            layer=Layer.NER,
+            detector="stub",
+            confidence=confidence,
+        )
+
+    contested = text.index("Etat-employeur")
+    out = propagate_known_values(
+        text,
+        [
+            at("employeur", EntityType.JOB_TITLE, 0.68),
+            at("Etat-employeur", EntityType.ORGANISATION, 0.87, last=True),
+        ],
+    )
+    landed = [f for f in out if f.span.start <= contested < f.span.end]
+    assert [(f.entity, len(f.span)) for f in landed] == [(EntityType.ORGANISATION, 14)]
+
+
+def test_the_longer_template_goes_first_between_two_removable_ones():
+    """Same ordering, without a REPORT_ONLY type in it.
+
+    `resolve_overlaps` prefers the longer span at equal precedence, and a copy
+    that loses its characters to a shorter one is a copy that never happens - so
+    the shorter template must not be able to win by sorting earlier.
+    """
+    text = "Alpin Treuhand est le mandant.\nContrat avec Alpin Treuhand AG signe.\n"
+
+    def at(value: str, start: int) -> Finding:
+        return Finding(
+            span=Span(start, start + len(value)),
+            entity=EntityType.ORGANISATION,
+            text=value,
+            layer=Layer.NER,
+            detector="stub",
+            confidence=0.9,
+        )
+
+    second = text.index("Alpin Treuhand AG")
+    out = propagate_known_values(text, [at("Alpin Treuhand", 0), at("Alpin Treuhand AG", second)])
+    assert len(out) == 2
+
+
+def test_occupied_answers_what_the_scan_it_replaced_answered():
+    """Three passes asked "does this overlap anything so far" by scanning, which
+    was quadratic on a dense document. The replacement must give the same answer
+    on every input, empty ranges and touching ones included - the scan counted
+    ``(p, p)`` as overlapping a query strictly around ``p``, and a merge of
+    ``[a, b)`` with ``[b, c)`` would have made an empty query at ``b`` overlap."""
+    import random
+
+    rng = random.Random(1)
+    for _ in range(5000):
+        spans: list[tuple[int, int]] = []
+        occupied = Occupied()
+        for _ in range(rng.randint(0, 40)):
+            start = rng.randint(0, 60)
+            end = start + rng.randint(0, 8)
+            if rng.random() < 0.5:
+                expected = any(start < e and s < end for s, e in spans)
+                assert occupied.overlaps(start, end) == expected, (spans, (start, end))
+            else:
+                spans.append((start, end))
+                occupied.add(start, end)
+
+
+def test_a_dense_document_is_not_quadratic(monkeypatch):
+    """One IBAN a line, a thousand lines. `displace_report_only` used to build a
+    range per occurrence per finding - a million here - and at 1 MB of text that
+    was 178 s and 14 GB. Asserted as a count of ranges rather than a time, so a
+    slow machine cannot fail it."""
+    from freedocs.detect.registry import displace_report_only
+
+    line = "IBAN CH93 0076 2011 6238 5295 7\n"
+    text = line * 1000
+    value = "CH93 0076 2011 6238 5295 7"
+    findings = [
+        Finding(
+            span=Span(index * len(line) + 5, index * len(line) + 5 + len(value)),
+            entity=EntityType.IBAN,
+            text=value,
+            layer=Layer.VALIDATOR,
+            detector="iban",
+            confidence=1.0,
+        )
+        for index in range(1000)
+    ]
+    calls = 0
+    import freedocs.detect.registry as registry
+
+    real = registry.value_occurrences
+
+    def counting(text: str, value: str) -> list[tuple[int, int]]:
+        nonlocal calls
+        calls += 1
+        return real(text, value)
+
+    monkeypatch.setattr(registry, "value_occurrences", counting)
+    assert len(displace_report_only(text, findings)) == 1000
+    assert calls == 1
