@@ -182,8 +182,14 @@ def _toolchain_path() -> dict[str, str]:
 
 
 def _capture(cmd: list[str], cwd: Path) -> str:
+    env = {**os.environ, **_toolchain_path()}
+    # `npm` on Windows is `npm.cmd`, which `CreateProcess` cannot find from the
+    # bare name: `FileNotFoundError: [WinError 2]` on the first Windows run of
+    # this step, the same failure `app/packaging/portable.py` documents.
+    # `shutil.which` applies PATHEXT, and a full path to a `.cmd` does launch.
+    executable = shutil.which(cmd[0], path=env.get("PATH")) or cmd[0]
     completed = subprocess.run(
-        cmd, cwd=cwd, capture_output=True, text=True, env={**os.environ, **_toolchain_path()}
+        [executable, *cmd[1:]], cwd=cwd, capture_output=True, text=True, env=env
     )
     if completed.returncode != 0:
         sys.stderr.write(completed.stderr)
