@@ -606,17 +606,34 @@ done
         path
     }
 
+    /// Retries `Text file busy`, which is these fixtures and not the engine.
+    ///
+    /// The tests run in parallel and each writes a script and then executes it.
+    /// A sibling that forks while this one's script is still open for writing
+    /// hands its child that descriptor until the child reaches `exec`, and Linux
+    /// refuses to execute a file somebody holds open for writing (ETXTBSY). The
+    /// first Linux CI run failed on exactly that. A shipped sidecar is never
+    /// written by the process that starts it, so this stays in the tests.
     fn engine(executable: PathBuf) -> Arc<Engine> {
-        let identity = super::identify(&executable, super::Source::Checkout);
-        Engine::start(
-            Launch {
-                executable,
-                env: Vec::new(),
-                identity,
-            },
-            Box::new(|_| {}),
-        )
-        .unwrap()
+        let mut attempts = 0;
+        loop {
+            let identity = super::identify(&executable, super::Source::Checkout);
+            let started = Engine::start(
+                Launch {
+                    executable: executable.clone(),
+                    env: Vec::new(),
+                    identity,
+                },
+                Box::new(|_| {}),
+            );
+            match started {
+                Err(error) if error.contains("os error 26") && attempts < 50 => {
+                    attempts += 1;
+                    std::thread::sleep(std::time::Duration::from_millis(20));
+                }
+                other => return other.unwrap(),
+            }
+        }
     }
 
     /// Echoes back an empty result for whatever id it was sent.

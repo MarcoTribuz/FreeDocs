@@ -169,6 +169,12 @@ jobs:
           projectPath: app
           args: --target ${{ matrix.target }} ${{ env.BUNDLES }}
           tagName: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+          # Required as soon as there is a tag: without it tauri-action logs
+          # '"releaseName" not set but required' and fails with "Release not
+          # found or created" after the whole bundle, which is how v1.0.1 got
+          # no release. Nothing reads it on a branch build.
+          releaseName: FreeDocs ${{ github.ref_name }}
+          releaseBody: See CHANGELOG.md for what changed.
           releaseDraft: true
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
