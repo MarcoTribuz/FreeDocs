@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="280 200 464 624" width="464" height="624" role="img" aria-label="FreeDocs">
+  <!-- One colour, inherited: set `color` on the element that embeds it.
+       For print, embossing, a favicon mask or a monochrome tray icon. -->
+  <defs>
+    <mask id="cut" maskUnits="userSpaceOnUse" x="280" y="200" width="464" height="624">
+      <rect x="280" y="200" width="464" height="624" fill="#ffffff"/>
+      <path d="M604 220V310a30 30 0 0 0 30 30H724" fill="none" stroke="#000000" stroke-width="18" stroke-linejoin="round"/>
+      <g fill="#000000">
+        <rect x="360" y="350" width="200" height="36" rx="18"/>
+        <rect x="360" y="600" width="304" height="36" rx="18"/>
+        <rect x="360" y="680" width="220" height="36" rx="18"/>
+        <rect x="404" y="469" width="216" height="48" rx="12"/>
+      </g>
+      <g fill="none" stroke="#000000" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M386 446H360V540H386"/>
+        <path d="M638 446H664V540H638"/>
+      </g>
+    </mask>
+  </defs>
+  <path d="M330 220H604L724 340V774a30 30 0 0 1-30 30H330a30 30 0 0 1-30-30V250a30 30 0 0 1 30-30Z" fill="currentColor" mask="url(#cut)"/>
+</svg>

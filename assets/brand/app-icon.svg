@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>FreeDocs</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f9e79"/>
+      <stop offset="1" stop-color="#186049"/>
+    </linearGradient>
+    <filter id="lift" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#0b2e23" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <g filter="url(#lift)">
+    <path d="M330 220H604L724 340V774a30 30 0 0 1-30 30H330a30 30 0 0 1-30-30V250a30 30 0 0 1 30-30Z" fill="#ffffff"/>
+  </g>
+  <path d="M604 220V310a30 30 0 0 0 30 30H724Z" fill="#cfe9df"/>
+  <g fill="#c9d0da">
+    <rect x="360" y="350" width="200" height="36" rx="18"/>
+    <rect x="360" y="600" width="304" height="36" rx="18"/>
+    <rect x="360" y="680" width="220" height="36" rx="18"/>
+  </g>
+  <g fill="none" stroke="#186049" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M386 446H360V540H386"/>
+    <path d="M638 446H664V540H638"/>
+  </g>
+  <rect x="404" y="469" width="216" height="48" rx="12" fill="#22785c"/>
+</svg>

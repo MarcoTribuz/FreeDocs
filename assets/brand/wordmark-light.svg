@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 272 56" width="272" height="56" role="img" aria-label="FreeDocs">
+  <!-- Presentation attributes only, no <style> block: GitHub sanitises embedded
+       CSS out of an SVG served in a README. The mark is assets/brand/mark.svg at
+       0.08 scale; colours are app/src/app.css tokens. -->
+  <defs>
+    <linearGradient id="sheet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f9e79"/>
+      <stop offset="1" stop-color="#186049"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(-17 -12.6) scale(0.08)">
+    <path d="M330 220H604L724 340V774a30 30 0 0 1-30 30H330a30 30 0 0 1-30-30V250a30 30 0 0 1 30-30Z" fill="url(#sheet)"/>
+    <path d="M604 220V310a30 30 0 0 0 30 30H724Z" fill="#b9e0d0"/>
+    <g fill="#ffffff" fill-opacity="0.45">
+      <rect x="360" y="350" width="200" height="36" rx="18"/>
+      <rect x="360" y="600" width="304" height="36" rx="18"/>
+      <rect x="360" y="680" width="220" height="36" rx="18"/>
+    </g>
+    <g fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M386 446H360V540H386"/>
+      <path d="M638 446H664V540H638"/>
+    </g>
+    <rect x="404" y="469" width="216" height="48" rx="12" fill="#ffffff"/>
+  </g>
+  <text x="55" y="39" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="34" font-weight="700" letter-spacing="-0.8">
+    <tspan fill="#12211c">Free</tspan><tspan fill="#1f6f54">Docs</tspan>
+  </text>
+</svg>
