@@ -191,17 +191,36 @@ shasum -a 256 -c SHA256SUMS       # or: sha256sum -c SHA256SUMS
 by `python3 scripts/provenance.py` on the same machine and in the same command
 that produced the artefact. Be clear about what that proves: it detects a
 truncated download or a bad mirror. It does **not** protect against anyone who
-could replace the download and the checksum together, which is what a signature
-would be for.
+could replace the download and the checksum together.
 
-**The CI badges in the README no longer stand for a run on every commit.** GitHub
-Actions is switched off on this repository — the private allowance was exhausted
-twice — and `python3 scripts/ci.py check` is the gate instead: lint, format, the
-suite on the declared Python floor and on 3.12, the leak checks, the corpus
-check, the frontend, `cargo test`, and a dependency audit across all three
-stacks. It runs on one machine, so it is a weaker claim than the matrix was:
-Linux and Windows are where this project's cross-platform failures have actually
-been. If you build from source, run it.
+That is what the **build attestation** is for. From the release after 1.0.2, every installer
+built by `.github/workflows/app.yml` carries a Sigstore-signed statement that it
+came out of that workflow, at that commit, on a GitHub-hosted runner, recorded
+in a public transparency log:
+
+```bash
+gh attestation verify FreeDocs_<version>_x64-setup.exe -R MarcoTribuz/FreeDocs \
+  --source-ref refs/tags/v<version>
+```
+
+`--source-ref` matters: branch builds are attested too, so without it a file
+built from an unreleased branch of this repository would also verify. With it,
+only the build of that release tag does.
+
+A file that was swapped after the build has no attestation, and one cannot be
+made for it without this repository's workflow. What it does not prove: that the
+code at that commit is safe, or anything about a file built on someone's own
+machine — and it is not code signing, so Gatekeeper and SmartScreen still warn.
+1.0.2 and earlier predate it and have checksums only.
+
+**Every pull request and every push to `main` runs CI**: lint, format, the suite on the declared Python floor and on
+3.12, on Linux and Windows, the leak checks, the corpus check, the frontend and a
+dependency audit. GitHub Actions was switched off from August to October 2026,
+while the repository was private and its allowance ran out; releases from that
+period were gated by `python3 scripts/ci.py check` on one machine. That script
+also runs `cargo audit`, which no workflow does, and `cargo test`, which only the bundle
+workflow does. If you
+build from source, run it.
 
 ## A note on the dependencies
 

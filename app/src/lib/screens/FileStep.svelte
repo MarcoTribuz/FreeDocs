@@ -8,6 +8,7 @@
 	import AdvancedPanel from './AdvancedPanel.svelte';
 	import TermListPanel from './TermListPanel.svelte';
 	import Diagnostics from './Diagnostics.svelte';
+	import { askForModel, modelMissing } from '$lib/model.svelte';
 
 	const m = $derived(i18n.m);
 	let heading: HTMLHeadingElement | undefined = $state();
@@ -33,6 +34,17 @@
 			<Badge tone="success">{m.modelBundled()}</Badge>
 		{/if}
 	</section>
+
+	{#if modelMissing()}
+		<!-- After "Not now". A limitation the user chose, said where documents are
+		     chosen, with the way back beside it rather than in a menu. -->
+		<Callout tone="warn" title={m.modelDeferredTitle()}>
+			<p>{m.modelDeferredLead()}</p>
+		</Callout>
+		<div class="locate">
+			<Button variant="secondary" size="sm" onclick={askForModel}>{m.modelDownload()}</Button>
+		</div>
+	{/if}
 
 	{#if !session.caps.ocr_available && session.caps.ocr_unavailable_reason}
 		<!-- The engine has always sent the reason and the window always threw it

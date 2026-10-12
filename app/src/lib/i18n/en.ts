@@ -110,6 +110,42 @@ export const en = {
 	progressLabel: () => 'Scrubbing',
 	progressFile: ({ file, index, total }) => `${file} — file ${index} of ${total}`,
 
+	firstRunEyebrow: () => 'First launch',
+	modelAskTitle: () => 'One download, then FreeDocs works offline',
+	modelAskLead: () =>
+		'To spot names, companies and addresses, FreeDocs uses a language model that runs on this computer. It is downloaded once.',
+	modelFactSize: () => '1.2 GB, from Hugging Face, where the model is published',
+	modelFactPrivate: () => 'Your documents never leave this computer. Only the model comes in.',
+	modelFactOffline: () => 'After this, FreeDocs needs no internet connection.',
+	modelDownload: () => 'Download the model (1.2 GB)',
+	modelNotNow: () => 'Not now',
+	modelWithout: () =>
+		'Without the model, FreeDocs still finds IBANs, tax and ID numbers, cards, email addresses and phone numbers, but not names, companies or addresses.',
+	modelDownloadingTitle: () => 'Downloading the model',
+	modelBytes: ({ done, of }) => `${done} of ${of}`,
+	modelEtaMinutes: ({ minutes }) => `about ${minutes} min left`,
+	modelEtaUnderMinute: () => 'less than a minute left',
+	modelKeepOpen: () => 'Leave this window open. No file is read or sent while this runs.',
+	modelSampleTitle: () => 'What it will do',
+	modelBefore: () => 'Before',
+	modelAfter: () => 'After',
+	modelSampleBefore: () =>
+		'Contract between Mario Rossi and Acme Ltd, 12 High Street, London SW1A 1AA.',
+	modelSampleAfter: ({ person, organisation, address }) =>
+		`Contract between ${person} and ${organisation}, ${address}.`,
+	modelPreparingTitle: () => 'Getting the model ready',
+	modelPreparingLead: () => 'Checking and loading it. A few seconds.',
+	modelFailedTitle: () => 'The download stopped',
+	modelFailedLead: () =>
+		'Nothing on this computer was changed. Check the connection and try again.',
+	modelFailedProxy: () =>
+		'On a company network, a proxy or firewall may block huggingface.co. Your IT team can allow it.',
+	modelRetry: () => 'Try again',
+	modelReadyTitle: () => 'Ready. FreeDocs now works offline.',
+	modelReadyLead: () => 'Names, companies and addresses will be found from your first document.',
+	modelChooseDocument: () => 'Choose a document',
+	modelDeferredTitle: () => 'Names and addresses are not being looked for',
+	modelDeferredLead: () => 'The model that finds them has not been downloaded yet.',
 	resultTitle: () => 'Result',
 	removedAndFlagged: ({ removed, flagged }) => {
 		const gone = plural(L, removed, { one: '{n} value removed', other: '{n} values removed' });

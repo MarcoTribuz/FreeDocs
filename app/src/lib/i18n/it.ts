@@ -105,6 +105,43 @@ export const it = {
 	progressLabel: () => 'Ripulitura',
 	progressFile: ({ file, index, total }) => `${file} — file ${index} di ${total}`,
 
+	firstRunEyebrow: () => 'Primo avvio',
+	modelAskTitle: () => 'Un solo download, poi FreeDocs lavora offline',
+	modelAskLead: () =>
+		'Per riconoscere nomi, aziende e indirizzi, FreeDocs usa un modello linguistico che gira su questo computer. Si scarica una volta sola.',
+	modelFactSize: () => '1,2 GB, da Hugging Face, dove il modello è pubblicato',
+	modelFactPrivate: () =>
+		'I tuoi documenti non lasciano mai questo computer. Entra solo il modello.',
+	modelFactOffline: () => 'Dopo, FreeDocs non ha più bisogno di internet.',
+	modelDownload: () => 'Scarica il modello (1,2 GB)',
+	modelNotNow: () => 'Non ora',
+	modelWithout: () =>
+		"Senza il modello FreeDocs trova comunque IBAN, codici fiscali e numeri d'identità, carte, e-mail e telefoni, ma non nomi, aziende o indirizzi.",
+	modelDownloadingTitle: () => 'Sto scaricando il modello',
+	modelBytes: ({ done, of }) => `${done} di ${of}`,
+	modelEtaMinutes: ({ minutes }) => `mancano circa ${minutes} min`,
+	modelEtaUnderMinute: () => 'manca meno di un minuto',
+	modelKeepOpen: () =>
+		'Lascia aperta questa finestra. Nel frattempo nessun file viene letto o inviato.',
+	modelSampleTitle: () => 'Cosa farà',
+	modelBefore: () => 'Prima',
+	modelAfter: () => 'Dopo',
+	modelSampleBefore: () => 'Contratto tra Mario Rossi e Acme SA, Via Cantonale 12, 6900 Lugano.',
+	modelSampleAfter: ({ person, organisation, address }) =>
+		`Contratto tra ${person} e ${organisation}, ${address}.`,
+	modelPreparingTitle: () => 'Preparo il modello',
+	modelPreparingLead: () => 'Lo controllo e lo carico. Qualche secondo.',
+	modelFailedTitle: () => 'Il download si è interrotto',
+	modelFailedLead: () =>
+		'Su questo computer non è cambiato nulla. Controlla la connessione e riprova.',
+	modelFailedProxy: () =>
+		'In una rete aziendale un proxy o un firewall può bloccare huggingface.co. Il reparto IT può sbloccarlo.',
+	modelRetry: () => 'Riprova',
+	modelReadyTitle: () => 'Pronto. Da ora FreeDocs lavora offline.',
+	modelReadyLead: () => 'Nomi, aziende e indirizzi verranno trovati già dal primo documento.',
+	modelChooseDocument: () => 'Scegli un documento',
+	modelDeferredTitle: () => 'Nomi e indirizzi non vengono cercati',
+	modelDeferredLead: () => 'Il modello che li trova non è ancora stato scaricato.',
 	resultTitle: () => 'Risultato',
 	removedAndFlagged: ({ removed, flagged }) => {
 		const gone = plural(L, removed, {

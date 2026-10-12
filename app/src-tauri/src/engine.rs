@@ -48,6 +48,23 @@ pub const NOTIFY_EVENT: &str = "engine://notify";
 /// died sat here for the full ten minutes, and so did the window.
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
+/// The one request whose length is set by the network rather than the machine.
+///
+/// `model_fetch` downloads 1244 MB, so the ten minutes above run out below about
+/// 2 MB/s - and a timeout here does not stop the download, it only makes the
+/// window report a failure while the engine carries on fetching. The hub client
+/// has its own read timeouts, so a stalled connection still ends as an error
+/// from the engine; this is only the ceiling for a slow one that keeps moving.
+const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+fn timeout_for(method: &str) -> std::time::Duration {
+    if method == "model_fetch" {
+        DOWNLOAD_TIMEOUT
+    } else {
+        REQUEST_TIMEOUT
+    }
+}
+
 /// How many times one session will start the engine again after it has died.
 ///
 /// Bounded rather than unlimited, because the realistic cause is a document the
@@ -224,6 +241,7 @@ impl Engine {
         for (name, value) in &self.launch.env {
             command.env(name, value);
         }
+        hide_console(&mut command);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -315,9 +333,10 @@ impl Engine {
             return Err(error);
         }
 
-        let response = receiver.recv_timeout(REQUEST_TIMEOUT).map_err(|_| {
-            format!("the engine did not answer {method:?} within {REQUEST_TIMEOUT:?}")
-        })?;
+        let timeout = timeout_for(method);
+        let response = receiver
+            .recv_timeout(timeout)
+            .map_err(|_| format!("the engine did not answer {method:?} within {timeout:?}"))?;
 
         if let Some(error) = response.get("error") {
             // Returned as an error string carrying the engine's own structured
@@ -566,6 +585,30 @@ fn dev_candidates() -> Vec<PathBuf> {
         .map(|root| relative.iter().fold(root, |path, part| path.join(part)))
         .collect()
 }
+
+/// Keep the sidecar's console off the screen on Windows.
+///
+/// The sidecar is a console program (`console=True` in the PyInstaller spec)
+/// started by a GUI one, and Windows answers that by opening a new console
+/// window for it: a black `cmd` box that sits beside the app for the whole
+/// session, says nothing about what it is, and kills the engine if closed. A
+/// first-time user reads that as malware or a crash and closes everything.
+///
+/// `CREATE_NO_WINDOW` rather than building the sidecar windowed: the process
+/// still gets a console, just an invisible one, so its stdio pipes behave as
+/// they always have and Tesseract - which PyMuPDF spawns as a console child of
+/// the engine - inherits the hidden console instead of flashing a window of
+/// its own on every scanned page. A windowed (`console=False`) build would get
+/// neither. Nothing here has been run on Windows yet.
+#[cfg(windows)]
+fn hide_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_console(_command: &mut Command) {}
 
 #[cfg(all(test, unix))]
 mod lifecycle {

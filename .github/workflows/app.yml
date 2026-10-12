@@ -46,8 +46,13 @@ jobs:
   bundle:
     # Raised from the workflow's read-only default because `tauri-action` creates
     # the draft release. Nothing else in this job writes to the repository.
+    # `id-token` and `attestations` are for the provenance step below: the first
+    # lets the job prove to Sigstore which workflow and commit it is, the second
+    # stores the signed statement. Neither can touch the code.
     permissions:
       contents: write
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -174,8 +179,24 @@ jobs:
           # found or created" after the whole bundle, which is how v1.0.1 got
           # no release. Nothing reads it on a branch build.
           releaseName: FreeDocs ${{ github.ref_name }}
-          releaseBody: See CHANGELOG.md for what changed.
+          releaseBody: "See CHANGELOG.md for what changed. Every installer carries a build attestation: gh attestation verify <file> -R MarcoTribuz/FreeDocs --source-ref refs/tags/${{ github.ref_name }}"
           releaseDraft: true
+
+      # A signed statement that each installer came out of this workflow, at
+      # this commit, on a GitHub-hosted runner. `SHA256SUMS` catches a bad
+      # mirror and nothing else: whoever can replace the download can replace
+      # the checksum beside it. This is what can't be replaced along with it -
+      # `gh attestation verify <file> -R MarcoTribuz/FreeDocs` checks it against
+      # Sigstore's public log. It is not code signing: macOS and Windows still
+      # warn about an unsigned app. Runs on branch builds too, so a tag is never
+      # the first run of this step.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: |
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.dmg
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.deb
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
+            app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:

@@ -94,9 +94,13 @@ git push origin develop
 git branch -d release/0.2.0
 ```
 
-Pushing `v0.2.0` is what would make the installers, through the `v*` trigger in
-`.github/workflows/app.yml`. **Actions is switched off on this repository**, so
-today that tag records the release and builds nothing; see `docs/packaging.md`.
+Pushing `v0.2.0` is what makes the installers, through the `v*` trigger in
+`.github/workflows/app.yml`, which opens a **draft** release holding them. The
+checksums and SBOMs each platform uploads as artifacts are merged and attached
+by hand, and the draft is published by the maintainer. Run the same workflow on
+the release branch with `workflow_dispatch` before tagging: a release tag cannot
+be moved, so a build that fails on it costs a version number, which is how 1.0.1
+was spent.
 
 ## A hotfix
 
@@ -175,11 +179,13 @@ the hooks both need a direct push: `post-merge` writes the development bump as
 its own commit on `develop`, and a release is merged into `main` locally and
 tagged. A `pull_request`-only bypass would refuse the first push of either.
 
-**No status check is required, because there is nothing to report one.**
-GitHub Actions is off on this repository by decision, and `scripts/ci.py` is the
-gate, run on the maintainer's machine. A required check that nothing posts
-blocks every pull request forever. If Actions comes back, add the engine
-workflow's jobs to the `main and develop` ruleset as required checks.
+**Four status checks are required**: the jobs of `engine.yml` and
+`frontend.yml`, which are what a pull request runs —
+`test (ubuntu-latest, 3.10)`, `test (ubuntu-latest, 3.12)`,
+`test (windows-latest, 3.12)` and `check`. Nothing from `app.yml` is required,
+because it does not run on a pull request and a required check nothing posts
+blocks every pull request forever. The admin bypass skips them too, so the
+maintainer's own local merges still go through `scripts/ci.py check` first.
 
 The repository settings that go with it: merge commits only (squash and rebase
 are off, because both rewrite the merge commit `post-merge` keys on and

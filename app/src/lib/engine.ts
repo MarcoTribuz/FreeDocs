@@ -21,6 +21,8 @@ export const MISSING_DEPENDENCY = 4;
  * opposite handling from a scrub that failed verification and wrote nothing.
  */
 export const INCOMPLETE_RESTORE = 5;
+/** The model download did not finish. The window offers "try again" on this one. */
+export const MODEL_DOWNLOAD_FAILED = 9;
 
 export interface Capabilities {
 	version: string;
@@ -643,6 +645,32 @@ export function useTesseract(path: string): Promise<TesseractChoice> {
 	return request<TesseractChoice>('use_tesseract', { path });
 }
 
+/**
+ * Whether the NER weights are on this machine, asked without fetching them.
+ *
+ * The first-run screen is decided from this, so it is the engine's answer:
+ * `source` is how the build gets its model, `ner_available` whether the layer is
+ * in the build at all, and `present` whether a document could be read by the
+ * model now without a download.
+ */
+export interface ModelStatus {
+	source: 'bundled' | 'hub';
+	ner_available: boolean;
+	present: boolean;
+}
+
+export function modelStatus(): Promise<ModelStatus> {
+	return request('model_status');
+}
+
+/**
+ * Download the weights, then load them. Progress arrives as `download`
+ * notifications; the response arriving means the layer works.
+ */
+export function modelFetch(): Promise<{ present: boolean }> {
+	return request('model_fetch');
+}
+
 export function capabilities(): Promise<Capabilities> {
 	return request<Capabilities>('capabilities');
 }
@@ -888,18 +916,32 @@ export interface Stage {
 }
 
 /**
+ * How far the model download has got, in bytes.
+ *
+ * Bytes are a real unit, so this is the one bar in the window that may fill in
+ * proportion - unlike `Stage`, where no honest fraction exists.
+ */
+export interface Download {
+	id: number | string | null;
+	done: number;
+	of: number;
+}
+
+/**
  * Subscribe to what the engine says unprompted: progress, and the capabilities it
  * announces before anyone asks.
  */
 export function onNotify(handlers: {
 	progress?: (progress: Progress) => void;
 	stage?: (stage: Stage) => void;
+	download?: (download: Download) => void;
 	ready?: (capabilities: Capabilities) => void;
 }) {
 	return listen<{ method?: string; params?: unknown }>('engine://notify', (event) => {
 		const { method, params } = event.payload ?? {};
 		if (method === 'progress' && handlers.progress) handlers.progress(params as Progress);
 		if (method === 'stage' && handlers.stage) handlers.stage(params as Stage);
+		if (method === 'download' && handlers.download) handlers.download(params as Download);
 		if (method === 'ready' && handlers.ready) handlers.ready(params as Capabilities);
 	});
 }

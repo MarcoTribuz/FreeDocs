@@ -41,6 +41,7 @@ from .core.errors import (
     InputTooLarge,
     MalformedDocument,
     MissingDependency,
+    ModelDownloadFailed,
     ModelNotFound,
     OutputRefused,
 )
@@ -94,7 +95,7 @@ from .detect.llm_review import (
     available_models,
 )
 from .detect.validators import SUPPORTED_COUNTRIES
-from .diagnostics import engine_version, run_checks
+from .diagnostics import _module_present, engine_version, run_checks
 from .formats.base import FormatHandler
 from .formats.pdf import (
     ScannedPdfNotSupported,
@@ -150,6 +151,10 @@ INPUT_TOO_LARGE = 7
 #: A parser refused the file. Also distinct from UNSUPPORTED_FORMAT, which would
 #: read as "this build cannot open PDFs" about a PDF that is simply broken.
 MALFORMED_DOCUMENT = 8
+#: Fetching the model weights did not finish. Its own code because nothing the
+#: user owns was involved and the move is "try again", which the window offers
+#: on this code and no other.
+MODEL_DOWNLOAD_FAILED = 9
 
 #: How much flat text ``inspect`` will put on the wire when asked for a preview.
 #:
@@ -726,6 +731,63 @@ class Session:
             # this tool will not do until it is asked explicitly.
             raise RpcError(INVALID_REQUEST, str(exc)) from exc
         return {"host": host, "models": models}
+
+    def model_status(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Whether the NER weights are on this machine, asked without fetching them.
+
+        What the first-run screen is decided from, so it is the engine's answer
+        and not the window's guess: ``source`` is how this build gets its model
+        (the same enum ``capabilities`` sends), ``ner_available`` whether the
+        layer is in the build at all, and ``present`` whether a document could be
+        read by the model right now without a download. Costs no network call
+        and loads nothing, because a question asked at every launch must not be
+        the thing that makes a launch slow.
+        """
+        from .detect.backends.gliner_backend import cached_snapshot, model_source
+
+        ner = _module_present("gliner2") and _module_present("torch")
+        source = _model_source_kind()
+        if source == "bundled":
+            try:
+                model_source()
+                present = True
+            except ModelNotFound:
+                present = False
+        else:
+            present = cached_snapshot() is not None
+        return {"source": source, "ner_available": ner, "present": ner and present}
+
+    def model_fetch(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Download the NER weights now, with progress, then load them.
+
+        ``download`` notifications carry ``done`` and ``of`` in bytes - a real
+        unit, so this is the one bar the window may fill in proportion; see
+        ``StageEvent`` for why the pipeline's stages may not. The model is loaded
+        before answering, so the first document after the screen does not pay
+        the seconds a load takes, and the response arriving means the layer
+        works rather than that some files exist.
+
+        Refused for a bundled build: it carries its model, and a portable copy
+        that reached for the network once is one nobody trusts offline again.
+        """
+        from .detect.backends.gliner_backend import fetch_model
+        from .detect.ner import load_backend
+
+        if _model_source_kind() != "hub":
+            raise RpcError(INVALID_REQUEST, "this build carries its own model; nothing to fetch")
+        request_id = self.current
+
+        def report(done: int, of: int) -> None:
+            self.notify("download", id=request_id, done=done, of=of)
+
+        try:
+            fetch_model(report)
+            _ = load_backend("gliner2").model  # type: ignore[attr-defined]
+        except MissingDependency as exc:
+            raise RpcError(MISSING_DEPENDENCY, str(exc)) from exc
+        except ModelDownloadFailed as exc:
+            raise RpcError(MODEL_DOWNLOAD_FAILED, str(exc)) from exc
+        return {"present": True}
 
     def entities(self, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Every entity type, whether it is removed, and what replaces it.
@@ -1586,6 +1648,8 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "doctor": session.doctor,
         "countries": session.countries,
         "review_models": session.review_models,
+        "model_status": session.model_status,
+        "model_fetch": session.model_fetch,
         "inspect": session.inspect,
         "scrub": session.scrub,
         "restore": session.restore,

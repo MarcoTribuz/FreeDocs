@@ -86,20 +86,33 @@ uv run freedocs benchmark --apply-min-confidence 0.5     # what a scrub would do
 use. CI deliberately omits it: the `slow`-marked tests skip themselves, and
 detection quality is measured by `benchmark`, not asserted in CI.
 
-**GitHub Actions is disabled at the repository setting, and `scripts/ci.py` is
-the gate.** The included minutes on this repository, while it was private, were exhausted
-twice; the second time every job on every workflow began failing in two seconds
-with no runner assigned and no steps executed — which reads exactly like a
-broken commit and is not one, and cost an afternoon to diagnose the first time.
-The workflow files are otherwise untouched, so re-enabling is one command and
-nothing has to be reconstructed. They were hardened while dormant, which is when
-it is free: every action pinned to a commit SHA with the tag as a comment,
+**GitHub Actions is on again, and `scripts/ci.py` is still the gate.** While the
+repository was private its included minutes were exhausted twice; the second time
+every job on every workflow began failing in two seconds with no runner assigned
+and no steps executed — which reads exactly like a broken commit and is not one,
+and cost an afternoon to diagnose the first time. So Actions was switched off at
+the repository setting and stayed off until 12 October 2026: a public repository
+runs on standard runners at no charge, which removed the reason. The workflow
+files were left untouched while dormant, so re-enabling was one call and nothing
+had to be reconstructed. They were hardened in that time, which is when it is
+free: every action pinned to a commit SHA with the tag as a comment,
 `permissions: contents: read` at workflow level raised to `write` only on the job
-that opens a draft release, `--locked` on both `uv sync` calls, and the audit and
+that opens a draft release (which also holds `id-token` and `attestations` for
+the build attestation, the one provenance claim a swapped download cannot
+carry), `--locked` on both `uv sync` calls, and the audit and
 checksum steps added so re-enabling does not lose them. `cargo audit` and the
 Rust SBOM are deliberately *not* in the workflows: both need a multi-minute
 `cargo install` on three runners to describe a tree `Cargo.lock` already pins,
 which is the shape of cost that emptied the allowance twice.
+
+What runs where now: `engine.yml` and `frontend.yml` on every pull request and on
+a push to `main`, and their four jobs are **required checks** on the
+`main and develop` ruleset, so a contributor's pull request cannot be merged red.
+`scripts/ci.py check` still runs before the maintainer's own merges and on a
+release branch, because a `feature/` merge into `develop` is a local push the
+admin bypass lets through without waiting for anything, and because it is the
+only place `cargo audit` runs and the only pre-merge place `cargo test` does
+(`app.yml` runs it, after the fact).
 
 ```bash
 python3 scripts/ci.py check       # the pull-request gate, ~90s
@@ -107,13 +120,18 @@ python3 scripts/ci.py build       # sidecar, desktop bundle, and its manifest
 python3 scripts/version.py show -v   # the nine version sites and what each says
 python3 scripts/version.py check     # first step of the gate; never edit a version by hand
 python3 scripts/version.py install-hooks   # once per clone: git ships no hooks
-gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true
+gh api /repos/MarcoTribuz/FreeDocs/actions/permissions   # enabled: true
 ```
 
 Do not diagnose a two-second all-red run as a code problem. Check
 `gh api /repos/MarcoTribuz/FreeDocs/actions/permissions` first: `enabled: false`
-is this decision, and an empty `steps: []` on a job that did run is the billing
-signature.
+means somebody switched it off again, and an empty `steps: []` on a job that did
+run is the billing signature. Re-enabling needs the JSON body — `-F enabled=true`
+answers 204 and changes nothing, measured on the day it was turned back on:
+
+```bash
+echo '{"enabled":true,"allowed_actions":"all"}' | gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions --input -
+```
 
 Three things in `scripts/ci.py` are not transcriptions of the YAML, because a
 laptop is not a runner. The Python floor gets **its own virtualenv**
@@ -261,10 +279,12 @@ arrives as a fork's pull request against `develop`, merged locally with
 Two things about that are deliberate. **The bypass is `always`, not
 `pull_request`**: `post-merge` pushes its bump straight to `develop` and a
 release is merged into `main` locally and tagged, and a PR-only bypass refuses
-the first push of either. **No status check is required**: Actions is off by
-decision and `scripts/ci.py` is the gate, so a required check is one nothing
-posts and every pull request would wait on it forever. Re-enabling Actions is
-the moment to add them. Squash and rebase merging are off because both remove
+the first push of either. **The required checks are the pull-request
+workflows' four jobs** — `test (ubuntu-latest, 3.10)`, `test (ubuntu-latest, 3.12)`,
+`test (windows-latest, 3.12)` and `check` — and nothing from `app.yml`, which does
+not run on a pull request, so requiring it would leave every one waiting forever.
+They were added the day Actions came back; while it was off a required check was
+one nothing posted. Squash and rebase merging are off because both remove
 the merge commit `post-merge` keys on.
 
 Dependabot targets `develop` (`target-branch` on every entry). Its pull requests

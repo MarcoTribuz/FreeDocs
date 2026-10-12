@@ -1,6 +1,6 @@
 [package]
 name = "app"
-version = "1.0.2"
+version = "1.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -13,6 +13,14 @@ edition = "2021"
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
 name = "app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+# The executable is named for the product, not the package. The package stays
+# `app` because three lockfile anchors in `scripts/version.py` key on it; the
+# binary is what the user sees - the Dock tooltip and Activity Monitor on macOS,
+# Task Manager on Windows - and it said `app`.
+[[bin]]
+name = "FreeDocs"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
