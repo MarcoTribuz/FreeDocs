@@ -421,6 +421,10 @@ def frontend_steps(*, sync: bool) -> list[Step]:
 
 def rust_steps() -> list[Step]:
     binary = cargo()
+    # tauri-build refuses a resource path that does not exist, and in a fresh
+    # clone the sidecar has never been built. An empty directory satisfies it
+    # and PyInstaller replaces it; `app.yml` does the same before its tests.
+    (ENGINE / "dist" / "freedocs-engine").mkdir(parents=True, exist_ok=True)
     return [
         Step(
             "rust: test",

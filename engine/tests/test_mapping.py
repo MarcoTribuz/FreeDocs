@@ -9,6 +9,7 @@ mis-read that writes the wrong value into a document.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -156,12 +157,14 @@ def test_the_file_on_disk_reveals_no_value(tmp_path: Path, source: Path):
     assert not leaked, f"key file exposes {leaked}"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not meaningful here")
 def test_the_file_is_not_readable_by_other_accounts(tmp_path: Path):
     path = tmp_path / ("doc" + MAP_SUFFIX)
     write_key_map(path, _empty_map(), PASSPHRASE)
     assert path.stat().st_mode & 0o777 == 0o600
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits are not meaningful here")
 def test_overwriting_an_open_file_tightens_its_mode(tmp_path: Path):
     """O_CREAT keeps an existing file's mode, so yesterday's key file would keep
     yesterday's permissions without the explicit chmod."""
