@@ -10,6 +10,13 @@
 # stream of individual bumps would be read by nobody, which is the state that
 # lets a real advisory pass unnoticed. Security updates are configured at the
 # repository level, not here, and are unaffected by these schedules.
+#
+# `target-branch: develop` on every entry, because this is a gitflow repository
+# and a bump is a feature like any other. Without it every pull request was
+# opened against `main`, carrying `main`'s version on the nine version sites, so
+# taking one meant either merging into the release line directly or resolving a
+# lockfile conflict on the version number. Security updates ignore this setting
+# and always target the default branch; take those through a hotfix.
 
 version: 2
 updates:
@@ -22,6 +29,7 @@ updates:
   # than this file, which is the correct place to find out.
   - package-ecosystem: uv
     directory: /engine
+    target-branch: develop
     schedule:
       interval: monthly
     groups:
@@ -60,6 +68,7 @@ updates:
   # there is no upstream version to move to.
   - package-ecosystem: npm
     directory: /app
+    target-branch: develop
     schedule:
       interval: monthly
     groups:
@@ -106,6 +115,7 @@ updates:
   # Linux bundle is configured rather than verified. Do not chase it.
   - package-ecosystem: cargo
     directory: /app/src-tauri
+    target-branch: develop
     schedule:
       interval: monthly
     groups:
@@ -120,6 +130,7 @@ updates:
   # nobody thinks of as a dependency.
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: monthly
     groups:
