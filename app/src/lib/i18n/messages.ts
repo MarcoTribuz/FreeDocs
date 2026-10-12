@@ -126,6 +126,45 @@ export interface Messages {
 	stageOf(a: { name: string; index: number; count: number }): string;
 	stagePages(a: { done: number; of: number }): string;
 
+	// ---- first run: fetching the model --------------------------------------
+	//
+	// The one screen that asks the network for something, so it says exactly
+	// what, how much, from where, and what never goes the other way. The size is
+	// written here rather than asked for: before the download the engine cannot
+	// know it without the network call this screen exists to ask permission for.
+	firstRunEyebrow(): string;
+	modelAskTitle(): string;
+	modelAskLead(): string;
+	modelFactSize(): string;
+	modelFactPrivate(): string;
+	modelFactOffline(): string;
+	modelDownload(): string;
+	modelNotNow(): string;
+	/** What still works without the model. Checksum-layer types only. */
+	modelWithout(): string;
+	modelDownloadingTitle(): string;
+	modelBytes(a: { done: string; of: string }): string;
+	modelEtaMinutes(a: { minutes: number }): string;
+	modelEtaUnderMinute(): string;
+	modelKeepOpen(): string;
+	modelSampleTitle(): string;
+	modelBefore(): string;
+	modelAfter(): string;
+	modelSampleBefore(): string;
+	/** The placeholders come from the engine's allocator, never from here. */
+	modelSampleAfter(a: { person: string; organisation: string; address: string }): string;
+	modelPreparingTitle(): string;
+	modelPreparingLead(): string;
+	modelFailedTitle(): string;
+	modelFailedLead(): string;
+	modelFailedProxy(): string;
+	modelRetry(): string;
+	modelReadyTitle(): string;
+	modelReadyLead(): string;
+	modelChooseDocument(): string;
+	modelDeferredTitle(): string;
+	modelDeferredLead(): string;
+
 	// ---- the result ---------------------------------------------------------
 	resultTitle(): string;
 	removedAndFlagged(a: { removed: number; flagged: number }): string;

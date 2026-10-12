@@ -111,6 +111,45 @@ export const fr = {
 	progressLabel: () => 'Nettoyage',
 	progressFile: ({ file, index, total }) => `${file} — fichier ${index} sur ${total}`,
 
+	firstRunEyebrow: () => 'Premier lancement',
+	modelAskTitle: () => 'Un seul téléchargement, puis FreeDocs fonctionne hors ligne',
+	modelAskLead: () =>
+		'Pour repérer les noms, les entreprises et les adresses, FreeDocs utilise un modèle de langage qui tourne sur cet ordinateur. Il se télécharge une seule fois.',
+	modelFactSize: () => '1,2 Go, depuis Hugging Face, où le modèle est publié',
+	modelFactPrivate: () =>
+		'Vos documents ne quittent jamais cet ordinateur. Seul le modèle entre.',
+	modelFactOffline: () => "Ensuite, FreeDocs n'a plus besoin d'Internet.",
+	modelDownload: () => 'Télécharger le modèle (1,2 Go)',
+	modelNotNow: () => 'Pas maintenant',
+	modelWithout: () =>
+		"Sans le modèle, FreeDocs trouve quand même les IBAN, les numéros fiscaux et d'identité, les cartes, les e-mails et les numéros de téléphone, mais pas les noms, les entreprises ni les adresses.",
+	modelDownloadingTitle: () => 'Téléchargement du modèle',
+	modelBytes: ({ done, of }) => `${done} sur ${of}`,
+	modelEtaMinutes: ({ minutes }) => `encore environ ${minutes} min`,
+	modelEtaUnderMinute: () => "encore moins d'une minute",
+	modelKeepOpen: () =>
+		"Laissez cette fenêtre ouverte. Pendant ce temps, aucun fichier n'est lu ni envoyé.",
+	modelSampleTitle: () => "Ce qu'il va faire",
+	modelBefore: () => 'Avant',
+	modelAfter: () => 'Après',
+	modelSampleBefore: () =>
+		'Contrat entre Claire Dubois et Acme SA, rue du Rhône 12, 1204 Genève.',
+	modelSampleAfter: ({ person, organisation, address }) =>
+		`Contrat entre ${person} et ${organisation}, ${address}.`,
+	modelPreparingTitle: () => 'Préparation du modèle',
+	modelPreparingLead: () => 'Vérification et chargement. Quelques secondes.',
+	modelFailedTitle: () => "Le téléchargement s'est interrompu",
+	modelFailedLead: () =>
+		"Rien n'a été modifié sur cet ordinateur. Vérifiez la connexion et réessayez.",
+	modelFailedProxy: () =>
+		"Sur un réseau d'entreprise, un proxy ou un pare-feu peut bloquer huggingface.co. Votre service informatique peut l'autoriser.",
+	modelRetry: () => 'Réessayer',
+	modelReadyTitle: () => 'Prêt. FreeDocs fonctionne désormais hors ligne.',
+	modelReadyLead: () =>
+		'Les noms, les entreprises et les adresses seront trouvés dès le premier document.',
+	modelChooseDocument: () => 'Choisir un document',
+	modelDeferredTitle: () => 'Les noms et les adresses ne sont pas recherchés',
+	modelDeferredLead: () => "Le modèle qui les trouve n'est pas encore téléchargé.",
 	resultTitle: () => 'Résultat',
 	removedAndFlagged: ({ removed, flagged }) => {
 		const gone = plural(L, removed, {

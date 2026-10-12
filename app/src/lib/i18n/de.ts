@@ -106,6 +106,44 @@ export const de = {
 	progressLabel: () => 'Bereinigung',
 	progressFile: ({ file, index, total }) => `${file} — Datei ${index} von ${total}`,
 
+	firstRunEyebrow: () => 'Erster Start',
+	modelAskTitle: () => 'Ein Download, dann arbeitet FreeDocs offline',
+	modelAskLead: () =>
+		'Um Namen, Firmen und Adressen zu erkennen, nutzt FreeDocs ein Sprachmodell, das auf diesem Computer läuft. Es wird einmal heruntergeladen.',
+	modelFactSize: () => '1,2 GB, von Hugging Face, wo das Modell veröffentlicht ist',
+	modelFactPrivate: () =>
+		'Ihre Dokumente verlassen diesen Computer nie. Nur das Modell kommt herein.',
+	modelFactOffline: () => 'Danach braucht FreeDocs keine Internetverbindung mehr.',
+	modelDownload: () => 'Modell herunterladen (1,2 GB)',
+	modelNotNow: () => 'Nicht jetzt',
+	modelWithout: () =>
+		'Ohne das Modell findet FreeDocs trotzdem IBANs, Steuer- und Ausweisnummern, Karten, E-Mail-Adressen und Telefonnummern, aber keine Namen, Firmen oder Adressen.',
+	modelDownloadingTitle: () => 'Das Modell wird heruntergeladen',
+	modelBytes: ({ done, of }) => `${done} von ${of}`,
+	modelEtaMinutes: ({ minutes }) => `noch etwa ${minutes} Min.`,
+	modelEtaUnderMinute: () => 'noch weniger als eine Minute',
+	modelKeepOpen: () =>
+		'Lassen Sie dieses Fenster offen. Währenddessen wird keine Datei gelesen oder gesendet.',
+	modelSampleTitle: () => 'Was es tun wird',
+	modelBefore: () => 'Vorher',
+	modelAfter: () => 'Nachher',
+	modelSampleBefore: () =>
+		'Vertrag zwischen Anna Müller und Acme AG, Bahnhofstrasse 12, 8001 Zürich.',
+	modelSampleAfter: ({ person, organisation, address }) =>
+		`Vertrag zwischen ${person} und ${organisation}, ${address}.`,
+	modelPreparingTitle: () => 'Das Modell wird vorbereitet',
+	modelPreparingLead: () => 'Es wird geprüft und geladen. Einige Sekunden.',
+	modelFailedTitle: () => 'Der Download wurde unterbrochen',
+	modelFailedLead: () =>
+		'Auf diesem Computer wurde nichts verändert. Prüfen Sie die Verbindung und versuchen Sie es erneut.',
+	modelFailedProxy: () =>
+		'In einem Firmennetz kann ein Proxy oder eine Firewall huggingface.co sperren. Ihre IT kann es freigeben.',
+	modelRetry: () => 'Erneut versuchen',
+	modelReadyTitle: () => 'Fertig. FreeDocs arbeitet jetzt offline.',
+	modelReadyLead: () => 'Namen, Firmen und Adressen werden ab dem ersten Dokument gefunden.',
+	modelChooseDocument: () => 'Dokument auswählen',
+	modelDeferredTitle: () => 'Namen und Adressen werden nicht gesucht',
+	modelDeferredLead: () => 'Das Modell, das sie findet, ist noch nicht heruntergeladen.',
 	resultTitle: () => 'Ergebnis',
 	removedAndFlagged: ({ removed, flagged }) => {
 		const gone = plural(L, removed, {

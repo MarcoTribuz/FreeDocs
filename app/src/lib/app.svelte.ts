@@ -51,6 +51,7 @@ import { basename } from './format';
 import { i18n } from './i18n/index.svelte';
 import { resetReview } from './review.svelte';
 import { keptSpanFor, type Mode, type Step } from './steps';
+import { checkModel, detectorSpec, onDownload } from './model.svelte';
 
 /**
  * The window's session: what the engine said, what the user picked, and the
@@ -380,7 +381,8 @@ export async function start(): Promise<() => void> {
 			stage: (value) => {
 				session.stage = value;
 			},
-			ready: adoptCaps
+			ready: adoptCaps,
+			download: onDownload
 		})
 	);
 
@@ -392,6 +394,8 @@ export async function start(): Promise<() => void> {
 		await applyRememberedTesseract();
 		applyRememberedTerms();
 		session.entityList = (await entities(session.placeholderLanguage)).entities;
+		// After the entity list, which the first-run screen's example is drawn from.
+		await checkModel();
 		await Promise.all([refreshCoverage(), refreshDiagnostics()]);
 	} catch (error) {
 		fail(describe(error), codeOf(error));
@@ -944,6 +948,8 @@ export async function loadInspection(path: string): Promise<void> {
 			remove: session.extraValues[path] ?? [],
 			minConfidence: session.minConfidence,
 			countries: activeCountries(),
+			// Checksums only while the model is missing; see `detectorSpec`.
+			detectors: detectorSpec(),
 			// The review pane renders the document, so it asks for it. Opt-in on the
 			// wire because this text contains the confidential values no layer
 			// detected, which is more than the findings alone.
@@ -1080,6 +1086,7 @@ export async function runScrub(): Promise<void> {
 				remove: session.files.flatMap((path) => session.extraValues[path] ?? []),
 				minConfidence: session.minConfidence,
 				countries: activeCountries(),
+				detectors: detectorSpec(),
 				placeholderLanguage: session.placeholderLanguage,
 				review: session.reviewModel || null,
 				reviewHost: session.reviewHost,
@@ -1501,6 +1508,7 @@ async function runScrubText(): Promise<void> {
 			remove: session.extraValues[PASTED] ?? [],
 			minConfidence: session.minConfidence,
 			countries: activeCountries(),
+			detectors: detectorSpec(),
 			placeholderLanguage: session.placeholderLanguage,
 			review: session.reviewModel || null,
 			reviewHost: session.reviewHost,
