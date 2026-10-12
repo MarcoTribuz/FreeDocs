@@ -48,6 +48,23 @@ pub const NOTIFY_EVENT: &str = "engine://notify";
 /// died sat here for the full ten minutes, and so did the window.
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(600);
 
+/// The one request whose length is set by the network rather than the machine.
+///
+/// `model_fetch` downloads 1244 MB, so the ten minutes above run out below about
+/// 2 MB/s - and a timeout here does not stop the download, it only makes the
+/// window report a failure while the engine carries on fetching. The hub client
+/// has its own read timeouts, so a stalled connection still ends as an error
+/// from the engine; this is only the ceiling for a slow one that keeps moving.
+const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+fn timeout_for(method: &str) -> std::time::Duration {
+    if method == "model_fetch" {
+        DOWNLOAD_TIMEOUT
+    } else {
+        REQUEST_TIMEOUT
+    }
+}
+
 /// How many times one session will start the engine again after it has died.
 ///
 /// Bounded rather than unlimited, because the realistic cause is a document the
@@ -316,9 +333,10 @@ impl Engine {
             return Err(error);
         }
 
-        let response = receiver.recv_timeout(REQUEST_TIMEOUT).map_err(|_| {
-            format!("the engine did not answer {method:?} within {REQUEST_TIMEOUT:?}")
-        })?;
+        let timeout = timeout_for(method);
+        let response = receiver
+            .recv_timeout(timeout)
+            .map_err(|_| format!("the engine did not answer {method:?} within {timeout:?}"))?;
 
         if let Some(error) = response.get("error") {
             // Returned as an error string carrying the engine's own structured

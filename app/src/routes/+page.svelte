@@ -19,6 +19,8 @@
 	import ReviewStep from '$lib/screens/ReviewStep.svelte';
 	import TextResult from '$lib/screens/TextResult.svelte';
 	import TextStep from '$lib/screens/TextStep.svelte';
+	import FirstRun from '$lib/screens/FirstRun.svelte';
+	import { model } from '$lib/model.svelte';
 
 	/**
 	 * The orchestrator: which step is showing, what may be reached, and the
@@ -138,6 +140,11 @@
 			<p>{session.engineProblem}</p>
 		</Callout>
 	</div>
+{:else if model.phase}
+	<!-- Alone on the screen, like the terminal failure: until the user has
+	     chosen, every step behind it would run without the layer that finds
+	     names, or would start the download with nobody watching. -->
+	<FirstRun />
 {:else}
 	<div class="shell">
 		<StepRail {reachable} current={step} />

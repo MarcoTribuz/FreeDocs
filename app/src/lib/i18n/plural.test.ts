@@ -115,7 +115,14 @@ describe('the catalogues', () => {
 		termsMatched: { matched: 3, loaded: 50 },
 		textCount: { count: 1204 },
 		textTooLong: { max: 2000000 },
-		announceTextScrubbed: { count: 3 }
+		announceTextScrubbed: { count: 3 },
+		modelBytes: { done: '412 MB', of: '1,244 MB' },
+		modelEtaMinutes: { minutes: 3 },
+		modelSampleAfter: {
+			person: '[PERSON_1]',
+			organisation: '[ORGANISATION_1]',
+			address: '[ADDRESS_1]'
+		}
 	};
 
 	for (const [name, catalogue] of catalogues) {

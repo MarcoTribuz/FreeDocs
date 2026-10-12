@@ -29,6 +29,17 @@ class ModelNotFound(RuntimeError):
     """
 
 
+class ModelDownloadFailed(RuntimeError):
+    """Fetching the NER weights did not finish.
+
+    Its own type because the window answers it differently from every other
+    failure: nothing the user owns was touched, the partial download is kept for
+    the next attempt, and the right control is "try again", not "pick another
+    file". The message is about the network or the disk, never a document, so it
+    carries no value by construction.
+    """
+
+
 class OutputRefused(OSError):
     """An output path is not something this engine will write to.
 

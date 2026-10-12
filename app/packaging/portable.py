@@ -223,7 +223,7 @@ def build_windows() -> Path:
     installers by definition, and there is no third target that is a folder.
     """
     tauri_build("--no-bundle")
-    executable = release_dir() / "app.exe"
+    executable = release_dir() / f"{conf()['productName']}.exe"
     if not executable.is_file():
         raise SystemExit(f"{executable} was not produced")
 
@@ -232,10 +232,8 @@ def build_windows() -> Path:
         shutil.rmtree(staging)
     staging.mkdir(parents=True)
 
-    # Renamed here because the Cargo package is `app` and there is no [[bin]]
-    # section, so only the bundler ever calls it FreeDocs — and `app.exe` on a
-    # user's desktop names nothing.
-    shutil.copy2(executable, staging / f"{conf()['productName']}.exe")
+    # `Cargo.toml` names the binary after the product, so it is copied as it is.
+    shutil.copy2(executable, staging / executable.name)
     shutil.copytree(SIDECAR, staging / "freedocs-engine")
     shutil.copytree(MODEL, staging / "ner-model")
 

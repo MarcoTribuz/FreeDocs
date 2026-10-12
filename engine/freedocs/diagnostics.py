@@ -187,11 +187,16 @@ def _weights(*, hashes: bool = False) -> tuple[bool, str, str | None]:
     common case is a person checking whether the build works.
     """
     from .core.model_manifest import verify
-    from .detect.backends.gliner_backend import DEFAULT_MODEL, MODEL_ENV
+    from .detect.backends.gliner_backend import DEFAULT_MODEL, MODEL_ENV, cached_snapshot
 
     configured = os.environ.get(MODEL_ENV)
     if not configured:
-        return True, "weights are fetched to the Hugging Face cache on first use", None
+        # Not a failure either way, and said differently because the two states
+        # behave differently: a cached copy loads with no network, an absent one
+        # is a 1.2 GB download the next time anything asks for the model.
+        if cached_snapshot() is not None:
+            return True, "weights in the Hugging Face cache, loaded without the network", None
+        return True, "weights not downloaded yet; fetched (about 1.2 GB) on first use", None
 
     directory = Path(configured).expanduser()
     problems = verify(directory, repo=DEFAULT_MODEL, hashes=hashes)
