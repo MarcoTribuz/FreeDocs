@@ -631,6 +631,19 @@ continue against a different engine than the session began with.
 
 ### Packaging
 
+**Intune gets the MSI as a Win32 app, never the NSIS installer.** NSIS installs
+per user by default and Intune installs as SYSTEM, so the app would land in a
+profile nobody logs into. `app/packaging/intune.py` wraps the `.msi` and refuses
+three things that would upload fine and fail later: a development version, an
+MSI whose `ProductVersion` or `UpgradeCode` disagrees with this tree, and a
+staging folder holding anything but the MSI. `bundle.windows.wix.upgradeCode` is
+pinned to the exact value Tauri used to derive from `productName`, so a rename
+cannot fork every installation and a pre-pin `v0.2.0` MSI is the same product.
+The MSI path reaches PowerShell through an environment variable because
+`-Command` appends trailing arguments to the script text — `$args` is empty and
+the path becomes code, measured with `pwsh`. Nothing past the script's checks
+has run on Windows; `docs/intune.md` holds the pilot table.
+
 One-dir, not one-file: a one-file bundle unpacks half a gigabyte of torch to a
 temp directory on every launch. `tauri.conf.json` ships it as a resource and
 `src-tauri/src/engine.rs` spawns the executable inside it, falling back to the

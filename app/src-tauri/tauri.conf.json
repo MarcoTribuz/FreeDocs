@@ -39,6 +39,11 @@
     "resources": {
       "../../engine/dist/freedocs-engine": "freedocs-engine"
     },
+    "windows": {
+      "wix": {
+        "upgradeCode": "9b739aa3-694f-5e3b-b9a3-fd637b39bbda"
+      }
+    },
     "macOS": {
       "minimumSystemVersion": "11.0"
     },

@@ -110,7 +110,7 @@ $env:CI = "true"; npm run tauri build
 ```
 
 The installers land in `app\src-tauri\target\release\bundle\msi\` and
-`...\bundle\nsis\`.
+`...\bundle\nsis\`. To deploy the `.msi` through Intune, see [intune](intune.md).
 
 ## Ubuntu 24.04
 
