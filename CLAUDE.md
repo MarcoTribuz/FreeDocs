@@ -97,7 +97,9 @@ files were left untouched while dormant, so re-enabling was one call and nothing
 had to be reconstructed. They were hardened in that time, which is when it is
 free: every action pinned to a commit SHA with the tag as a comment,
 `permissions: contents: read` at workflow level raised to `write` only on the job
-that opens a draft release, `--locked` on both `uv sync` calls, and the audit and
+that opens a draft release (which also holds `id-token` and `attestations` for
+the build attestation, the one provenance claim a swapped download cannot
+carry), `--locked` on both `uv sync` calls, and the audit and
 checksum steps added so re-enabling does not lose them. `cargo audit` and the
 Rust SBOM are deliberately *not* in the workflows: both need a multi-minute
 `cargo install` on three runners to describe a tree `Cargo.lock` already pins,
