@@ -142,11 +142,15 @@ number on every fetch. Git ignores this hook's exit status, so it cannot fail a
 merge and does not try to: when the tree is inconsistent it says so and names
 the command to run.
 
-**`pre-push`** refuses three things: a push from a tree whose nine sites have
+**`pre-push`** refuses four things: a push from a tree whose nine sites have
 drifted, a `main` carrying a development version, and a `v*` tag whose name does
 not match the version of the commit it points at. That last one closes a real
 hole — `app.yml` hands `tagName` to `tauri-action` verbatim and checks it
-against nothing, so a tag and the installers it names could disagree.
+against nothing, so a tag and the installers it names could disagree. It
+also refuses a release version on `main` or a `v*` tag when that commit's
+`CHANGELOG.md` has no `## X.Y.Z` section: the draft release's notes are written
+from that file, so write the section on the release branch, before merging.
+`version.py release` prints the reminder.
 
 Both are a seatbelt, and what the server enforces is the next section.
 

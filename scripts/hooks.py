@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from version import (
     BOLD,
+    CHANGELOG,
     DIM,
     GREEN,
     OFF,
@@ -31,6 +32,8 @@ from version import (
     RED,
     VersionError,
     bump,
+    changelog_at,
+    changelog_names,
     current,
     version_at,
     write,
@@ -130,11 +133,12 @@ def _commit_the_bump(version: object) -> None:
 def pre_push(_argv: list[str]) -> int:
     """Refuse a push that would publish a version nobody could reproduce.
 
-    Three refusals, and each one has already been possible in this repository:
+    Four refusals, and each one has already been possible in this repository:
     a tree whose nine sites drifted, a `main` carrying a development version,
-    and a `v*` tag that does not match the `tauri.conf.json` the installers are
+    a `v*` tag that does not match the `tauri.conf.json` the installers are
     named from — `app.yml` passes `tagName` to `tauri-action` verbatim and
-    checks it against nothing.
+    checks it against nothing — and a release version on `main` or a tag with
+    no section in `CHANGELOG.md`.
     """
     try:
         current(ROOT)
@@ -156,6 +160,17 @@ def pre_push(_argv: list[str]) -> int:
         version = version_at(local_sha, ROOT)
         if version is None:  # predates this mechanism; nothing to check against
             continue
+
+        publishes = remote_ref == "refs/heads/main" or remote_ref.startswith("refs/tags/v")
+        if publishes and version.dev is None:
+            log = changelog_at(local_sha, ROOT)
+            if log is None or not changelog_names(log, version):
+                where = remote_ref.removeprefix("refs/heads/").removeprefix("refs/tags/")
+                refusals.append(
+                    f"{where} would publish {version}, and {CHANGELOG} has no "
+                    f"`## {version.semver()}` section. The release notes are "
+                    "written from it."
+                )
 
         if remote_ref == "refs/heads/main" and version.dev is not None:
             refusals.append(
