@@ -179,7 +179,7 @@ jobs:
           # found or created" after the whole bundle, which is how v1.0.1 got
           # no release. Nothing reads it on a branch build.
           releaseName: FreeDocs ${{ github.ref_name }}
-          releaseBody: "See CHANGELOG.md for what changed. Every installer carries a build attestation: gh attestation verify <file> -R MarcoTribuz/FreeDocs"
+          releaseBody: "See CHANGELOG.md for what changed. Every installer carries a build attestation: gh attestation verify <file> -R MarcoTribuz/FreeDocs --source-ref refs/tags/${{ github.ref_name }}"
           releaseDraft: true
 
       # A signed statement that each installer came out of this workflow, at

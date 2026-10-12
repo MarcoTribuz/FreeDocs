@@ -199,8 +199,13 @@ came out of that workflow, at that commit, on a GitHub-hosted runner, recorded
 in a public transparency log:
 
 ```bash
-gh attestation verify FreeDocs_<version>_x64-setup.exe -R MarcoTribuz/FreeDocs
+gh attestation verify FreeDocs_<version>_x64-setup.exe -R MarcoTribuz/FreeDocs \
+  --source-ref refs/tags/v<version>
 ```
+
+`--source-ref` matters: branch builds are attested too, so without it a file
+built from an unreleased branch of this repository would also verify. With it,
+only the build of that release tag does.
 
 A file that was swapped after the build has no attestation, and one cannot be
 made for it without this repository's workflow. What it does not prove: that the
