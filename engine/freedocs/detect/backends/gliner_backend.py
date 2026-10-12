@@ -16,17 +16,20 @@ from __future__ import annotations
 import contextlib
 import io
 import os
-from collections.abc import Sequence
+import threading
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from ...core.egress import permitted
-from ...core.errors import MissingDependency, ModelNotFound
-from ...core.model_manifest import MANIFEST_NAME, verify
+from ...core.errors import MissingDependency, ModelDownloadFailed, ModelNotFound
+from ...core.model_manifest import MANIFEST_NAME, REQUIRED_FILES, verify
 from ..ner import RawEntity
 
-#: Roughly 1.2 GB, fetched to the Hugging Face cache on first use by an installed
-#: or installer build. Pinned by name so an upgrade is a deliberate,
+#: 1244 MB, fetched to the Hugging Face cache once: by the app's first-run screen
+#: through :func:`fetch_model`, or on first use from the CLI. After that it is
+#: loaded from the cache as a directory. Pinned by name so an upgrade is a deliberate,
 #: re-benchmarked change. A portable build carries the weights instead and names
 #: the directory in ``FREEDOCS_NER_MODEL``; see :func:`model_source`.
 DEFAULT_MODEL = "fastino/gliner2-privacy-filter-PII-multi"
@@ -135,6 +138,147 @@ def verify_bundled(model_id: str) -> None:
         )
 
 
+def cached_snapshot() -> Path | None:
+    """The local snapshot of :data:`DEFAULT_MODEL` holding every file, or None.
+
+    Asked of ``huggingface_hub``'s own cache index, so it costs no network call
+    and honours ``HF_HOME`` the way the download did. ``None`` means at least
+    one file the loader opens is not on this machine, which is the state the
+    first-run screen exists for.
+
+    It is also what :meth:`GlinerBackend._load` loads from, and that is the
+    other half of the reason it exists. Handing ``from_pretrained`` the
+    repository id makes ``huggingface_hub`` ask the hub whether its cached copy
+    is current on *every* load, so an installer build reached the network every
+    time the app started, not once. A directory is read as a directory. After
+    the first download the weights in use are the ones on disk, and the model
+    only changes when somebody fetches it on purpose - which is also what
+    "pinned so an upgrade is a deliberate, re-benchmarked change" should have
+    meant all along.
+    """
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return None
+    found: list[Path] = []
+    for name in REQUIRED_FILES:
+        hit = try_to_load_from_cache(DEFAULT_MODEL, name)
+        # A string is a path; None is "never seen" and a sentinel object is
+        # "the hub said this file does not exist". Neither is a model.
+        if not isinstance(hit, str):
+            return None
+        found.append(Path(hit))
+    # `config.json` sits at the root of the snapshot, so its directory is the
+    # directory `from_pretrained` expects.
+    return found[0].parent
+
+
+#: How often a download may report, at most. `hf_hub_download` advances its bar
+#: per network chunk, which over a fast line is hundreds of lines a second down a
+#: pipe the window reads one at a time.
+_REPORT_INTERVAL = 0.25
+
+#: ``(done, of)`` in bytes across every file being fetched.
+DownloadReport = Callable[[int, int], None]
+
+
+def fetch_model(report: DownloadReport) -> Path:
+    """Download whatever of :data:`DEFAULT_MODEL` is missing, and say how far it got.
+
+    The second call in this process allowed to reach the network, and the same
+    act as the first: before this existed the weights were fetched inside the
+    first ``inspect``, so a new user's first document sat still for minutes with
+    nothing to say why. Here the fetch is its own request, the window asks for it
+    with the user's consent, and the progress is in **bytes**, which is a real
+    unit - the one place a bar may honestly fill in proportion.
+
+    Sizes are asked of the hub before anything is fetched so ``of`` is the whole
+    download from the first report rather than a total that grows file by file.
+    A file already in the cache is skipped, and ``hf_hub_download`` resumes a
+    file it left ``.incomplete``, so an interrupted first run restarts where it
+    stopped rather than at zero. Every failure becomes
+    :class:`~freedocs.core.errors.ModelDownloadFailed`, because "the network went
+    away" must not reach the window as a traceback about ``httpx``.
+    """
+    try:
+        from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url
+        from huggingface_hub.utils import tqdm as hub_tqdm
+    except ImportError as exc:  # pragma: no cover - depends on the environment
+        raise MissingDependency(
+            "huggingface_hub is required to fetch the model; install the 'ner' extra"
+        ) from exc
+
+    lock = threading.Lock()
+    state = {"base": 0, "file": 0, "total": 0, "last": 0.0}
+
+    def emit(*, force: bool = False) -> None:
+        now = time.monotonic()
+        if not force and now - state["last"] < _REPORT_INTERVAL:
+            return
+        state["last"] = now
+        report(min(state["base"] + state["file"], state["total"]), state["total"])
+
+    class _Progress(hub_tqdm):  # type: ignore[misc, valid-type]
+        """A bar that counts for the window and draws nothing.
+
+        Its own counter rather than ``self.n``: the hub disables its bars when
+        ``HF_HUB_DISABLE_PROGRESS_BARS`` is set, and a disabled tqdm stops
+        counting. The output goes to a buffer because stderr is the terminal a
+        developer reads tracebacks in. Locked because the Xet transfer reports
+        from its own threads.
+        """
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            kwargs["file"] = io.StringIO()
+            super().__init__(*args, **kwargs)
+            with lock:
+                state["file"] = int(kwargs.get("initial") or 0)  # type: ignore[call-overload]
+                emit()
+
+        def update(self, n: float | None = 1) -> bool | None:
+            with lock:
+                state["file"] = max(0, state["file"] + int(n or 0))
+                emit()
+            return super().update(n)
+
+    try:
+        with permitted("downloading the NER model"):
+            missing = [name for name in REQUIRED_FILES if not isinstance(_cached(name), str)]
+            sizes = {
+                name: int(get_hf_file_metadata(hf_hub_url(DEFAULT_MODEL, name)).size or 0)
+                for name in missing
+            }
+            state["total"] = sum(sizes.values())
+            emit(force=True)
+            for name in missing:
+                hf_hub_download(DEFAULT_MODEL, name, tqdm_class=_Progress)
+                with lock:
+                    state["base"] += sizes[name]
+                    state["file"] = 0
+                    emit(force=True)
+    except MissingDependency:
+        raise
+    except Exception as exc:
+        raise ModelDownloadFailed(
+            f"the model download did not finish ({type(exc).__name__}: {exc}); "
+            "what was already downloaded is kept and the next attempt continues from it"
+        ) from exc
+
+    snapshot = cached_snapshot()
+    if snapshot is None:
+        raise ModelDownloadFailed(
+            "the model download finished but the cache does not hold every file the "
+            "loader needs; try again"
+        )
+    return snapshot
+
+
+def _cached(name: str) -> object:
+    from huggingface_hub import try_to_load_from_cache
+
+    return try_to_load_from_cache(DEFAULT_MODEL, name)
+
+
 @dataclass
 class GlinerBackend:
     name: str = "gliner2"
@@ -174,8 +318,16 @@ class GlinerBackend:
         # Before the load, not after: the point is to refuse the payload rather
         # than to notice afterwards that the answers were wrong.
         verify_bundled(self.model_id)
+        source = self.model_id
+        if source == DEFAULT_MODEL:
+            # A complete local copy is loaded as a directory, which asks the hub
+            # nothing; see `cached_snapshot`. Only a missing one falls through to
+            # the repository id and its download.
+            snapshot = cached_snapshot()
+            if snapshot is not None:
+                source = str(snapshot)
         with contextlib.redirect_stdout(io.StringIO()), permitted("loading the NER model"):
-            return GLiNER2.from_pretrained(self.model_id, map_location="cpu")
+            return GLiNER2.from_pretrained(source, map_location="cpu")
 
     def predict(self, text: str) -> Sequence[RawEntity]:
         result = self.model.extract_entities(  # type: ignore[attr-defined]
