@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <!-- GitHub's social preview (Settings → Social preview), 1280×640. GitHub
+       wants a PNG; render it with `node scripts/brand.mjs`. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f9e79"/>
+      <stop offset="1" stop-color="#186049"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="#0e1013"/>
+  <g transform="translate(96 160) scale(0.3125)">
+    <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+    <path d="M330 220H604L724 340V774a30 30 0 0 1-30 30H330a30 30 0 0 1-30-30V250a30 30 0 0 1 30-30Z" fill="#ffffff"/>
+    <path d="M604 220V310a30 30 0 0 0 30 30H724Z" fill="#cfe9df"/>
+    <g fill="#c9d0da">
+      <rect x="360" y="350" width="200" height="36" rx="18"/>
+      <rect x="360" y="600" width="304" height="36" rx="18"/>
+      <rect x="360" y="680" width="220" height="36" rx="18"/>
+    </g>
+    <g fill="none" stroke="#186049" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M386 446H360V540H386"/>
+      <path d="M638 446H664V540H638"/>
+    </g>
+    <rect x="404" y="469" width="216" height="48" rx="12" fill="#22785c"/>
+  </g>
+  <text x="472" y="300" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="104" font-weight="700" letter-spacing="-2.5">
+    <tspan fill="#e9efec">Free</tspan><tspan fill="#3fbb92">Docs</tspan>
+  </text>
+  <text font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="34" fill="#aab2bf">
+    <tspan x="476" y="370">Take the confidential data out of a</tspan>
+    <tspan x="476" y="414">document before an AI ever sees it.</tspan>
+  </text>
+  <text x="476" y="490" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="24" fill="#6fd0ab" letter-spacing="1">LOCAL · OFFLINE · OPEN SOURCE</text>
+</svg>

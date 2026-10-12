@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="280 200 464 624" width="464" height="624" role="img" aria-label="FreeDocs">
+  <!-- The mark without the app tile, for light and dark backgrounds alike.
+       Presentation attributes only: GitHub sanitises a <style> block out of an
+       SVG shown in a README. Colours are app/src/app.css tokens. -->
+  <defs>
+    <linearGradient id="sheet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f9e79"/>
+      <stop offset="1" stop-color="#186049"/>
+    </linearGradient>
+  </defs>
+  <path d="M330 220H604L724 340V774a30 30 0 0 1-30 30H330a30 30 0 0 1-30-30V250a30 30 0 0 1 30-30Z" fill="url(#sheet)"/>
+  <path d="M604 220V310a30 30 0 0 0 30 30H724Z" fill="#b9e0d0"/>
+  <g fill="#ffffff" fill-opacity="0.45">
+    <rect x="360" y="350" width="200" height="36" rx="18"/>
+    <rect x="360" y="600" width="304" height="36" rx="18"/>
+    <rect x="360" y="680" width="220" height="36" rx="18"/>
+  </g>
+  <g fill="none" stroke="#ffffff" stroke-width="20" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M386 446H360V540H386"/>
+    <path d="M638 446H664V540H638"/>
+  </g>
+  <rect x="404" y="469" width="216" height="48" rx="12" fill="#ffffff"/>
+</svg>

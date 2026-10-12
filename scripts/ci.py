@@ -192,6 +192,13 @@ def version_steps() -> list[Step]:
     return [
         Step("version: authority", [sys.executable, "scripts/version.py", "check"], ROOT),
         Step("version: test", ["uv", "run", "pytest", "-q", "../scripts/test_version.py"], ENGINE),
+        # The Intune script reads the version through `version.py` and refuses a
+        # package that disagrees with it, so it is tested beside the authority.
+        Step(
+            "intune: test",
+            ["uv", "run", "pytest", "-q", "../app/packaging/test_intune.py"],
+            ENGINE,
+        ),
     ]
 
 

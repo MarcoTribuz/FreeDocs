@@ -87,7 +87,7 @@ use. CI deliberately omits it: the `slow`-marked tests skip themselves, and
 detection quality is measured by `benchmark`, not asserted in CI.
 
 **GitHub Actions is disabled at the repository setting, and `scripts/ci.py` is
-the gate.** The included minutes on this private repository were exhausted
+the gate.** The included minutes on this repository, while it was private, were exhausted
 twice; the second time every job on every workflow began failing in two seconds
 with no runner assigned and no steps executed — which reads exactly like a
 broken commit and is not one, and cost an afternoon to diagnose the first time.
@@ -247,11 +247,30 @@ number is settled by `release`, on the release branch.
 bundles a day apart both say `0.1.0`. A real version does not retire that — two
 bundles of `0.3.0-dev.4` still exist.
 
-**The hooks are a seatbelt, not a gate, and saying otherwise would be false.**
-Branch protection is unavailable here: `/branches/main/protection` answers HTTP
-403, *"Upgrade to GitHub Pro or make this repository public"*, and every branch
-reports `protected: false`. Nothing server-side can require a base branch, a
-review or a status check, and Actions is off besides.
+**The hooks are a seatbelt; the rulesets are the server half.** The repository
+went public, which is what made protection available — before that
+`/branches/main/protection` answered HTTP 403. Two rulesets now hold:
+`main and develop` (no deletion, no force push, pull request only, code-owner
+approval, merge commits only) and `release tags` (nobody creates, moves or
+deletes a `v*`). The repository admin role bypasses both **always**, which is
+the whole of "only the maintainer merges": `.github/CODEOWNERS` puts the
+maintainer on every path, nobody else has write access, and a contribution
+arrives as a fork's pull request against `develop`, merged locally with
+`--no-ff` and a `feature/` subject so `post-merge` bumps.
+
+Two things about that are deliberate. **The bypass is `always`, not
+`pull_request`**: `post-merge` pushes its bump straight to `develop` and a
+release is merged into `main` locally and tagged, and a PR-only bypass refuses
+the first push of either. **No status check is required**: Actions is off by
+decision and `scripts/ci.py` is the gate, so a required check is one nothing
+posts and every pull request would wait on it forever. Re-enabling Actions is
+the moment to add them. Squash and rebase merging are off because both remove
+the merge commit `post-merge` keys on.
+
+Dependabot targets `develop` (`target-branch` on every entry). Its pull requests
+used to open against `main` with `main`'s version on the lockfile entries, so
+each conflicted with `develop` on the version number. Security updates ignore
+that setting and still target `main`; take those through a hotfix.
 
 - **`post-merge` cannot fail a merge** — git ignores its exit status — so it does
   not try to. It bumps only when the branch is `develop`, `HEAD` is a merge
@@ -344,6 +363,14 @@ taste: white on the chosen accent `#2f9e79` is 3.34:1, below what a button label
 needs, so the fill is the same hue at `#22785c`; `--text-3` was 4.26:1 and moved;
 the `place` underline was 2.77:1 against its own tint. In dark mode a white label
 on the accent measured 2.40:1, so that label is dark.
+
+**The brand is these tokens, and its sources are SVG.** `assets/brand/` holds
+the mark, the app icon, the wordmarks and the social preview as hand-written
+SVG; every icon under `src-tauri/icons/`, the favicon and the social PNG are
+generated from them, and `Logo.svelte` inlines the same geometry so it follows
+the theme through `--accent` and `--on-accent`. No second palette exists, so a
+token change recolours the app and the mark together. `assets/brand/README.md`
+has the rules, including why the bar is never black.
 
 **Secondary text is a colour, not an `opacity`.** The old window built its whole
 hierarchy from twelve opacity values. Opacity cannot be measured for contrast and
@@ -630,6 +657,19 @@ environment are resolved **once**, at startup, so a restart cannot silently
 continue against a different engine than the session began with.
 
 ### Packaging
+
+**Intune gets the MSI as a Win32 app, never the NSIS installer.** NSIS installs
+per user by default and Intune installs as SYSTEM, so the app would land in a
+profile nobody logs into. `app/packaging/intune.py` wraps the `.msi` and refuses
+three things that would upload fine and fail later: a development version, an
+MSI whose `ProductVersion` or `UpgradeCode` disagrees with this tree, and a
+staging folder holding anything but the MSI. `bundle.windows.wix.upgradeCode` is
+pinned to the exact value Tauri used to derive from `productName`, so a rename
+cannot fork every installation and a pre-pin `v0.2.0` MSI is the same product.
+The MSI path reaches PowerShell through an environment variable because
+`-Command` appends trailing arguments to the script text — `$args` is empty and
+the path becomes code, measured with `pwsh`. Nothing past the script's checks
+has run on Windows; `docs/intune.md` holds the pilot table.
 
 One-dir, not one-file: a one-file bundle unpacks half a gigabyte of torch to a
 temp directory on every launch. `tauri.conf.json` ships it as a resource and
@@ -2053,7 +2093,7 @@ A fourth artifact per platform: unzip and run, no installer, no network. Built b
 `app/packaging/portable.py` with `src-tauri/tauri.portable.conf.json` merged in,
 run locally — **the CI steps are gated on a `BUILD_PORTABLE` repository variable
 and off by default**, because a second bundling pass over a 2.3 GB tree on three
-runners (macOS billed at 10x) emptied this private repository's Actions allowance
+runners (macOS billed at 10x) emptied this repository's Actions allowance while it was private
 the first time it ran. Gated rather than deleted, so a portable release is one
 variable away. The feature is **additive by construction** — `tauri.conf.json` is untouched, `env.BUNDLES`
 is untouched, and the portable CI steps are appended after the installer upload so

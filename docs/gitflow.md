@@ -144,17 +144,67 @@ not match the version of the commit it points at. That last one closes a real
 hole — `app.yml` hands `tagName` to `tauri-action` verbatim and checks it
 against nothing, so a tag and the installers it names could disagree.
 
-Both are a seatbelt, not a gate, and the reason is worth stating plainly:
+Both are a seatbelt, and what the server enforces is the next section.
 
-- **Branch protection is not available here.** `/branches/main/protection`
-  answers HTTP 403, *"Upgrade to GitHub Pro or make this repository public"*.
-  Every branch reports `protected: false`. Nothing server-side can require a
-  base branch, a review or a status check.
 - **A merge in the GitHub web interface runs no local hook**, so a pull request
   merged in the browser lands on `develop` without a bump. Finish features
   locally, as above. If one does slip through, the next `push` still runs
   `check`, and `python3 scripts/version.py bump dev` puts it right.
 - **`git push --no-verify` skips `pre-push`.**
+
+## What the server enforces
+
+The repository is public, which is what made branch protection available — it
+used to answer HTTP 403, *"Upgrade to GitHub Pro or make this repository
+public"*. Two rulesets now hold, and both can be read back with
+`gh api /repos/MarcoTribuz/FreeDocs/rulesets`.
+
+| Ruleset | Applies to | Rules |
+|---|---|---|
+| `main and develop` | `refs/heads/main`, `refs/heads/develop` | no deletion, no force push, changes through a pull request only, a code-owner approval, conversations resolved, merge commits only |
+| `release tags` | `refs/tags/v*` | nobody creates, moves or deletes a release tag |
+
+The **repository admin role bypasses both, always**, and that is the whole of
+"only the maintainer merges". The maintainer is the only collaborator, so
+nobody else can push a branch here at all; a contribution arrives from a fork as
+a pull request, and `.github/CODEOWNERS` names the maintainer on every path, so
+no pull request can be merged without their approval.
+
+The bypass is `always` rather than `pull_request` because the release flow and
+the hooks both need a direct push: `post-merge` writes the development bump as
+its own commit on `develop`, and a release is merged into `main` locally and
+tagged. A `pull_request`-only bypass would refuse the first push of either.
+
+**No status check is required, because there is nothing to report one.**
+GitHub Actions is off on this repository by decision, and `scripts/ci.py` is the
+gate, run on the maintainer's machine. A required check that nothing posts
+blocks every pull request forever. If Actions comes back, add the engine
+workflow's jobs to the `main and develop` ruleset as required checks.
+
+The repository settings that go with it: merge commits only (squash and rebase
+are off, because both rewrite the merge commit `post-merge` keys on and
+squashing a release branch into `main` loses the history the back-merge needs),
+a head branch is deleted after a merge, Actions on a fork's pull request waits
+for approval from every outside contributor, and secret scanning with push
+protection and private vulnerability reporting are on.
+
+## A pull request from somebody else
+
+It targets `develop`. Read it, run the gate on it, and merge it **locally** so
+the hook bumps the development counter:
+
+```bash
+gh pr checkout 42                        # creates a local branch for it
+python3 scripts/ci.py check
+git switch develop
+git merge --no-ff <that-branch> -m "Merge branch 'feature/<name>' into develop"
+git push origin develop                  # GitHub marks the pull request merged
+```
+
+The `-m` matters: `post-merge` bumps only when the subject names a `feature/`
+branch, and a fork's branch is rarely called that. A pull request against `main`
+is retargeted to `develop` before anything else — `main` takes only a
+`release/*` or a `hotfix/*`.
 
 ## Known limitation: prerelease versions and Windows installers
 

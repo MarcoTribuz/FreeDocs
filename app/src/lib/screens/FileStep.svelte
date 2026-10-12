@@ -4,6 +4,7 @@
 	import Badge from '$lib/components/Badge.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Callout from '$lib/components/Callout.svelte';
+	import Logo from '$lib/components/Logo.svelte';
 	import AdvancedPanel from './AdvancedPanel.svelte';
 	import TermListPanel from './TermListPanel.svelte';
 	import Diagnostics from './Diagnostics.svelte';
@@ -12,7 +13,7 @@
 	let heading: HTMLHeadingElement | undefined = $state();
 </script>
 
-<h2 bind:this={heading} tabindex="-1">{m.appName()}</h2>
+<h2 bind:this={heading} tabindex="-1"><Logo size={36} />{m.appName()}</h2>
 <p class="lead">{m.tagline()}</p>
 
 {#if session.caps}
@@ -122,6 +123,9 @@
 
 <style>
 	h2 {
+		display: flex;
+		align-items: center;
+		gap: var(--space-3);
 		font-size: var(--text-2xl);
 		line-height: var(--lh-2xl);
 		letter-spacing: var(--tracking-tight);

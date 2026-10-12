@@ -166,7 +166,10 @@ discussing in a public issue — just not as security reports.
 
 ## Supported versions, and verifying a build
 
-Pre-1.0, so: the current `main`, which is where the newest release tag lives.
+The newest release on `main`, which is where the newest release tag lives. From
+1.0.0 the project follows Semantic Versioning, and what that version number
+promises — the CLI, the placeholder shape, the key file and term list formats,
+the report — is listed in [CHANGELOG.md](CHANGELOG.md#what-10-commits-to).
 Development happens on `develop` and its `feature/*` branches, which carry a
 `-dev.N` version and are not supported; a `release/*` or `hotfix/*` branch is
 short-lived and exists only to reach the next tag. See
