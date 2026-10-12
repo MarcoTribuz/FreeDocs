@@ -521,9 +521,9 @@ signing. The shape that works is the same one M7 needs. `core/sandbox.py` carrie
 the full reasoning and `freedocs doctor` prints what is and is not enforced, so the
 absence cannot be read as presence.
 
-**Signing.** Unsigned installers stay unsigned. `SHA256SUMS` and an SBOM are what
-is offered instead, and SECURITY.md says plainly what that does and does not
-prove.
+**Signing.** Unsigned installers stay unsigned. `SHA256SUMS`, an SBOM and, since
+Actions came back, a build attestation per installer are what is offered instead,
+and SECURITY.md says plainly what each does and does not prove.
 
 **The platform matrix.** Everything here was verified on macOS arm64. This project
 builds on Linux and Windows and has never been launched on either, and the local

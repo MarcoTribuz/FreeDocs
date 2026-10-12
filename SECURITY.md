@@ -191,8 +191,22 @@ shasum -a 256 -c SHA256SUMS       # or: sha256sum -c SHA256SUMS
 by `python3 scripts/provenance.py` on the same machine and in the same command
 that produced the artefact. Be clear about what that proves: it detects a
 truncated download or a bad mirror. It does **not** protect against anyone who
-could replace the download and the checksum together, which is what a signature
-would be for.
+could replace the download and the checksum together.
+
+That is what the **build attestation** is for. From the release after 1.0.2, every installer
+built by `.github/workflows/app.yml` carries a Sigstore-signed statement that it
+came out of that workflow, at that commit, on a GitHub-hosted runner, recorded
+in a public transparency log:
+
+```bash
+gh attestation verify FreeDocs_<version>_x64-setup.exe -R MarcoTribuz/FreeDocs
+```
+
+A file that was swapped after the build has no attestation, and one cannot be
+made for it without this repository's workflow. What it does not prove: that the
+code at that commit is safe, or anything about a file built on someone's own
+machine — and it is not code signing, so Gatekeeper and SmartScreen still warn.
+1.0.2 and earlier predate it and have checksums only.
 
 **Every pull request and every push to `main` runs CI**: lint, format, the suite on the declared Python floor and on
 3.12, on Linux and Windows, the leak checks, the corpus check, the frontend and a
