@@ -381,10 +381,6 @@ def audit_steps() -> list[Step]:
                 "pip-audit",
                 "pip-audit",
                 "--strict",
-                # Linux takes torch from this index (`torch==...+cpu` in the
-                # export). Harmless elsewhere: the marker skips that line.
-                "--extra-index-url",
-                "https://download.pytorch.org/whl/cpu",
                 *excused_arguments(),
                 "-r",
                 AUDIT_REQUIREMENTS,
