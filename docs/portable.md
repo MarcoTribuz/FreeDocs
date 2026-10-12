@@ -6,8 +6,8 @@ them.
 
 **CI does not build it by default.** These steps roughly double the expensive
 half of `app.yml` — a second bundling pass over a 2.3 GB tree on three runners,
-with macOS billed at 10× — and they emptied this private repository's Actions
-allowance the first time they ran. They are gated on a `BUILD_PORTABLE`
+with macOS billed at 10× — and they emptied this repository's Actions
+allowance, while it was private, the first time they ran. They are gated on a `BUILD_PORTABLE`
 repository variable: set it to `true` when a portable release is wanted, leave it
 unset otherwise. The commands below build one locally on any platform, which is
 the only place a portable bundle has actually been launched anyway.

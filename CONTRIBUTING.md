@@ -150,13 +150,12 @@ development counter when a feature lands on `develop`; `pre-push` refuses a tree
 whose nine version sites have drifted, a `main` carrying a development version,
 and a `v*` tag that does not match the tree it points at.
 
-They are a seatbelt rather than a gate, and for a reason worth knowing before
-you rely on them: branch protection is not available on this repository —
-`/branches/main/protection` answers HTTP 403, *"Upgrade to GitHub Pro or make
-this repository public"* — so nothing server-side can require a base branch or a
-review. A pull request merged in the browser also runs no local hook and so
-lands without a bump; finish features locally, and if one slips through,
-`python3 scripts/version.py bump dev` puts it right.
+What the server enforces is separate from the hooks: `main` and `develop` take
+changes only through a pull request, every path is owned by the maintainer in
+`.github/CODEOWNERS`, and only the maintainer merges. Open your pull request from
+a fork against `develop`; it is merged locally with `--no-ff`, so the hook bumps
+the development counter, and GitHub then marks it merged. The rulesets and the
+reasoning are in [docs/gitflow.md](docs/gitflow.md#what-the-server-enforces).
 
 Never edit a version by hand. Nine lines in eight files carry it, three of them
 lockfile entries, and a bump that misses one breaks `uv sync --locked` or
@@ -179,12 +178,9 @@ The PR template asks for the benchmark delta when a detector changed — that
 field is not decoration.
 
 **GitHub Actions is switched off, so nothing checks a pull request but you.**
-This is a private repository and its included minutes were exhausted twice; the
-second time, every job on every workflow started failing in two seconds with no
-runner assigned and no steps executed, which looks exactly like a broken commit
-and is not one. Rather than keep firing at an empty allowance, Actions is
-disabled at the repository setting and `scripts/ci.py` runs the same gate here.
-The workflow files are untouched, so turning it back on is one command:
+Releases are built on the maintainer's machine and the gate runs there too, as
+`scripts/ci.py`. The workflow files are kept, hardened and untouched, so turning
+Actions back on is one command:
 
 ```bash
 gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true

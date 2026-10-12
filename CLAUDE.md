@@ -87,7 +87,7 @@ use. CI deliberately omits it: the `slow`-marked tests skip themselves, and
 detection quality is measured by `benchmark`, not asserted in CI.
 
 **GitHub Actions is disabled at the repository setting, and `scripts/ci.py` is
-the gate.** The included minutes on this private repository were exhausted
+the gate.** The included minutes on this repository, while it was private, were exhausted
 twice; the second time every job on every workflow began failing in two seconds
 with no runner assigned and no steps executed — which reads exactly like a
 broken commit and is not one, and cost an afternoon to diagnose the first time.
@@ -247,11 +247,30 @@ number is settled by `release`, on the release branch.
 bundles a day apart both say `0.1.0`. A real version does not retire that — two
 bundles of `0.3.0-dev.4` still exist.
 
-**The hooks are a seatbelt, not a gate, and saying otherwise would be false.**
-Branch protection is unavailable here: `/branches/main/protection` answers HTTP
-403, *"Upgrade to GitHub Pro or make this repository public"*, and every branch
-reports `protected: false`. Nothing server-side can require a base branch, a
-review or a status check, and Actions is off besides.
+**The hooks are a seatbelt; the rulesets are the server half.** The repository
+went public, which is what made protection available — before that
+`/branches/main/protection` answered HTTP 403. Two rulesets now hold:
+`main and develop` (no deletion, no force push, pull request only, code-owner
+approval, merge commits only) and `release tags` (nobody creates, moves or
+deletes a `v*`). The repository admin role bypasses both **always**, which is
+the whole of "only the maintainer merges": `.github/CODEOWNERS` puts the
+maintainer on every path, nobody else has write access, and a contribution
+arrives as a fork's pull request against `develop`, merged locally with
+`--no-ff` and a `feature/` subject so `post-merge` bumps.
+
+Two things about that are deliberate. **The bypass is `always`, not
+`pull_request`**: `post-merge` pushes its bump straight to `develop` and a
+release is merged into `main` locally and tagged, and a PR-only bypass refuses
+the first push of either. **No status check is required**: Actions is off by
+decision and `scripts/ci.py` is the gate, so a required check is one nothing
+posts and every pull request would wait on it forever. Re-enabling Actions is
+the moment to add them. Squash and rebase merging are off because both remove
+the merge commit `post-merge` keys on.
+
+Dependabot targets `develop` (`target-branch` on every entry). Its pull requests
+used to open against `main` with `main`'s version on the lockfile entries, so
+each conflicted with `develop` on the version number. Security updates ignore
+that setting and still target `main`; take those through a hotfix.
 
 - **`post-merge` cannot fail a merge** — git ignores its exit status — so it does
   not try to. It bumps only when the branch is `develop`, `HEAD` is a merge
@@ -2066,7 +2085,7 @@ A fourth artifact per platform: unzip and run, no installer, no network. Built b
 `app/packaging/portable.py` with `src-tauri/tauri.portable.conf.json` merged in,
 run locally — **the CI steps are gated on a `BUILD_PORTABLE` repository variable
 and off by default**, because a second bundling pass over a 2.3 GB tree on three
-runners (macOS billed at 10x) emptied this private repository's Actions allowance
+runners (macOS billed at 10x) emptied this repository's Actions allowance while it was private
 the first time it ran. Gated rather than deleted, so a portable release is one
 variable away. The feature is **additive by construction** — `tauri.conf.json` is untouched, `env.BUNDLES`
 is untouched, and the portable CI steps are appended after the installer upload so
