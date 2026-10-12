@@ -1,0 +1,5 @@
+# Every path is owned by the maintainer, so the "main and develop" ruleset's
+# code-owner review requirement means no pull request reaches either branch
+# without the maintainer's approval. See docs/gitflow.md, "What the server
+# enforces".
+* @MarcoTribuz
