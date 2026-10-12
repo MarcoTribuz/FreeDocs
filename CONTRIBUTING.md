@@ -177,26 +177,27 @@ python3 scripts/ci.py check
 The PR template asks for the benchmark delta when a detector changed — that
 field is not decoration.
 
-**GitHub Actions is switched off, so nothing checks a pull request but you.**
-Releases are built on the maintainer's machine and the gate runs there too, as
-`scripts/ci.py`. The workflow files are kept, hardened and untouched, so turning
-Actions back on is one command:
+**A pull request runs the engine and frontend workflows, and both must pass.**
+They are required checks on `develop` and `main`; a pull request from a fork
+waits for the maintainer to approve the run before it starts. Run the same thing
+locally before pushing, so the first red is yours and not the reviewer's:
 
 ```bash
-gh api -X PUT /repos/MarcoTribuz/FreeDocs/actions/permissions -F enabled=true
+python3 scripts/ci.py check
 ```
 
-`scripts/ci.py check` runs the two workflows a pull request used to run: lint,
+`scripts/ci.py check` runs the two workflows a pull request runs: lint,
 format, the suite, the leak checks and the corpus check on Python 3.12 *and* on
 3.10, plus the frontend type-check and tests and the Rust bridge's tests. About
 seventy seconds. `scripts/ci.py build` does what the bundle workflow did — the
 PyInstaller sidecar and the desktop bundle.
 
-What it cannot do is the matrix. CI ran Linux and Windows too, and that is
-where this project's cross-platform failures have actually been: `write_text`
+What it cannot do is the matrix, and that is what the pull request's checks
+are for. Linux and Windows are where this project's cross-platform failures have
+actually been: `write_text`
 translating `\n` to CRLF broke three leak tests, and `npm` being `npm.cmd`
 broke the portable build. A green run on your machine is weaker evidence than a
-green run there was, and a change that touches paths, file writing or
+green run there, and a change that touches paths, file writing or
 subprocesses deserves to be said out loud in the pull request rather than
 assumed.
 

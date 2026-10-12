@@ -184,8 +184,8 @@ typed by hand), `limitations` (references `limitation` entries), `cta`,
 **Release data should not be retyped.** Write a small script (Node, in the site
 repository) that reads a GitHub release — tag, body, assets — and the release's
 `SHA256SUMS` file, and creates or updates the `release` entry through Strapi's
-API. The maintainer publishes releases locally (Actions is off), so the script is
-run by hand after a release; a person then writes the localised notes.
+API. A release is a draft that the bundle workflow opens and the maintainer
+publishes by hand, so the script is run by hand after publishing; a person then writes the localised notes.
 
 ## 8. Visual design
 

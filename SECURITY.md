@@ -194,14 +194,14 @@ truncated download or a bad mirror. It does **not** protect against anyone who
 could replace the download and the checksum together, which is what a signature
 would be for.
 
-**The CI badges in the README no longer stand for a run on every commit.** GitHub
-Actions is switched off on this repository — the private allowance was exhausted
-twice — and `python3 scripts/ci.py check` is the gate instead: lint, format, the
-suite on the declared Python floor and on 3.12, the leak checks, the corpus
-check, the frontend, `cargo test`, and a dependency audit across all three
-stacks. It runs on one machine, so it is a weaker claim than the matrix was:
-Linux and Windows are where this project's cross-platform failures have actually
-been. If you build from source, run it.
+**Every pull request and every push to `main` runs CI**: lint, format, the suite on the declared Python floor and on
+3.12, on Linux and Windows, the leak checks, the corpus check, the frontend and a
+dependency audit. GitHub Actions was switched off from August to October 2026,
+while the repository was private and its allowance ran out; releases from that
+period were gated by `python3 scripts/ci.py check` on one machine. That script
+also runs `cargo audit`, which no workflow does, and `cargo test`, which only the bundle
+workflow does. If you
+build from source, run it.
 
 ## A note on the dependencies
 
