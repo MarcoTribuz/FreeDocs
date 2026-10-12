@@ -123,7 +123,14 @@ jobs:
       # sidecar step, because failing in seconds beats failing after PyInstaller.
       - name: Test the Rust bridge
         working-directory: app/src-tauri
-        run: cargo test
+        # tauri-build refuses a resource path that does not exist, and the
+        # sidecar is built after this step. An empty directory satisfies it;
+        # PyInstaller replaces it. A local checkout never shows this because
+        # an earlier build left the real one there.
+        shell: bash
+        run: |
+          mkdir -p ../../engine/dist/freedocs-engine
+          cargo test
 
       - name: Build the engine sidecar
         working-directory: engine

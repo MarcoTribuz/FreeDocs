@@ -435,7 +435,11 @@ def test_a_binary_pymupdf_cannot_resolve_by_name_is_refused(monkeypatch, tmp_pat
     OCR is available and the first scan would fail inside Tesseract.
     """
     hide_system_binaries(monkeypatch)
-    chosen = executable(tmp_path / "opt" / "tesseract-5.3.4")
+    # Runnable on both platforms, and still the wrong name: Windows decides
+    # runnable by the extension, so without `.exe` this test would be asking
+    # the other refusal.
+    misnamed = "tesseract-5.3.4.exe" if sys.platform == "win32" else "tesseract-5.3.4"
+    chosen = executable(tmp_path / "opt" / misnamed)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert adopt_tesseract(chosen) == TESSERACT_WRONG_NAME
     assert tesseract_binary() is None
@@ -446,7 +450,10 @@ def test_a_binary_pymupdf_cannot_resolve_by_name_is_refused(monkeypatch, tmp_pat
 def test_a_choice_that_is_not_runnable_is_refused_for_that_reason(monkeypatch, tmp_path):
     """The two refusals are kept apart because the next move differs."""
     hide_system_binaries(monkeypatch)
-    plain = tmp_path / "bin" / binary_name()
+    # No `.exe` and no executable bit: not runnable on either platform.
+    # `binary_name()` here was runnable on Windows, where the extension is
+    # the whole test.
+    plain = tmp_path / "bin" / "tesseract"
     plain.parent.mkdir(parents=True, exist_ok=True)
     plain.write_text("not runnable\n", encoding="utf-8")
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
