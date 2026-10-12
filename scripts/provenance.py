@@ -265,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     OUT.mkdir(parents=True, exist_ok=True)
 
     if args.rust:
-        (OUT / "sbom-shell.cdx.json").write_text(rust_sbom(), encoding="utf-8")
+        (OUT / "sbom-shell.cdx.json").write_text(rust_sbom(), encoding="utf-8", newline="\n")
         print(f"written: {(OUT / 'sbom-shell.cdx.json').relative_to(ROOT)}")
         return 0
 
@@ -279,9 +279,15 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     refuse_duplicates(built)
-    (OUT / "SHA256SUMS").write_text(checksums(built), encoding="utf-8")
-    (OUT / "sbom-engine.cdx.json").write_text(engine_sbom(), encoding="utf-8")
-    (OUT / "sbom-frontend.cdx.json").write_text(frontend_sbom(), encoding="utf-8")
+    # `newline="\n"` because `write_text` translates to CRLF on Windows, and
+    # `shasum -c --ignore-missing` then reads `name\r` as a file that is not
+    # there and skips it without a word - so the v1.0.2 release shipped a
+    # SHA256SUMS whose two Windows lines verified nothing. Every other writer
+    # here gets the same argument so the published files agree byte for byte
+    # whichever runner made them.
+    (OUT / "SHA256SUMS").write_text(checksums(built), encoding="utf-8", newline="\n")
+    (OUT / "sbom-engine.cdx.json").write_text(engine_sbom(), encoding="utf-8", newline="\n")
+    (OUT / "sbom-frontend.cdx.json").write_text(frontend_sbom(), encoding="utf-8", newline="\n")
 
     # Each with when it was written, because a set can be mixed without
     # colliding: `scripts/ci.py build` does not produce a portable bundle, so a
