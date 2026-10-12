@@ -224,6 +224,7 @@ impl Engine {
         for (name, value) in &self.launch.env {
             command.env(name, value);
         }
+        hide_console(&mut command);
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -566,6 +567,30 @@ fn dev_candidates() -> Vec<PathBuf> {
         .map(|root| relative.iter().fold(root, |path, part| path.join(part)))
         .collect()
 }
+
+/// Keep the sidecar's console off the screen on Windows.
+///
+/// The sidecar is a console program (`console=True` in the PyInstaller spec)
+/// started by a GUI one, and Windows answers that by opening a new console
+/// window for it: a black `cmd` box that sits beside the app for the whole
+/// session, says nothing about what it is, and kills the engine if closed. A
+/// first-time user reads that as malware or a crash and closes everything.
+///
+/// `CREATE_NO_WINDOW` rather than building the sidecar windowed: the process
+/// still gets a console, just an invisible one, so its stdio pipes behave as
+/// they always have and Tesseract - which PyMuPDF spawns as a console child of
+/// the engine - inherits the hidden console instead of flashing a window of
+/// its own on every scanned page. A windowed (`console=False`) build would get
+/// neither. Nothing here has been run on Windows yet.
+#[cfg(windows)]
+fn hide_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+fn hide_console(_command: &mut Command) {}
 
 #[cfg(all(test, unix))]
 mod lifecycle {
