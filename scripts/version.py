@@ -343,6 +343,35 @@ def version_at(commit: str, root: Path = ROOT) -> Version | None:
         return None
 
 
+CHANGELOG = "CHANGELOG.md"
+
+
+def changelog_names(text: str, version: Version) -> bool:
+    """Whether `text` has a `## X.Y.Z` section for `version`.
+
+    A release whose notes were never written is the gap this closes: the tag
+    build makes a draft, the draft's notes are written from this file, and a
+    version missing here is one whose changes nobody can look up next year.
+    The heading must start the line and the version must end at a space or the
+    line's end, so `## 1.1.0` does not also answer for `1.1`, or `1.1.0` for
+    `1.1.0-dev.3`.
+    """
+    heading = re.compile(rf"^## {re.escape(version.semver())}(?:\s|$)", re.MULTILINE)
+    return heading.search(text) is not None
+
+
+def changelog_at(commit: str, root: Path = ROOT) -> str | None:
+    """`CHANGELOG.md` as recorded in `commit`, or None if it has none."""
+    result = subprocess.run(
+        ["git", "show", f"{commit}:{CHANGELOG}"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.stdout if result.returncode == 0 else None
+
+
 # --------------------------------------------------------------------------
 # Commands
 
@@ -390,6 +419,11 @@ def cmd_release(args: argparse.Namespace) -> int:
         return 0
     changed = write(after, args.root)
     print(f"{before} -> {BOLD}{after}{OFF}  {DIM}({len(changed)} files){OFF}")
+    # A reminder, not a refusal: the notes are usually written on the release
+    # branch after this runs. `pre-push` refuses the tag until they exist.
+    log = args.root / CHANGELOG
+    if not (log.is_file() and changelog_names(log.read_text(encoding="utf-8"), after)):
+        print(f"{DIM}next: add a `## {after.semver()} — <date>` section to {CHANGELOG}{OFF}")
     return 0
 
 

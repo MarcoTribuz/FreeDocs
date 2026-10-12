@@ -187,3 +187,26 @@ def test_a_tree_whose_sites_disagree_refuses_to_name_a_version(tmp_path: Path) -
 
     with pytest.raises(V.VersionError, match="disagree"):
         V.current(root)
+
+
+# --------------------------------------------------------------------------
+# The changelog
+
+
+def test_a_changelog_section_names_its_own_version_only() -> None:
+    text = "# Changelog\n\n## 1.1.0 — 2026-10-12\n\n- a change\n\n## 1.0.2 — 2026-10-12\n"
+    assert V.changelog_names(text, V.parse("1.1.0"))
+    assert V.changelog_names(text, V.parse("1.0.2"))
+    assert not V.changelog_names(text, V.parse("1.1.1"))
+    assert not V.changelog_names(text, V.parse("1.0.0")), "a prefix is not a section"
+    assert not V.changelog_names("## 1.1.0-dev.3\n", V.parse("1.1.0"))
+
+
+def test_a_version_mentioned_in_prose_is_not_a_section() -> None:
+    assert not V.changelog_names("Fixed in 1.1.0 and later.\n", V.parse("1.1.0"))
+
+
+def test_the_real_changelog_names_every_release_tag() -> None:
+    text = (ROOT / V.CHANGELOG).read_text(encoding="utf-8")
+    for heading in ("1.1.0", "1.0.2", "1.0.1", "1.0.0", "0.2.0", "0.1.0"):
+        assert V.changelog_names(text, V.parse(heading)), heading

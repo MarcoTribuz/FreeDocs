@@ -23,6 +23,16 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## Unreleased
+
+- **`SHA256SUMS` is written with LF on every runner.** On Windows it came out
+  with CRLF, and `shasum -c --ignore-missing` then skipped the two Windows lines
+  without a word. The v1.0.2 file was replaced with a normalised copy; its
+  hashes did not change.
+- **A release cannot be pushed without its changelog section.** `pre-push`
+  refuses a release version on `main` or a `v*` tag when `CHANGELOG.md` has no
+  `## X.Y.Z` section for it, and `version.py release` reminds you.
+
 ## 1.1.0 — 2026-10-12
 
 - **A first-run screen fetches the model, with consent and progress.** Before,
