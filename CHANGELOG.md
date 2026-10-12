@@ -23,12 +23,23 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.0.2 — 2026-10-12
+
+No change to the engine or the window. 1.0.1 fixed the test suite and still
+produced no release: its tagged bundle run failed on all three platforms. This
+is the first version with installers for macOS, Linux and Windows.
+
+- `tauri-action` will not create a draft release without a release name.
+- The checksum and SBOM step ran `npm` by bare name, which Windows cannot
+  launch (`npm.cmd`).
+- A Rust test that writes a script and runs it raced a parallel test's fork
+  on Linux (`Text file busy`).
+
 ## 1.0.1 — 2026-10-12
 
 No change to the engine or the window. The first CI run in two months found
 the test suite failing on Windows and the bundle workflow failing on every
-platform, so 1.0.0 had no Linux or Windows build; this is the release that has
-them.
+platform, so 1.0.0 had no Linux or Windows build.
 
 - Four tests built files that meant something else on Windows, where the
   extension decides whether a file runs, and two asserted POSIX permission
