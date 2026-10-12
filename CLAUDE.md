@@ -364,6 +364,14 @@ needs, so the fill is the same hue at `#22785c`; `--text-3` was 4.26:1 and moved
 the `place` underline was 2.77:1 against its own tint. In dark mode a white label
 on the accent measured 2.40:1, so that label is dark.
 
+**The brand is these tokens, and its sources are SVG.** `assets/brand/` holds
+the mark, the app icon, the wordmarks and the social preview as hand-written
+SVG; every icon under `src-tauri/icons/`, the favicon and the social PNG are
+generated from them, and `Logo.svelte` inlines the same geometry so it follows
+the theme through `--accent` and `--on-accent`. No second palette exists, so a
+token change recolours the app and the mark together. `assets/brand/README.md`
+has the rules, including why the bar is never black.
+
 **Secondary text is a colour, not an `opacity`.** The old window built its whole
 hierarchy from twelve opacity values. Opacity cannot be measured for contrast and
 dims a border along with the text inside it.
