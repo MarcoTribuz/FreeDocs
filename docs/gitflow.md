@@ -94,9 +94,13 @@ git push origin develop
 git branch -d release/0.2.0
 ```
 
-Pushing `v0.2.0` is what would make the installers, through the `v*` trigger in
-`.github/workflows/app.yml`. **Actions is switched off on this repository**, so
-today that tag records the release and builds nothing; see `docs/packaging.md`.
+Pushing `v0.2.0` is what makes the installers, through the `v*` trigger in
+`.github/workflows/app.yml`, which opens a **draft** release holding them. The
+checksums and SBOMs each platform uploads as artifacts are merged and attached
+by hand, and the draft is published by the maintainer. Run the same workflow on
+the release branch with `workflow_dispatch` before tagging: a release tag cannot
+be moved, so a build that fails on it costs a version number, which is how 1.0.1
+was spent.
 
 ## A hotfix
 

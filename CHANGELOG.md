@@ -23,6 +23,27 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.1.0 — 2026-10-12
+
+- **A first-run screen fetches the model, with consent and progress.** Before,
+  the 1.2 GB of weights were downloaded inside the first document's analysis,
+  which sat still for minutes with nothing to say why. The window now says what
+  is downloaded, how much and from where, shows the bytes arriving with the time
+  left, and offers "Not now"; until the model is here, documents are read by the
+  checksum layer only and the file step says that names and addresses are not
+  being looked for. New engine methods `model_status` and `model_fetch`.
+- **After the first download, the model is loaded with no network call.** A
+  cached copy was handed to the loader as a repository id, which made it ask
+  Hugging Face whether the copy was current at every launch. It is now loaded
+  as a directory.
+- **Windows: no console window.** The engine is a console program started by a
+  GUI one, so Windows opened a `cmd` window beside the app for the whole
+  session, and closing it stopped the engine.
+- **The executable is called FreeDocs**, not `app`: the Dock and Activity
+  Monitor on macOS, Task Manager on Windows.
+- **Every installer carries a build attestation**, verifiable with
+  `gh attestation verify`; see `SECURITY.md`.
+
 ## 1.0.2 — 2026-10-12
 
 No change to the engine or the window. 1.0.1 fixed the test suite and still
