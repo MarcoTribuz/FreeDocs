@@ -23,6 +23,20 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.0.1 — 2026-10-12
+
+No change to the engine or the window. The first CI run in two months found
+the test suite failing on Windows and the bundle workflow failing on every
+platform, so 1.0.0 had no Linux or Windows build; this is the release that has
+them.
+
+- Four tests built files that meant something else on Windows, where the
+  extension decides whether a file runs, and two asserted POSIX permission
+  bits. A sealed-file fixture was checked out with CRLF line endings.
+- The bundle workflow ran the Rust tests before the engine sidecar existed.
+- The dependency audit could not resolve torch on Linux, where the lock takes
+  it from the PyTorch CPU index.
+
 ## 1.0.0 — 2026-10-12
 
 The first stable release. No engine behaviour changed since 0.2.0; what changed
