@@ -100,11 +100,11 @@ jobs:
         with:
           workspaces: app/src-tauri
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -198,7 +198,7 @@ jobs:
             app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
             app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: freedocs-${{ matrix.target }}
           path: |
@@ -306,7 +306,7 @@ jobs:
         if: vars.BUILD_PORTABLE == 'true'
         run: python app/packaging/portable.py
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: vars.BUILD_PORTABLE == 'true'
         with:
           name: freedocs-portable-${{ matrix.target }}
@@ -340,7 +340,7 @@ jobs:
       - name: Checksums and SBOM
         run: python scripts/provenance.py
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: freedocs-provenance-${{ matrix.target }}
           path: dist/*
