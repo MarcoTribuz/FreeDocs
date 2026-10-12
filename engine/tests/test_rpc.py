@@ -1522,7 +1522,7 @@ def test_restore_announces_its_stages(document: Path, tmp_path: Path):
 
 def _fake_tesseract(root: Path, name: str = "tesseract") -> Path:
     """A file this platform agrees is runnable, named what PyMuPDF looks for."""
-    binary = root / ("tesseract.exe" if sys.platform == "win32" else name)
+    binary = root / (f"{name}.exe" if sys.platform == "win32" else name)
     binary.parent.mkdir(parents=True, exist_ok=True)
     binary.write_text("#!/bin/sh\n", encoding="utf-8")
     binary.chmod(0o755)

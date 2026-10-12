@@ -1,0 +1,4 @@
+# Key files and term lists are compared byte for byte against fixtures, and
+# a CRLF checkout on Windows changes every line ending in them.
+*.fdmap binary
+*.fdterms binary
