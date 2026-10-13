@@ -1,3 +1,3 @@
 """FreeDocs: local, offline removal of confidential data from documents."""
 
-__version__ = "1.2.0.dev5"
+__version__ = "1.2.0.dev6"
