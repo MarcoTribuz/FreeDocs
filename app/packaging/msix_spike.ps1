@@ -184,12 +184,16 @@ function Read-Engine($path) {
   }
 }
 
+# Outside the package context Windows refuses to start anything under
+# WindowsApps - measured on the first run: `Access is denied.` and no output.
+# That is the platform, not the package, and it is why the CLI cannot be reached
+# from an MSIX install without an execution alias. Asserted, so a change in it
+# is noticed.
 $direct = Join-Path $work 'direct.jsonl'
-$started = Get-Date
 cmd /c "type `"$requests`" | `"$engine`" > `"$direct`" 2> `"$direct.err`""
-$r = Read-Engine $direct
-Record 'Engine run directly from WindowsApps' ($r.Entities -match 'PERSON') `
-  ("{0:N0}s; formats [{1}]; entities [{2}] {3}" -f ((Get-Date) - $started).TotalSeconds, $r.Formats, $r.Entities, $r.Errors)
+$denied = (Get-Content "$direct.err" -Raw -ErrorAction SilentlyContinue) -match 'Access is denied'
+Record 'Direct launch from WindowsApps is refused' $denied `
+  ((Get-Content "$direct.err" -Raw -ErrorAction SilentlyContinue) -replace "`r?`n", ' ')
 
 # Inside the package context: AppData writes are redirected here, which is the
 # environment the window's own sidecar runs in. Invoke-CommandInDesktopPackage
