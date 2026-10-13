@@ -95,7 +95,7 @@ from .detect.llm_review import (
     available_models,
 )
 from .detect.validators import SUPPORTED_COUNTRIES
-from .diagnostics import _module_present, engine_version, run_checks
+from .diagnostics import _module_present, engine_version, install_plan, run_checks, run_install
 from .formats.base import FormatHandler
 from .formats.pdf import (
     ScannedPdfNotSupported,
@@ -556,6 +556,14 @@ class Session:
             # first scan could not deliver.
             "ocr_available": ocr_unavailable_reason() is None,
             "ocr_unavailable_reason": ocr_unavailable_reason(),
+            # How Tesseract would get onto this machine, and whether the engine
+            # will do it when asked (`install_tesseract`). The line is the exact
+            # command, shown so nobody presses a button that runs something they
+            # cannot read; `ocr_installable` is true only for a package manager
+            # that needs no elevation - Homebrew, today. The window offers Copy
+            # for one and Install for the other and decides neither.
+            "ocr_install_command": _ocr_install_command(),
+            "ocr_installable": _ocr_installable(),
             # Whether this build can write and read a key file. Published for the
             # same reason as the OCR pair and answered by the same kind of single
             # authority: a window that offered the control and then failed on the
@@ -700,6 +708,46 @@ class Session:
         return {
             "accepted": refused is None,
             "refused": refused,
+            "tesseract": tesseract_binary(),
+            "ocr_available": ocr_unavailable_reason() is None,
+            "ocr_unavailable_reason": ocr_unavailable_reason(),
+        }
+
+    def install_tesseract(self, _params: dict[str, Any]) -> dict[str, Any]:
+        """Install Tesseract with a package manager that needs no elevation.
+
+        Reversed from M17 by decision, and bounded rather than general - the
+        reasoning is in ``docs/security-review.md``. Three things bound it. It
+        takes **no parameters**: what runs is :func:`install_plan`'s answer, built
+        from a fixed table, so a caller can ask for the install and never choose
+        the command. It runs **only an unattended manager**, which today means
+        Homebrew; a request on any other machine is refused, and the window never
+        offers the button there because ``ocr_installable`` said no first. And it
+        is **a person's request**: nothing in the engine calls it.
+
+        A failed install is a field, like a refused ``use_tesseract``, and for the
+        same reason: one payload carrying the outcome *and* the resulting state is
+        what stops the window rendering one answer and then asking for another.
+        The state fields are the expressions ``capabilities`` publishes, read after
+        the install - so "Homebrew succeeded but OCR is still unavailable" is a
+        payload, not a contradiction.
+
+        Changes ``PATH`` on success, which is why the environment test excuses it
+        by name: the binary Homebrew just installed is found through
+        ``_SYSTEM_BINARIES`` and adopted like any other.
+        """
+        plan = install_plan()
+        if plan is None or plan.argv is None:
+            raise RpcError(
+                INVALID_REQUEST,
+                "this machine has no package manager FreeDocs can run without elevation; "
+                "copy the install command instead",
+            )
+        failure = run_install(plan)
+        return {
+            "installed": failure is None,
+            "failure": failure,
+            "command": plan.command,
             "tesseract": tesseract_binary(),
             "ocr_available": ocr_unavailable_reason() is None,
             "ocr_unavailable_reason": ocr_unavailable_reason(),
@@ -1638,6 +1686,22 @@ def _failure(path: Path, code: int, message: str, data: Any = None) -> dict[str,
     }
 
 
+def _ocr_install_command() -> str | None:
+    """The install line for this machine, only while there is something to install."""
+    if ocr_unavailable_reason() is not None:
+        plan = install_plan()
+        return plan.command if plan else None
+    return None
+
+
+def _ocr_installable() -> bool:
+    """Whether ``install_tesseract`` would run, asked without running it."""
+    if ocr_unavailable_reason() is None:
+        return False
+    plan = install_plan()
+    return plan is not None and plan.argv is not None
+
+
 # -- dispatch -----------------------------------------------------------------
 
 
@@ -1655,6 +1719,7 @@ def _handlers(session: Session) -> dict[str, Callable[[dict[str, Any]], dict[str
         "restore": session.restore,
         "forget": session.forget,
         "use_tesseract": session.use_tesseract,
+        "install_tesseract": session.install_tesseract,
         "terms_create": session.terms_create,
         "terms_unlock": session.terms_unlock,
         "terms_lock": session.terms_lock,

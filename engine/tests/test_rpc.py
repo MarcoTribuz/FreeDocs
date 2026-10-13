@@ -1595,6 +1595,74 @@ def test_a_refused_choice_still_names_what_is_being_used(session: Session, monke
     assert answer["tesseract"] == str(working)
 
 
+def test_install_tesseract_reports_the_outcome_with_the_state_after_it(
+    session: Session, monkeypatch, tmp_path
+):
+    """One payload, like `use_tesseract`: the outcome and what is true now."""
+    from freedocs.diagnostics import InstallPlan
+
+    installed = _fake_tesseract(tmp_path / "homebrew")
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+    monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    plan = InstallPlan("brew install tesseract", ("/opt/homebrew/bin/brew", "install", "tesseract"))
+    monkeypatch.setattr("freedocs.rpc.install_plan", lambda: plan)
+
+    def install(_plan):
+        # What Homebrew does, as far as the engine can see: a binary appears in
+        # one of the usual locations.
+        monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", (str(installed),))
+        return None
+
+    monkeypatch.setattr("freedocs.rpc.run_install", install)
+    answer = result_of(session, "install_tesseract")
+    caps = result_of(session, "capabilities")
+    assert answer["installed"] is True and answer["failure"] is None
+    assert answer["command"] == "brew install tesseract"
+    assert answer["tesseract"] == str(installed)
+    assert answer["ocr_available"] == caps["ocr_available"]
+
+
+def test_a_failed_install_is_a_field_not_an_error(session: Session, monkeypatch, tmp_path):
+    from freedocs.diagnostics import InstallPlan
+
+    monkeypatch.setattr("freedocs.formats.pdf._SYSTEM_BINARIES", ())
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    plan = InstallPlan("brew install tesseract", ("/opt/homebrew/bin/brew", "install", "tesseract"))
+    monkeypatch.setattr("freedocs.rpc.install_plan", lambda: plan)
+    monkeypatch.setattr("freedocs.rpc.run_install", lambda _plan: "brew install tesseract exited")
+    answer = result_of(session, "install_tesseract")
+    assert answer["installed"] is False
+    assert answer["failure"] == "brew install tesseract exited"
+    assert answer["ocr_available"] is False
+
+
+def test_install_tesseract_refuses_where_nothing_runs_unattended(session: Session, monkeypatch):
+    """apt needs sudo; the engine names the line and never runs it."""
+    from freedocs.diagnostics import InstallPlan
+
+    monkeypatch.setattr(
+        "freedocs.rpc.install_plan", lambda: InstallPlan("sudo apt install x", None)
+    )
+    monkeypatch.setattr("freedocs.rpc.run_install", lambda _plan: pytest.fail("ran"))
+    assert error_of(session, "install_tesseract")["code"] == INVALID_REQUEST
+
+
+def test_capabilities_offer_install_only_while_ocr_is_missing(session: Session, monkeypatch):
+    """A working OCR has nothing to install, whatever package manager is present."""
+    from freedocs.diagnostics import InstallPlan
+
+    plan = InstallPlan("brew install tesseract", ("/opt/homebrew/bin/brew", "install", "tesseract"))
+    monkeypatch.setattr("freedocs.rpc.install_plan", lambda: plan)
+    monkeypatch.setattr("freedocs.rpc.ocr_unavailable_reason", lambda: None)
+    caps = result_of(session, "capabilities")
+    assert caps["ocr_installable"] is False and caps["ocr_install_command"] is None
+    monkeypatch.setattr("freedocs.rpc.ocr_unavailable_reason", lambda: "no tesseract")
+    caps = result_of(session, "capabilities")
+    assert caps["ocr_installable"] is True
+    assert caps["ocr_install_command"] == "brew install tesseract"
+
+
 def test_no_method_but_the_one_that_says_so_changes_the_environment(session: Session, tmp_path):
     """A `set_env` would be an escalation, so the dispatch table is pinned.
 
@@ -1630,8 +1698,10 @@ def test_no_method_but_the_one_that_says_so_changes_the_environment(session: Ses
     document.write_text("nothing confidential here\n", encoding="utf-8")
     before = {name: os.environ.get(name) for name in watched}
     for name, handler in handlers.items():
-        if name == "use_tesseract":
-            # The one that says so in its name, and it is asserted on separately.
+        if name in {"use_tesseract", "install_tesseract"}:
+            # The two that say so in their names, asserted on separately. The
+            # second would also run a real package manager on any machine that
+            # has Homebrew, which no test may do.
             continue
         # A method refusing a request it cannot serve is fine; changing the
         # environment on the way past is not.

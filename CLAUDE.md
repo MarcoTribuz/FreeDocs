@@ -449,7 +449,7 @@ Nothing calls a build stale — there is no reference point without the network 
 this tool refuses — and comparing the sidecar's mtime against the app binary's was
 rejected because `tauri build` does not promise to preserve resource timestamps.
 
-**The engine names the install command; it never runs one.** `_PACKAGE_MANAGERS`
+**The engine names the install command, and runs exactly one kind.** `_PACKAGE_MANAGERS`
 in `diagnostics.py` finds the manager this machine actually has, at absolute paths
 for the `_SYSTEM_BINARIES` reason — under a Finder launch `shutil.which("brew")`
 fails on a machine with Homebrew. This is *not* suppressed when frozen, and the
@@ -458,7 +458,16 @@ about a missing *extra* depends on a build shape the engine cannot see, while a
 *platform* it can see and a system package installs the same way whatever build
 asked.
 
-Spawning a package manager was designed and refused. `core/egress.py` patches
+Spawning a package manager was designed and refused, and on 13 October 2026
+reopened for Homebrew alone: a first installation may reach an external source,
+as the model download already does. `install_tesseract` takes no parameters, runs
+only what `install_plan()` builds from the table for a manager in `_UNATTENDED`
+(the two Homebrew paths — no `sudo`, no UAC), shows the exact line before it runs,
+strips every `FREEDOCS_*` variable from the child, and returns its failure as a
+field beside the post-install OCR state. It asks for `tesseract-lang` only when
+the nine languages are not already in the directory OCR would use. The original
+refusal, kept because every reason in it still bounds what was built:
+`core/egress.py` patches
 `socket.socket.connect` inside the engine, so an installer spawned by the shell is
 a sibling process it cannot observe — the app would gain a network path while
 `capabilities.network_blocked` kept reporting `true`, which is an enforced-looking

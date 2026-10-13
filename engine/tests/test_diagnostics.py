@@ -336,3 +336,106 @@ def test_a_dangling_package_manager_link_is_not_a_package_manager(tmp_path):
     link = tmp_path / "brew"
     link.symlink_to(tmp_path / "uninstalled")
     assert not diagnostics._present(link)
+
+
+# -- the one install the engine runs ------------------------------------------
+
+
+def a_homebrew(monkeypatch, tmp_path, *, languages_missing: bool):
+    """A fake `brew` the table treats as Homebrew, and a language-data answer."""
+    brew = tmp_path / "brew"
+    brew.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(
+        diagnostics, "_PACKAGE_MANAGERS", ((str(brew), "brew install tesseract tesseract-lang"),)
+    )
+    monkeypatch.setattr(diagnostics, "_UNATTENDED", frozenset({str(brew)}))
+    monkeypatch.setattr(
+        "freedocs.formats.pdf.missing_languages", lambda: ["ita"] if languages_missing else []
+    )
+    return brew
+
+
+def test_homebrew_is_run_and_asks_only_for_the_binary_when_the_languages_are_here(
+    monkeypatch, tmp_path
+):
+    """`tesseract-lang` is over a gigabyte the installer's sidecar already carries."""
+    brew = a_homebrew(monkeypatch, tmp_path, languages_missing=False)
+    plan = diagnostics.install_plan()
+    assert plan == diagnostics.InstallPlan(
+        "brew install tesseract", (str(brew), "install", "tesseract")
+    )
+
+
+def test_homebrew_brings_the_languages_when_they_are_missing(monkeypatch, tmp_path):
+    a_homebrew(monkeypatch, tmp_path, languages_missing=True)
+    plan = diagnostics.install_plan()
+    assert plan is not None and plan.argv is not None
+    assert plan.argv[1:] == ("install", "tesseract", "tesseract-lang")
+
+
+def test_what_is_shown_is_what_runs(monkeypatch, tmp_path):
+    """Nobody presses a button that runs something other than the line they read."""
+    a_homebrew(monkeypatch, tmp_path, languages_missing=False)
+    plan = diagnostics.install_plan()
+    assert plan is not None and plan.argv is not None
+    assert plan.command.split()[1:] == list(plan.argv[1:])
+
+
+def test_a_manager_that_needs_elevation_is_shown_and_never_run(monkeypatch, tmp_path):
+    apt = tmp_path / "apt"
+    apt.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(diagnostics, "_PACKAGE_MANAGERS", ((str(apt), "sudo apt install x"),))
+    plan = diagnostics.install_plan()
+    assert plan == diagnostics.InstallPlan("sudo apt install x", None)
+    with pytest.raises(ValueError):
+        diagnostics.run_install(plan)
+
+
+def test_only_homebrew_is_unattended():
+    """M17: elevation is not a subset of what a person asked for."""
+    assert all(path.endswith("/brew") for path in diagnostics._UNATTENDED)
+    run = {manager for manager, _ in diagnostics._PACKAGE_MANAGERS} & diagnostics._UNATTENDED
+    assert run == diagnostics._UNATTENDED
+
+
+def stand_in(code: str) -> diagnostics.InstallPlan:
+    """A harmless process in place of the package manager."""
+    return diagnostics.InstallPlan("brew install tesseract", (sys.executable, "-c", code))
+
+
+def test_a_successful_install_reports_nothing():
+    assert diagnostics.run_install(stand_in("pass")) is None
+
+
+def test_a_failed_install_says_which_command_and_how_it_ended():
+    failure = diagnostics.run_install(
+        stand_in("import sys; print('Error: no bottle available', file=sys.stderr); sys.exit(1)")
+    )
+    assert failure is not None
+    assert failure.startswith("brew install tesseract exited with status 1")
+    assert "no bottle available" in failure
+
+
+def test_the_installer_cannot_wait_on_a_prompt_nobody_sees():
+    """stdin is closed and Homebrew is told it is not interactive."""
+    code = (
+        "import os, sys; "
+        "sys.exit(0 if os.environ.get('NONINTERACTIVE') == '1' and sys.stdin.read() == '' else 3)"
+    )
+    assert diagnostics.run_install(stand_in(code)) is None
+
+
+def test_an_install_that_hangs_is_ended_and_reported(monkeypatch):
+    monkeypatch.setattr(diagnostics, "INSTALL_TIMEOUT_SECONDS", 0.5)
+    failure = diagnostics.run_install(stand_in("import time; time.sleep(5)"))
+    assert failure is not None and "did not finish" in failure
+
+
+def test_no_passphrase_reaches_the_installer(monkeypatch):
+    """M10, one process further out: Homebrew runs scripts nobody here wrote."""
+    monkeypatch.setenv("FREEDOCS_MAP_PASSPHRASE", "correct horse battery staple")
+    monkeypatch.setenv("FREEDOCS_TERMS_PASSPHRASE", "another one")
+    code = (
+        "import os, sys; sys.exit(3 if any(k.startswith('FREEDOCS_') for k in os.environ) else 0)"
+    )
+    assert diagnostics.run_install(stand_in(code)) is None

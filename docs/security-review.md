@@ -50,7 +50,7 @@ The full threat model, what is in scope and what is not, is in
 | M14 | Output writes followed symlinks | Low | A01 | Fixed |
 | M15 | CSP and capability breadth | Low | A05 | Fixed in part, by decision |
 | M16 | Nothing let a user verify a download, and no dependency audit | Medium | A08 | Fixed |
-| M17 | A chosen Tesseract is an exec-adjacent primitive, and an in-app installer was refused | Low | A05 | Bounded, by decision |
+| M17 | A chosen Tesseract is an exec-adjacent primitive, and an in-app installer was refused, then bounded | Low | A05 | Bounded, by decision |
 
 ---
 
@@ -543,7 +543,7 @@ commits on this work names the one it was verified with.
 
 ---
 
-### M17 — A chosen Tesseract, and the installer that was refused
+### M17 — A chosen Tesseract, and the installer that was refused, then bounded
 
 **Low · A05 · Bounded, by decision**
 
@@ -602,7 +602,7 @@ closed. It would also let it repoint `FREEDOCS_NER_MODEL`, clear
 `HF_HUB_OFFLINE`, or set `PATH` directly. A dispatch-table test asserts no method
 changes the environment except the one that says so in its name.
 
-#### Why the app does not run a package manager
+#### Why the app did not run a package manager (until it was reopened, below)
 
 An in-app "install Tesseract for me" was designed and then refused. The reasoning
 is recorded because the request will come again.
@@ -642,6 +642,46 @@ the engine detects which package manager is present and names the exact command,
 language data included; the window offers Copy and Check again; and Locate skips
 the install for a Tesseract already on the machine. `docs/scanned-pdfs.md` has the
 detail.
+
+#### Reopened on 2026-10-13: Homebrew only, by decision
+
+The request came again, as the paragraph above said it would, and the maintainer
+decided that **a first installation may reach an external source** — the same
+standing the first-run model download already has. What was built is narrower
+than what was refused, and each of the five reasons above is answered rather than
+waived:
+
+- **Egress is still blind to it, and that is now stated where it is offered.**
+  `install_tesseract` spawns a package manager the socket patch cannot see.
+  `network_blocked` keeps describing *this process's* connections, which is what
+  it always measured; the install is a separate program a person starts by name,
+  on the screen that already says it reaches the network for the model. The
+  window shows the exact command on the button's row before it is pressed —
+  `ocr_install_command` is published for that — so nothing runs that the person
+  could not read.
+- **No elevation, ever.** `_UNATTENDED` in `diagnostics.py` holds the two Homebrew
+  paths and nothing else. apt, dnf, pacman and MacPorts need `sudo`; winget installs
+  the UB Mannheim package machine-wide behind UAC. Those stay Copy-only, and
+  `install_tesseract` refuses on a machine where only they exist.
+- **No second table in the shell.** The command is built in Python from
+  `_PACKAGE_MANAGERS`, at the absolute paths that already solved the Finder `PATH`,
+  and the shell only forwards the request.
+- **One live branch is the honest scope.** macOS with Homebrew is the platform the
+  button exists for. Windows installers now carry Tesseract (`bin/`), and the
+  `.deb` installs it through `deb.depends`; neither needs a button.
+- **The authority granted is "run this fixed line", not "run a line".** The method
+  takes no parameters; `install_plan()` decides the argv from the table, and the
+  displayed line and the executed argv are the same words, pinned by
+  `test_what_is_shown_is_what_runs`. Homebrew runs with stdin closed,
+  `NONINTERACTIVE=1`, no `FREEDOCS_*` variable (M10, one process further out), and
+  a 540-second ceiling under the shell's ten-minute request timeout. Its failure
+  text is quoted down the local pipe and never written to a report, because it can
+  name paths under the user's home.
+
+The `tesseract-lang` half is asked for only when the language directory OCR would
+use is missing one of the nine: every installer now carries them, and a button
+that downloaded over a gigabyte of unrelated languages would be a worse first
+experience than the copy-paste it replaced.
 
 **Also fixed while here, and it is the same failure one step out.**
 `_layers_check` composed its own `"uv sync --extra ner"` instead of going through
