@@ -473,9 +473,25 @@ Windows would ship untested. See M17 in `docs/security-review.md`.
 languages, and `tessdata_path()` counts a directory holding *any* `.traineddata`
 — so an English-only install makes `ocr_available` true while an Italian scan
 reads badly, and a value OCR misreads fails its checksum and survives. Two related
-gaps are recorded and not fixed: `ocr_unavailable_reason()` naming *which*
-languages are missing would change the single authority's contract, and
-`tauri.conf.json`'s `deb.depends` has the same shortfall.
+gaps were recorded: `ocr_unavailable_reason()` naming *which* languages are
+missing would change the single authority's contract, and is still open; the
+`deb.depends` shortfall closed when the languages moved into the sidecar.
+
+**Every installer carries the OCR languages, and the Windows ones carry
+Tesseract.** Until 13 October 2026 none carried either: the spec bundles whatever
+`engine/models/tessdata` holds, no workflow filled it, and `docs/intune.md` said
+the MSI had nine languages when it had zero. `engine/packaging/tessdata.py` now
+fills it from one pinned commit with a SHA-256 per file, `app.yml` runs it on all
+three platforms, and `build.py` fails under `FREEDOCS_REQUIRE_TESSDATA` when a
+language is missing from the bundle. On Windows,
+`app/packaging/tesseract_windows.py` extracts `tesseract.exe` and its DLLs from
+the pinned UB Mannheim installer with 7-Zip — extracted, never run, so the build
+machine gains no registry entry — and `tauri.windows.conf.json` ships them as
+`bin/`, which `portable_env()` already turned into `FREEDOCS_TESSERACT`. Windows
+only, because that build is one self-contained directory; on macOS and Linux the
+binary is a platform package linked against system libraries. The cost is size:
+169 MB of language data in every sidecar, and 167 MB of Tesseract (uncompressed)
+in the Windows installers.
 
 **Python counts code points; JavaScript counts UTF-16 code units.** Inside the
 BMP they agree, which is almost every document. With an emoji or a rare CJK
@@ -2151,8 +2167,9 @@ engine runs Tesseract; PyMuPDF does, by shelling out, and it resolves the binary
 through `PATH` with no argument for it — only for the language data. An override
 that merely satisfied `tesseract_binary()` would make `capabilities` promise OCR
 and then fail on the first scan, which is the bug that made
-`ocr_unavailable_reason()` the single authority. The binary is never bundled and
-cannot be; the `.traineddata` are. The same rule governs `_SYSTEM_BINARIES`, which
+`ocr_unavailable_reason()` the single authority. Outside the Windows installers
+the binary is not bundled — there it is a platform package — and the
+`.traineddata` always are. The same rule governs `_SYSTEM_BINARIES`, which
 is why both routes go through one `_adopt()`.
 
 **`PATH` says how the process was started, not what is installed.** A macOS

@@ -25,6 +25,16 @@ changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
 ## Unreleased
 
+- **Every installer carries the OCR languages, and the Windows ones carry
+  Tesseract.** No CI installer had any language data before this: the sidecar
+  bundles `engine/models/tessdata` and nothing filled it. `app.yml` now fetches
+  the nine languages and `osd` from one pinned commit of `tesseract-ocr/tessdata`,
+  each checked against a pinned SHA-256, and the build fails if one is missing.
+  The Windows installers (NSIS and MSI) also ship `tesseract.exe` and its DLLs in
+  `bin/`, extracted unmodified from the pinned UB Mannheim 5.4.0 installer, so a
+  scanned PDF needs nothing installed on Windows and the Intune package needs no
+  Tesseract dependency. Installers grow by about 169 MB of language data, and the
+  Windows ones by Tesseract as well.
 - **Windows finds a Tesseract installed by hand.** The search covered only a
   machine-wide install on drive `C:`, so a "just for me" install under
   `%LOCALAPPDATA%`, a `Program Files` on another drive, or Scoop left OCR reported

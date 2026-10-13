@@ -473,8 +473,10 @@ fn resource_root(app: &AppHandle) -> Option<PathBuf> {
 /// `FREEDOCS_NER_MODEL` refuses a path it cannot load rather than quietly
 /// downloading 1.2 GB instead.
 ///
-/// So an installer build, where none of these exist, hands the engine an
-/// unchanged environment and behaves exactly as it did before this existed.
+/// So a macOS or Linux installer build, where none of these exist, hands the
+/// engine an unchanged environment. A Windows installer gains exactly one
+/// variable, `FREEDOCS_TESSERACT`, pointing at the Tesseract it carries in `bin/`;
+/// its model and language data still come the installer's way.
 fn portable_env(root: Option<&Path>) -> Vec<(&'static str, OsString)> {
     let mut env = Vec::new();
     let Some(root) = root else {
@@ -498,10 +500,13 @@ fn portable_env(root: Option<&Path>) -> Vec<(&'static str, OsString)> {
         set(&mut env, "FREEDOCS_TESSDATA", tessdata.into_os_string());
     }
 
-    // Nothing ships one: PyMuPDF shells out to Tesseract, so the binary is a
-    // platform package and cannot be bundled. This is the hook that lets a user
-    // drop one in beside the app without a rebuild, and the engine validates it
-    // before believing it.
+    // The Windows installers ship one here: `tauri.windows.conf.json` maps the
+    // UB Mannheim build staged by `packaging/tesseract_windows.py` to `bin/`,
+    // a self-contained directory whose DLLs Windows resolves beside the
+    // executable. macOS and Linux do not - there Tesseract is a platform package
+    // linked against system libraries - so on those this stays the hook that
+    // lets a user drop one in without a rebuild. Either way the engine validates
+    // it before believing it.
     let binary = root
         .join("bin")
         .join(if cfg!(windows) { "tesseract.exe" } else { "tesseract" });

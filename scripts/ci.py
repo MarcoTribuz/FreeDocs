@@ -199,6 +199,20 @@ def version_steps() -> list[Step]:
             ["uv", "run", "pytest", "-q", "../app/packaging/test_intune.py"],
             ENGINE,
         ),
+        # The two scripts that decide which third-party bytes reach every
+        # installer: the pinned OCR language data and the Windows Tesseract.
+        Step(
+            "ocr packaging: test",
+            [
+                "uv",
+                "run",
+                "pytest",
+                "-q",
+                "packaging/test_tessdata.py",
+                "../app/packaging/test_tesseract_windows.py",
+            ],
+            ENGINE,
+        ),
     ]
 
 
@@ -454,10 +468,26 @@ def build_steps() -> list[Step]:
             [*EXTRAS, "--extra", "ner"],
             ENGINE,
         ),
+        # Fetches only what is missing or not the pinned file, so a machine that
+        # already has the ten languages builds offline as before.
+        Step(
+            "build: OCR language data",
+            ["uv", "run", "python", "packaging/tessdata.py"],
+            ENGINE,
+        ),
         Step(
             "build: engine sidecar",
             ["uv", "run", "--with", "pyinstaller", "python", "packaging/build.py"],
             ENGINE,
+            {"FREEDOCS_REQUIRE_TESSDATA": "1"},
+        ),
+        # `tauri.windows.conf.json` ships `tesseract-bin`, and tauri-build refuses
+        # a resource that does not exist - so on Windows this is not optional.
+        Step(
+            "build: Tesseract for Windows",
+            ["uv", "run", "python", "../app/packaging/tesseract_windows.py"],
+            ENGINE,
+            skip=None if sys.platform == "win32" else "only Windows installers carry Tesseract",
         ),
         Step(
             "build: desktop bundle",

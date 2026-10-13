@@ -244,8 +244,9 @@ def _ner_check(*, hashes: bool = False) -> Check:
 #: it installs takes no language choice. Languages on Windows are the bundle's
 #: job: the spec ships ``engine/models/tessdata`` beside the executable, and
 #: ``tessdata_path()`` prefers that copy to the system's. So this line is honest
-#: exactly where that copy is present - which a CI-built installer is not yet,
-#: since no workflow fetches the language data before bundling.
+#: exactly where that copy is present, which every installer built by ``app.yml``
+#: is (``packaging/tessdata.py`` runs first). A Windows installer also carries
+#: the binary, so this line is for a checkout or a portable copy.
 _WINGET_COMMAND = "winget install --exact --id UB-Mannheim.TesseractOCR"
 
 #: Commands exempt from naming the language data, each with the reason above.
@@ -363,9 +364,10 @@ def _ocr_check() -> Check:
     if tesseract_binary() is None:
         # The command for the manager this machine actually has, when it has one.
         # Falling back to the generic sentence rather than naming a manager that
-        # is not installed: both routes are still named there, because the binary
-        # cannot be bundled - PyMuPDF shells out to it - so a portable copy's only
-        # way to OCR is a binary the user supplies. The override is named first
+        # is not installed: both routes are still named there, because outside
+        # the Windows installers the binary is not bundled - PyMuPDF shells out to
+        # a platform package - so a portable copy's only way to OCR is a binary
+        # the user supplies. The override is named first
         # now that the usual install locations are searched: reaching this branch
         # means the binary is either absent or somewhere unusual, and "install it"
         # is the wrong advice for the second case.

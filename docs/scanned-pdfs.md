@@ -47,13 +47,23 @@ OCR needs the Tesseract binary **and** its language data, and neither is
 installable with pip. PyMuPDF does not link Tesseract, it shells out to it:
 
 ```bash
-brew install tesseract tesseract-lang      # or your platform's package
-mkdir -p engine/models/tessdata
-for lang in ita deu fra eng spa nld por pol swe; do
-  curl -sSL -o "engine/models/tessdata/$lang.traineddata" \
-    "https://github.com/tesseract-ocr/tessdata/raw/main/$lang.traineddata"
-done
+brew install tesseract                      # or your platform's package
+cd engine && uv run python packaging/tessdata.py
 ```
+
+`packaging/tessdata.py` fetches the ten files (nine languages and `osd`) from one
+pinned commit of `tesseract-ocr/tessdata`, checks each against a pinned SHA-256,
+and replaces a file of the same name that is not the pinned one. It is the same
+script every CI build runs before bundling, so a checkout and an installer read
+scans with the same bytes.
+
+**What the installers carry.** Every installer carries the language data inside
+its sidecar. The Windows installers also carry Tesseract itself — the UB Mannheim
+build, extracted from its pinned installer by `app/packaging/tesseract_windows.py`
+and shipped as `bin/`, where the app points the engine at it — so a scanned PDF
+needs nothing installed there. macOS and Linux do not carry the binary: there it
+is a platform package linked against system libraries. The `.deb` makes apt
+install it through `deb.depends`, and on macOS it is one Homebrew line.
 
 Nine languages, one per language spoken in the twelve countries whose identifiers
 this build confirms. Asking for all of them at once costs almost nothing in time —
@@ -82,13 +92,12 @@ the `tesseract-langpack-*` ones on Fedora. `_PACKAGE_MANAGERS` in
 language beyond the base package, so shortening a line fails the suite rather than
 shipping a quiet leak.
 
-Two things still open, recorded rather than fixed. `ocr_unavailable_reason()`
+One thing still open, recorded rather than fixed. `ocr_unavailable_reason()`
 naming *which* languages are missing would close the gap properly, and that
 changes the single authority's contract — it needs its own measurement of what a
-partial language set actually costs. And `tauri.conf.json`'s
-`bundle.linux.deb.depends` lists `tesseract-ocr` alone, so a `.deb` install has
-the same shortfall; widening it is a one-line change nobody here can test, because
-Linux is built and not run.
+partial language set actually costs. The `.deb`'s `deb.depends` lists
+`tesseract-ocr` alone and that is no longer a shortfall: the languages travel in
+the sidecar, which `tessdata_path()` consults before the system's directories.
 
 ## The window can act on this, and cannot install it
 
@@ -152,8 +161,8 @@ first version of the list covered only a machine-wide install on drive `C:` — 
 Windows machine reported OCR missing after a manual per-user install. Where winget
 is present, `doctor` names `winget install --exact --id UB-Mannheim.TesseractOCR`.
 That is the one install line that names no language data, because the package
-takes no language choice: on Windows the languages are the bundle's job, and a
-CI-built installer does not carry them yet.
+takes no language choice: on Windows the languages are the bundle's job. It is
+also the line a Windows installer should never need, since it carries Tesseract.
 
 Check what this machine can actually do:
 
