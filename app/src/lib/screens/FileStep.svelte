@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goTo, locateTesseract, pickFiles, session, totalFindings } from '$lib/app.svelte';
+	import { goTo, pickFiles, session, totalFindings } from '$lib/app.svelte';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import Badge from '$lib/components/Badge.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -8,6 +8,7 @@
 	import AdvancedPanel from './AdvancedPanel.svelte';
 	import TermListPanel from './TermListPanel.svelte';
 	import Diagnostics from './Diagnostics.svelte';
+	import OcrRepair from './OcrRepair.svelte';
 	import { askForModel, modelMissing } from '$lib/model.svelte';
 
 	const m = $derived(i18n.m);
@@ -64,27 +65,8 @@
 			once reading a colon in a detector string.
 		-->
 		<div class="locate">
-			<Button
-				variant="secondary"
-				size="sm"
-				loading={session.rechecking}
-				onclick={locateTesseract}
-			>
-				{m.locateTesseract()}
-			</Button>
-			<p class="hint">{m.locateTesseractHint()}</p>
+			<OcrRepair />
 		</div>
-		{#if session.tesseractRefusal}
-			<!-- The engine's refusal, by key. An enum, so it is said in the reader's
-			     language rather than quoted. -->
-			<Callout tone="warn" live>
-				<p>
-					{session.tesseractRefusal in m.tesseractRefusal
-						? m.tesseractRefusal[session.tesseractRefusal]()
-						: m.tesseractRefusalOther()}
-				</p>
-			</Callout>
-		{/if}
 	{/if}
 
 	{#if session.caps.limitations.length}
@@ -149,12 +131,6 @@
 		align-items: center;
 		gap: var(--space-2);
 		margin-top: var(--space-2);
-	}
-
-	.locate .hint {
-		flex: 1 1 20rem;
-		font-size: var(--text-xs);
-		color: var(--text-3);
 	}
 
 	.lead {

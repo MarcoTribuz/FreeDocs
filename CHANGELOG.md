@@ -25,6 +25,13 @@ changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
 ## Unreleased
 
+- **The first screen lists what else this computer needs.** Beside the model
+  download it shows reading scanned PDFs (Tesseract) and the optional local
+  review (Ollama), each with what the engine found. Where OCR is missing the row
+  offers Install on a Mac with Homebrew, the exact command to copy elsewhere, and
+  Check again and Locate everywhere; the file step offers the same controls. When
+  the model is already present and OCR is not, the screen opens once for the list
+  alone. In English, Italian, German and French.
 - **On a Mac with Homebrew, the window can install Tesseract.** Where OCR is
   missing and Homebrew is present, `capabilities` publishes the exact line and
   `install_tesseract` runs it: `brew install tesseract`, plus `tesseract-lang` only

@@ -86,9 +86,17 @@ it in a terminal and pressing the button is enough. Before this the only way to
 see a machine that had gained Tesseract was to relaunch the app, and a stale
 sidecar looked identical to a machine that never had it.
 
+**Install**, on a Mac with Homebrew and only there. Where the engine publishes
+`ocr_installable`, the file step and the first-run list show the exact
+`ocr_install_command` with an Install button beside it, and `install_tesseract`
+runs those words. Everywhere else the line needs `sudo` or UAC and gets Copy
+instead. The window decides neither: `ocrAction` in `lib/setup.ts` maps the
+engine's three fields to a control, and it never offers Install without a line to
+show. M17 in `docs/security-review.md` has the bounds.
+
 **Copy**, beside each fix. The command is quoted English in a `<code>` and copied,
-never run — see `docs/scanned-pdfs.md` for why the window does not spawn a package
-manager. No clipboard plugin: the Web Clipboard API needs no permission and no CSP
+not run from the pane — see `docs/scanned-pdfs.md` for why the window spawns no
+package manager but Homebrew. No clipboard plugin: the Web Clipboard API needs no permission and no CSP
 change, `execCommand` is the fallback for the two platforms this app has been
 built for and never launched on, and the element was always selectable text
 anyway.
@@ -118,6 +126,23 @@ user cares about OCR, and it used to be a dead end with the fix behind a
 disclosure on another screen. The engine's sentence is still passed through
 untouched; the error's code decides which controls appear beneath it, never what
 it says.
+
+### The first-run list
+
+The first-run screen also lists what else this computer has: reading scanned PDFs
+(Tesseract) and the optional local review (Ollama), each with the engine's answer
+as its state. The OCR row carries the same `OcrRepair` component as the file step —
+Install or Copy, Check again, Locate — so the two places cannot offer different
+repairs. The review row has no action: it is optional and gigabytes, and the
+window never installs it.
+
+The screen opens for the model, as before, and now also once for the list alone:
+when the model is present and OCR is not, a `setup` phase opens on first launch
+and Continue records it as seen (`freedocs.setup-seen` in `localStorage`). Seen
+once is enough — a machine that never reads scans is a normal machine, and a
+screen that reopened every launch would be closed unread. While an install runs
+the screen's other buttons are disabled: the engine serves one request at a time,
+so a model download pressed meanwhile would only queue behind it.
 
 ## Two directions, as a mode rather than a fourth step
 
