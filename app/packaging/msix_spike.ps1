@@ -139,9 +139,23 @@ $cert = New-SelfSignedCertificate -Type Custom -Subject $publisher `
   -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
 & $signtool sign /fd SHA256 /sha1 $cert.Thumbprint $package | Select-Object -Last 3
 Record 'signtool sign' ($LASTEXITCODE -eq 0) "exit $LASTEXITCODE"
-$cer = Join-Path $work 'spike.cer'
+$cer = Join-Path $Out 'FreeDocs-test.cer'
 Export-Certificate -Cert $cert -FilePath $cer | Out-Null
 Import-Certificate -FilePath $cer -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
+
+# For installing this exact package on a real machine. The private key never
+# leaves this runner and dies with it, so trusting the .cer lets this package
+# install and nothing else can be signed with it afterwards.
+@'
+# Run in an elevated PowerShell, from the folder holding these files.
+# 1. Trust the throwaway certificate this test package was signed with.
+Import-Certificate -FilePath .\FreeDocs-test.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+# 2. Install.
+Add-AppxPackage -Path (Get-ChildItem .\FreeDocs_*.msix | Select-Object -First 1).FullName
+# Afterwards, to undo both:
+#   Get-AppxPackage Realise.FreeDocs | Remove-AppxPackage
+#   Get-ChildItem Cert:\LocalMachine\TrustedPeople | Where-Object Subject -eq 'CN=FreeDocs MSIX Spike' | Remove-Item
+'@ | Set-Content -Encoding utf8 -Path (Join-Path $Out 'install-test.ps1')
 
 # -- 5. install ------------------------------------------------------------------
 try {
@@ -169,18 +183,20 @@ $requests = Join-Path $work 'requests.jsonl'
 
 function Read-Engine($path) {
   $lines = @(Get-Content -Path $path -ErrorAction SilentlyContinue | Where-Object { $_.Trim() })
-  $formats = @(); $entities = @(); $errors = @()
+  $formats = @(); $entities = @(); $errors = @(); $ocr = $null
   foreach ($line in $lines) {
     try { $m = $line | ConvertFrom-Json } catch { continue }
     if ($m.error) { $errors += $m.error.message }
     $payload = if ($m.result) { $m.result } else { $m.params }
     if ($payload.formats) { $formats += $payload.formats }
+    if ($null -ne $payload.ocr_available) { $ocr = $payload.ocr_available }
     if ($payload.findings) { $entities += $payload.findings | ForEach-Object { $_.entity } }
   }
   [pscustomobject]@{
     Formats = ($formats | Sort-Object -Unique) -join ' '
     Entities = ($entities | Sort-Object -Unique) -join ' '
     Errors = $errors -join '; '
+    Ocr = $ocr
   }
 }
 
@@ -200,8 +216,13 @@ Record 'Direct launch from WindowsApps is refused' $denied `
 # returns at once, so the output file is polled.
 $inside = Join-Path $work 'inside.jsonl'
 try {
+  # The window hands its sidecar the bundled Tesseract through
+  # FREEDOCS_TESSERACT (`portable_env` in engine.rs); this does the same, so the
+  # OCR answer below is the one the window would get.
+  $tesseract = Join-Path $pkg.InstallLocation 'bin\tesseract.exe'
+  $setOcr = if (Test-Path $tesseract) { "set `"FREEDOCS_TESSERACT=$tesseract`"&& " } else { '' }
   Invoke-CommandInDesktopPackage -PackageFamilyName $pfn -AppId 'FreeDocs' -Command 'cmd.exe' `
-    -Args "/c type `"$requests`" | `"$engine`" > `"$inside`" 2> `"$inside.err`"" -PreventBreakaway
+    -Args "/c $setOcr type `"$requests`" | `"$engine`" > `"$inside`" 2> `"$inside.err`"" -PreventBreakaway
   $deadline = (Get-Date).AddMinutes(10)
   do {
     Start-Sleep -Seconds 5
@@ -209,6 +230,11 @@ try {
   } until (($r.Entities -match 'PERSON') -or $r.Errors -or (Get-Date) -gt $deadline)
   Record 'Engine run inside the package context' ($r.Entities -match 'PERSON') `
     ("formats [{0}]; entities [{1}] {2}" -f $r.Formats, $r.Entities, $r.Errors)
+  if (Test-Path $tesseract) {
+    Record 'Bundled Tesseract usable from the package' ($r.Ocr -eq $true) "ocr_available = $($r.Ocr)"
+  } else {
+    Record 'Bundled Tesseract usable from the package' $true 'not in this build (before 1.2.0-dev.4); skipped'
+  }
 } catch {
   Record 'Engine run inside the package context' $false $_.Exception.Message
 }

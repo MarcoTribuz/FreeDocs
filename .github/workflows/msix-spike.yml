@@ -2,14 +2,19 @@ name: msix-spike
 
 # A feasibility spike, not a release path: can the Windows build ship as an
 # MSIX (the Microsoft Store route that signs and updates for free)? It reuses
-# the MSI the v1.1.0 release already built rather than bundling again, because
-# bundling is the 26-minute half of app.yml and develop's prerelease version
-# cannot produce an MSI at all - WiX refuses `1.2.0-dev.N`.
+# an MSI app.yml already built rather than bundling again, because bundling is
+# the 26-minute half of app.yml and develop's prerelease version cannot produce
+# an MSI at all - WiX refuses `1.2.0-dev.N`.
 #
-# Only on this branch. Delete with the branch once the question is answered.
+# On a release branch: dispatch app.yml on it first, then re-run this. The MSI
+# is the newest successful app.yml run on the same branch; the spike branch
+# itself falls back to the v1.1.0 release build (run 38268968198).
+#
+# Not a release path. Replace with app/packaging/msix.py inside app.yml once
+# the package has been installed on a real Windows machine.
 on:
   push:
-    branches: [feature/msix-spike]
+    branches: [feature/msix-spike, "release/**"]
   workflow_dispatch:
 
 permissions:
@@ -24,11 +29,22 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # Run 38268968198 is app.yml on main for the v1.1.0 merge.
-      - name: Fetch the v1.1.0 MSI
+      - name: Fetch the MSI
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download 38268968198 -n freedocs-x86_64-pc-windows-msvc -D msi-in -R ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow app.yml --branch "$BRANCH" \
+                  --status success -L 1 --json databaseId --jq '.[0].databaseId // empty')
+          if [ -z "$run" ]; then
+            if [ "$BRANCH" = feature/msix-spike ]; then run=38268968198; else
+              echo "::error::no successful app.yml run on $BRANCH - dispatch it, then re-run this"
+              exit 1
+            fi
+          fi
+          echo "MSI from app.yml run $run"
+          gh run download "$run" -n freedocs-x86_64-pc-windows-msvc -D msi-in -R "$GITHUB_REPOSITORY"
 
       - name: Repackage as MSIX, install, smoke-test
         shell: pwsh
