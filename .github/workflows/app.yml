@@ -120,6 +120,26 @@ jobs:
         working-directory: engine
         run: uv run pytest -q -m "not slow"
 
+      # Every installer carries the OCR language data, pinned by commit and by
+      # hash. Before this step existed none did: the spec bundles whatever
+      # `engine/models/tessdata` holds, nothing here filled it, and each
+      # installer read scans with whatever languages the user's own Tesseract
+      # happened to have - English, on a default Windows install.
+      - name: Fetch the OCR language data
+        working-directory: engine
+        run: uv run python packaging/tessdata.py
+
+      # Windows installers carry Tesseract itself, extracted from the pinned UB
+      # Mannheim installer, so a scanned PDF needs nothing installed. Before the
+      # Rust tests because `tauri.windows.conf.json` names `tesseract-bin` as a
+      # resource and tauri-build refuses a resource path that does not exist.
+      # The script runs the staged `tesseract.exe --version`, which is what
+      # proves every DLL it loads made it across.
+      - name: Stage Tesseract for Windows
+        if: runner.os == 'Windows'
+        working-directory: engine
+        run: uv run python ../app/packaging/tesseract_windows.py
+
       # The bridge's own tests ran nowhere until now: this workflow only ever
       # built the crate, and the two that a pull request runs have no Rust in
       # them. They cover portable_env, which decides whether a bundled model,
@@ -139,6 +159,10 @@ jobs:
 
       - name: Build the engine sidecar
         working-directory: engine
+        # Required here and not on a developer's machine: a fresh clone may
+        # build an engine that refuses scans, an installer may not.
+        env:
+          FREEDOCS_REQUIRE_TESSDATA: "1"
         run: uv run --with pyinstaller python packaging/build.py
 
       - name: Install the frontend

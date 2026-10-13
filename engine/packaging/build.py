@@ -14,6 +14,7 @@ falls back to the virtualenv, so the app runs before the bundle exists.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -263,17 +264,42 @@ def smoke_test(bundle: Path) -> None:
     )
 
 
+def check_tessdata(bundle: Path) -> None:
+    """Every OCR language the engine asks for is inside the bundle, or say so.
+
+    The spec bundles whatever ``engine/models/tessdata`` holds and nothing when it
+    is empty, which keeps a fresh clone buildable - and is also how every CI
+    installer shipped with no language data while the documentation said nine.
+    ``FREEDOCS_REQUIRE_TESSDATA`` turns the warning into a failure; ``app.yml``
+    sets it, after ``packaging/tessdata.py`` has filled the directory.
+    """
+    from freedocs.formats.pdf import DEFAULT_OCR_LANGUAGE
+
+    present = {path.stem for path in bundle.rglob("tessdata/*.traineddata")}
+    missing = sorted(set(DEFAULT_OCR_LANGUAGE.split("+")) - present)
+    if not missing:
+        print(f"tessdata: all {len(present)} languages inside the bundle")
+        return
+    message = (
+        f"the bundle carries no language data for {', '.join(missing)}; "
+        "run `python packaging/tessdata.py` before building"
+    )
+    if os.environ.get("FREEDOCS_REQUIRE_TESSDATA"):
+        raise SystemExit(message)
+    print(f"warning: {message}")
+
+
 def report_size(bundle: Path) -> None:
     total = sum(path.stat().st_size for path in bundle.rglob("*") if path.is_file())
     print(f"bundle: {bundle} ({total / 1e6:.0f} MB)")
     print(
-        "note: the NER model (~1.2 GB) and Tesseract language data are NOT in here. "
-        "They are fetched or installed separately, and the engine reports their "
-        "absence through `capabilities` so the app can say so."
+        "note: the NER model (~1.2 GB) is NOT in here; it is fetched on first use, "
+        "and the engine reports its absence through `capabilities`."
     )
 
 
 if __name__ == "__main__":  # pragma: no cover - packaging only
     built = build()
     smoke_test(built)
+    check_tessdata(built)
     report_size(built)

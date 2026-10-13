@@ -10,8 +10,10 @@ Result on the machine this was developed on: a 1.1 GB `.app` and a 366 MB `.dmg`
 
 Those were 1.0 GB and 325 MB before anyone downloaded Tesseract language data.
 The spec folds `engine/models/tessdata` into the sidecar whenever it exists, so
-143 MB of `.traineddata` is now inside — on this machine. CI never fetches them,
-so a CI installer is still the smaller pair. Two figures for one artifact is
+the `.traineddata` are now inside — and since `app.yml` runs
+`packaging/tessdata.py` before bundling, a CI installer carries the same 169 MB.
+Before that CI never fetched them, so a CI installer was the smaller pair. Two
+figures for one artifact is
 awkward and it is the truth: the number depends on what is in `engine/models/`.
 
 There is a fourth artifact per platform that installs nothing and needs no
@@ -47,8 +49,10 @@ written after. The spec needs
 `collect_submodules("cryptography")` for it.
 
 **Not in the bundle, on purpose:** the NER model (~1.2 GB, fetched to the user's
-cache on first use) and Tesseract. Both absences are reported through
-`capabilities`, so the app says so rather than failing mysteriously.
+cache on first use) and, on macOS and Linux, the Tesseract binary. The Windows
+installers carry Tesseract in `bin/` (`app/packaging/tesseract_windows.py`). Every
+absence is reported through `capabilities`, so the app says so rather than failing
+mysteriously.
 
 That stays true of the installers, and it is exactly what the portable bundle
 inverts: it carries the weights, which is why it is 1405 MB and why it is a

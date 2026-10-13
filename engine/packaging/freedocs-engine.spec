@@ -80,10 +80,14 @@ for package in ("gliner2", "transformers", "tokenizers"):
 # `_tessdata_candidates`, whose comment has said "where a packaged build would
 # put it" since before any build put it there.
 #
-# The binary itself is not bundled, and cannot be: PyMuPDF shells out to
-# `tesseract`, which is a platform package. So this does not make OCR work on a
-# machine without Tesseract, and `capabilities.ocr_available` checks both halves
-# for exactly that reason.
+# The binary is not in the sidecar: PyMuPDF shells out to `tesseract`, which on
+# macOS and Linux is a platform package. The Windows installers carry one beside
+# the sidecar (`tauri.windows.conf.json`, `bin/`), not inside it. So this alone
+# does not make OCR work on a machine without Tesseract, and
+# `capabilities.ocr_available` checks both halves for exactly that reason.
+#
+# `packaging/tessdata.py` fills the directory with pinned files, and `app.yml`
+# runs it before this spec - no CI installer carried language data before that.
 #
 # Absent rather than fatal when the directory is empty: the files are gitignored
 # and downloaded by the README's loop, so a fresh clone can still build an engine
