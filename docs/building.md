@@ -85,9 +85,9 @@ Install, once, in this order:
    exceed 260 characters: `git config --global core.longpaths true`.
 6. **Tesseract**, for the OCR half of the launch test: the UB Mannheim installer
    (<https://github.com/UB-Mannheim/tesseract/wiki>), with the Italian, German and
-   French language data ticked. The engine looks in
-   `C:\Program Files\Tesseract-OCR\` by itself. How it behaves beyond being found
-   is part of what this test is for.
+   French language data ticked. The engine looks under `%ProgramFiles%` and, for a
+   "just for me" install, `%LOCALAPPDATA%` by itself. How it behaves beyond being
+   found is part of what this test is for.
 
 WebView2 is part of Windows 11, so the installer needs nothing more.
 

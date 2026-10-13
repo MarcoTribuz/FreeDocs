@@ -27,6 +27,7 @@ from freedocs.formats.pdf import (
     TESSERACT_NOT_EXECUTABLE,
     TESSERACT_WRONG_NAME,
     _tessdata_candidates,
+    _windows_roots,
     adopt_tesseract,
     ocr_unavailable_reason,
     tesseract_binary,
@@ -291,6 +292,47 @@ def test_the_installed_locations_are_tried_in_order(monkeypatch, tmp_path):
     monkeypatch.delenv("FREEDOCS_TESSERACT", raising=False)
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     assert tesseract_binary() == str(first)
+
+
+def test_a_per_user_windows_install_is_searched():
+    """The reported regression on Windows: installed by hand, never found.
+
+    The UB Mannheim installer's "just for me" puts Tesseract under
+    `%LOCALAPPDATA%` and adds nothing to `PATH`, while the list used to name only
+    the machine-wide directory on `C:`.
+    """
+    roots = _windows_roots({"LOCALAPPDATA": "/u/AppData/Local"})
+    assert os.path.join("/u/AppData/Local", "Programs", "Tesseract-OCR") in roots
+
+
+def test_program_files_is_read_not_assumed_to_be_on_c():
+    roots = _windows_roots({"ProgramFiles": "D:/Programs"})
+    assert roots == (os.path.join("D:/Programs", "Tesseract-OCR"),)
+
+
+def test_a_machine_wide_install_is_tried_before_a_per_user_one():
+    """A managed fleet installs for everybody, and that is the copy to use."""
+    roots = _windows_roots(
+        {"LOCALAPPDATA": "/u/local", "ProgramW6432": "/pf", "ProgramFiles": "/pf"}
+    )
+    assert roots[0] == os.path.join("/pf", "Tesseract-OCR")
+    # The 64-bit process reports the same directory twice; it is listed once.
+    assert len(roots) == len(set(roots))
+
+
+def test_scoop_is_found_through_its_app_directory_not_its_shim():
+    assert _windows_roots({"USERPROFILE": "/u"}) == (
+        os.path.join("/u", "scoop", "apps", "tesseract", "current"),
+    )
+    # A relocated Scoop says so in its own variable, which wins.
+    assert _windows_roots({"USERPROFILE": "/u", "SCOOP": "/s"}) == (
+        os.path.join("/s", "apps", "tesseract", "current"),
+    )
+
+
+def test_no_windows_environment_adds_no_locations():
+    """What macOS and Linux see: the list gains nothing and costs no `stat`."""
+    assert _windows_roots({}) == ()
 
 
 def test_an_unrunnable_file_in_an_installed_location_is_not_adopted(monkeypatch, tmp_path):
