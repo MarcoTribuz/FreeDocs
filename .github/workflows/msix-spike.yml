@@ -1,0 +1,43 @@
+name: msix-spike
+
+# A feasibility spike, not a release path: can the Windows build ship as an
+# MSIX (the Microsoft Store route that signs and updates for free)? It reuses
+# the MSI the v1.1.0 release already built rather than bundling again, because
+# bundling is the 26-minute half of app.yml and develop's prerelease version
+# cannot produce an MSI at all - WiX refuses `1.2.0-dev.N`.
+#
+# Only on this branch. Delete with the branch once the question is answered.
+on:
+  push:
+    branches: [feature/msix-spike]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Downloading an artifact from another run of another workflow.
+  actions: read
+
+jobs:
+  msix:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Run 38268968198 is app.yml on main for the v1.1.0 merge.
+      - name: Fetch the v1.1.0 MSI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 38268968198 -n freedocs-x86_64-pc-windows-msvc -D msi-in -R ${{ github.repository }}
+
+      - name: Repackage as MSIX, install, smoke-test
+        shell: pwsh
+        run: ./app/packaging/msix_spike.ps1 -Source msi-in -Out msix-out
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: always()
+        with:
+          name: msix-spike
+          path: msix-out/*
+          if-no-files-found: warn
+          compression-level: 0
