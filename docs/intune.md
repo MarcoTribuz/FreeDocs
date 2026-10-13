@@ -117,10 +117,13 @@ mechanism doing the same job.
 - **WebView2** is part of Windows 11. On Windows 10 without it, the MSI fetches
   Microsoft's bootstrapper, which needs the network at install time.
 - **OCR for scanned PDFs** needs the Tesseract binary, which is never bundled.
-  The language data is already inside the sidecar. Deploy the UB Mannheim
-  installer as its own Win32 app (silent: `/S`) and make it a dependency; the
-  engine looks in `C:\Program Files\Tesseract-OCR\` without being told. Without
-  it everything except scans works, and the window says why scans do not.
+  The language data is inside the sidecar **only when the build machine had
+  `engine/models/tessdata` populated**; no CI workflow fetches it, so an MSI from
+  CI carries none, and Tesseract then reads with whatever languages its own
+  installer added. Deploy the UB Mannheim installer as its own Win32 app (silent:
+  `/S`) and make it a dependency; the engine looks under `%ProgramFiles%\Tesseract-OCR\`
+  without being told. Without it everything except scans works, and the window
+  says why scans do not.
 
 ## What the pilot has to confirm
 

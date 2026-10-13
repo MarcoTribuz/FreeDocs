@@ -25,6 +25,13 @@ changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
 ## Unreleased
 
+- **Windows finds a Tesseract installed by hand.** The search covered only a
+  machine-wide install on drive `C:`, so a "just for me" install under
+  `%LOCALAPPDATA%`, a `Program Files` on another drive, or Scoop left OCR reported
+  missing. The locations are now read from the environment, and where winget is
+  present `doctor` and the window offer its install line to copy. Also corrected:
+  `docs/intune.md` said the OCR language data was inside every sidecar, and a
+  CI-built installer carries none.
 - **`SHA256SUMS` is written with LF on every runner.** On Windows it came out
   with CRLF, and `shasum -c --ignore-missing` then skipped the two Windows lines
   without a word. The v1.0.2 file was replaced with a normalised copy; its

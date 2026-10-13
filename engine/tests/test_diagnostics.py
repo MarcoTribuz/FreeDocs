@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -282,7 +283,9 @@ def test_every_install_command_names_the_language_data():
     survives. Shortening one of these lines is a quiet leak.
     """
     for manager, command in diagnostics._PACKAGE_MANAGERS:
-        assert "tesseract" in command, manager
+        assert "tesseract" in command.casefold(), manager
+        if command in diagnostics._LANGUAGES_FROM_THE_BUNDLE:
+            continue
         # Every one names at least one language beyond the base package: a
         # `-lang` metapackage, a `-langpack-xx`, a `-ocr-xxx`, or `tesseract-ita`.
         beyond_base = [
@@ -291,3 +294,45 @@ def test_every_install_command_names_the_language_data():
             if word.startswith("tesseract") and word not in {"tesseract", "tesseract-ocr"}
         ]
         assert beyond_base, manager
+
+
+def test_only_winget_is_excused_from_naming_the_language_data():
+    """The exemption is a closed list, so a shortened line cannot hide in it.
+
+    winget's Tesseract package takes no language choice, and on Windows the
+    language data is the bundle's job. Anything else joining that list has to say
+    where its languages come from, here, in a test somebody will read.
+    """
+    assert {diagnostics._WINGET_COMMAND} == diagnostics._LANGUAGES_FROM_THE_BUNDLE
+
+
+def test_winget_is_located_from_the_user_profile(tmp_path):
+    """An App Installer alias lives under `LOCALAPPDATA`; there is no fixed path."""
+    entries = diagnostics._winget({"LOCALAPPDATA": str(tmp_path)})
+    assert entries == (
+        (
+            str(tmp_path / "Microsoft" / "WindowsApps" / "winget.exe"),
+            diagnostics._WINGET_COMMAND,
+        ),
+    )
+    assert diagnostics._winget({}) == ()
+
+
+def test_a_windows_machine_with_winget_is_told_the_winget_line(monkeypatch, tmp_path):
+    """The gap that left Windows with only a generic sentence to copy."""
+    hide_the_binary(monkeypatch)
+    alias = tmp_path / "Microsoft" / "WindowsApps" / "winget.exe"
+    alias.parent.mkdir(parents=True)
+    alias.write_bytes(b"")
+    monkeypatch.setattr(
+        diagnostics, "_PACKAGE_MANAGERS", diagnostics._winget({"LOCALAPPDATA": str(tmp_path)})
+    )
+    assert diagnostics._ocr_check().fix == diagnostics._WINGET_COMMAND
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX half of `_present`")
+def test_a_dangling_package_manager_link_is_not_a_package_manager(tmp_path):
+    """`lexists` is for winget's alias only; on POSIX a broken link is a leftover."""
+    link = tmp_path / "brew"
+    link.symlink_to(tmp_path / "uninstalled")
+    assert not diagnostics._present(link)

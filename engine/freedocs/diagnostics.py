@@ -19,6 +19,7 @@ import importlib.util
 import os
 import platform
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -239,6 +240,31 @@ def _ner_check(*, hashes: bool = False) -> Check:
     )
 
 
+#: The one install line that cannot name the language data, because the package
+#: it installs takes no language choice. Languages on Windows are the bundle's
+#: job: the spec ships ``engine/models/tessdata`` beside the executable, and
+#: ``tessdata_path()`` prefers that copy to the system's. So this line is honest
+#: exactly where that copy is present - which a CI-built installer is not yet,
+#: since no workflow fetches the language data before bundling.
+_WINGET_COMMAND = "winget install --exact --id UB-Mannheim.TesseractOCR"
+
+#: Commands exempt from naming the language data, each with the reason above.
+_LANGUAGES_FROM_THE_BUNDLE = frozenset({_WINGET_COMMAND})
+
+
+def _winget(environ: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    """Where winget is, as a ``_PACKAGE_MANAGERS`` entry, or nothing.
+
+    winget is an App Installer alias inside the user's own profile, so it can
+    only be located from ``LOCALAPPDATA`` - there is no fixed path to list the
+    way ``/opt/homebrew/bin/brew`` is listed.
+    """
+    local = environ.get("LOCALAPPDATA")
+    if not local:
+        return ()
+    return ((os.path.join(local, "Microsoft", "WindowsApps", "winget.exe"), _WINGET_COMMAND),)
+
+
 #: Where each platform's package manager lives, and the one line that installs
 #: Tesseract with it.
 #:
@@ -273,7 +299,23 @@ _PACKAGE_MANAGERS: tuple[tuple[str, str], ...] = (
         " tesseract-langpack-por tesseract-langpack-pol tesseract-langpack-swe",
     ),
     ("/usr/bin/pacman", "sudo pacman -S tesseract tesseract-data-ita tesseract-data-deu"),
+    # Windows: see `_winget`. The one entry that installs the binary only.
+    *_winget(os.environ),
 )
+
+
+def _present(path: Path) -> bool:
+    """Is a package manager installed here, asked so Windows can answer.
+
+    ``winget.exe`` is an App Execution Alias - a reparse point that ``stat``
+    cannot always follow - so ``is_file()`` may be false for a winget that runs.
+    ``lexists`` asks whether the entry is there without following it. Kept to
+    Windows because on POSIX a dangling Homebrew symlink is exactly the leftover
+    whose command would fail.
+    """
+    if path.is_file():
+        return True
+    return os.name == "nt" and os.path.lexists(path)
 
 
 def _install_command() -> str | None:
@@ -299,7 +341,7 @@ def _install_command() -> str | None:
     needing no confinement.
     """
     for manager, command in _PACKAGE_MANAGERS:
-        if Path(manager).is_file():
+        if _present(Path(manager)):
             return command
     return None
 

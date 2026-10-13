@@ -144,6 +144,17 @@ after `PATH` so that a build somebody chose still wins. A binary found off `PATH
 has its directory prepended to `PATH`, because PyMuPDF resolves the executable by
 name and takes no argument for it.
 
+On Windows the list is read from the environment rather than written as `C:\`:
+`%ProgramFiles%` (and its 64-bit and x86 siblings), the per-user directories under
+`%LOCALAPPDATA%` that the UB Mannheim installer's "just for me" option uses, and
+Scoop's app directory. None of them puts Tesseract on `PATH` by default, and the
+first version of the list covered only a machine-wide install on drive `C:` — a
+Windows machine reported OCR missing after a manual per-user install. Where winget
+is present, `doctor` names `winget install --exact --id UB-Mannheim.TesseractOCR`.
+That is the one install line that names no language data, because the package
+takes no language choice: on Windows the languages are the bundle's job, and a
+CI-built installer does not carry them yet.
+
 Check what this machine can actually do:
 
 ```bash
