@@ -253,3 +253,6 @@ if ($env:GITHUB_STEP_SUMMARY) {
   $md | Add-Content -Path $env:GITHUB_STEP_SUMMARY
 }
 if ($results | Where-Object { -not $_.Ok }) { exit 1 }
+# Explicit: the runner's pwsh wrapper exits with the last $LASTEXITCODE, which
+# is the refused direct launch above - the expected outcome, read as a failure.
+exit 0
