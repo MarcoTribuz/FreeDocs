@@ -99,7 +99,7 @@ partial language set actually costs. The `.deb`'s `deb.depends` lists
 `tesseract-ocr` alone and that is no longer a shortfall: the languages travel in
 the sidecar, which `tessdata_path()` consults before the system's directories.
 
-## The window can act on this, and cannot install it
+## The window can act on this, and on a Mac it can install it
 
 `freedocs doctor` and the desktop app's "What this machine can do" pane both put a
 `Check.fix` beside every failure. For OCR that fix is now the command for the
@@ -115,7 +115,16 @@ beside it. Re-checking works with no restart because `tesseract_binary()` and
 `tessdata_path()` are resolved on every call — install Tesseract in your own
 terminal, press the button, and the badge flips.
 
-**Nothing runs the command for you, and that is a decision.** Spawning a package
+**On a Mac with Homebrew, an Install button runs it for you.** That is the one
+exception, decided on 2026-10-13 and recorded in M17 of `docs/security-review.md`:
+Homebrew installs as the user with no `sudo`, the line it runs is the line the
+window shows, and it asks for `tesseract-lang` only when the nine languages are
+not already present (every installer carries them, so normally the button runs
+`brew install tesseract`). apt, dnf, pacman, MacPorts and winget stay Copy-only,
+because each needs elevation. What follows is the reasoning that refused the
+button everywhere, which still bounds the one place it exists.
+
+**Nothing else runs the command for you, and that is a decision.** Spawning a package
 manager would put a network call outside everything `core/egress.py` can observe,
 while `capabilities` went on reporting that outbound connections are blocked — an
 enforced-looking claim with the hole beside it, and the honest correction could

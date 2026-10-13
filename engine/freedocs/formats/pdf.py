@@ -439,6 +439,27 @@ def tessdata_path() -> str | None:
     return None
 
 
+def missing_languages() -> list[str]:
+    """Which of ``DEFAULT_OCR_LANGUAGE`` the directory OCR would use lacks.
+
+    Not part of :func:`ocr_unavailable_reason`, whose contract is "can a scan be
+    read at all" - changing that is recorded as its own piece of work. This
+    answers a narrower question for one caller: whether an install needs to bring
+    languages, or only the binary. Homebrew's ``tesseract-lang`` is every language
+    Tesseract has, over a gigabyte, and an installer that already carries the nine
+    should not make somebody download it to read a scan.
+    """
+    wanted = DEFAULT_OCR_LANGUAGE.split("+")
+    directory = tessdata_path()
+    if directory is None:
+        return wanted
+    return [
+        language
+        for language in wanted
+        if not (Path(directory) / f"{language}.traineddata").is_file()
+    ]
+
+
 def _count_chars(raw: dict) -> int:
     return sum(
         len(span.get("chars", ()))

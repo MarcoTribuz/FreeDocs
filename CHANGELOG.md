@@ -25,6 +25,13 @@ changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
 ## Unreleased
 
+- **On a Mac with Homebrew, the window can install Tesseract.** Where OCR is
+  missing and Homebrew is present, `capabilities` publishes the exact line and
+  `install_tesseract` runs it: `brew install tesseract`, plus `tesseract-lang` only
+  when the nine OCR languages are not already present. No other package manager is
+  run, because each needs `sudo` or UAC; those stay Copy-only. This reverses part
+  of M17 by decision — a first installation may reach an external source, as the
+  model download does — and the bounds are recorded there.
 - **Every installer carries the OCR languages, and the Windows ones carry
   Tesseract.** No CI installer had any language data before this: the sidecar
   bundles `engine/models/tessdata` and nothing filled it. `app.yml` now fetches
