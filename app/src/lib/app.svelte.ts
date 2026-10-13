@@ -26,6 +26,7 @@ import {
 	doctor as fetchDoctor,
 	engineStatus,
 	useTesseract,
+	installTesseract,
 	entities,
 	forget as forgetExtractions,
 	inspect,
@@ -51,7 +52,8 @@ import { basename } from './format';
 import { i18n } from './i18n/index.svelte';
 import { resetReview } from './review.svelte';
 import { keptSpanFor, type Mode, type Step } from './steps';
-import { checkModel, detectorSpec, onDownload } from './model.svelte';
+import { checkModel, detectorSpec, onDownload, setupSeen } from './model.svelte';
+import { offerSetup } from './setup';
 
 /**
  * The window's session: what the engine said, what the user picked, and the
@@ -113,6 +115,10 @@ export const session = $state({
 	rechecking: false,
 	/** Why the engine refused a chosen Tesseract. An enum, so it is translated. */
 	tesseractRefusal: null as TesseractRefusal | null,
+	/** An `install_tesseract` in flight: minutes, with the engine busy throughout. */
+	installing: false,
+	/** The installer's own English when it failed, quoted and never translated. */
+	installFailure: null as string | null,
 	/**
 	 * The engine's code for `problem`, when it had one.
 	 *
@@ -395,7 +401,7 @@ export async function start(): Promise<() => void> {
 		applyRememberedTerms();
 		session.entityList = (await entities(session.placeholderLanguage)).entities;
 		// After the entity list, which the first-run screen's example is drawn from.
-		await checkModel();
+		await checkModel(offerSetup(session.caps, setupSeen()));
 		await Promise.all([refreshCoverage(), refreshDiagnostics()]);
 	} catch (error) {
 		fail(describe(error), codeOf(error));
@@ -612,6 +618,47 @@ export async function locateTesseract(): Promise<void> {
 		fail(describe(error), codeOf(error));
 	} finally {
 		session.rechecking = false;
+		await recheck();
+	}
+}
+
+/**
+ * Ask the engine to install Tesseract, then re-ask what is true.
+ *
+ * Offered only where `caps.ocr_installable` said yes, which is the engine's
+ * answer; nothing here knows the installer is Homebrew. The outcome is taken
+ * from the response and then confirmed by the same Re-check path the button
+ * uses, so the badge, the pane and the first-run list cannot disagree.
+ *
+ * The engine serves one request at a time, so for the minutes this takes every
+ * other request waits behind it. The screens that offer it are ones where the
+ * user is waiting on this and nothing else.
+ */
+export async function installOcr(): Promise<void> {
+	if (session.installing) return;
+	session.installing = true;
+	session.installFailure = null;
+	announce(i18n.m.ocrInstalling());
+	try {
+		const outcome = await installTesseract();
+		session.installFailure = outcome.failure;
+		if (session.caps) session.caps = { ...session.caps, ...ocrFields(outcome) };
+		if (outcome.installed) {
+			// Same staleness as after Locate: a refused scan from before this is
+			// window state, and clearing it is a control, not a rule.
+			if (session.problemCode === NEEDS_OCR) {
+				session.problem = null;
+				session.problemCode = null;
+			}
+			announce(i18n.m.ocrInstalled());
+		} else {
+			announce(i18n.m.ocrInstallFailedTitle(), { assertive: true });
+		}
+	} catch (error) {
+		session.installFailure = describe(error);
+		announce(i18n.m.ocrInstallFailedTitle(), { assertive: true });
+	} finally {
+		session.installing = false;
 		await recheck();
 	}
 }

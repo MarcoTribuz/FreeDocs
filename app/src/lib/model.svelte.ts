@@ -24,7 +24,11 @@ import {
 import { record, type Sample } from './download';
 import { i18n } from './i18n/index.svelte';
 
-export type Phase = 'ask' | 'downloading' | 'preparing' | 'failed' | 'ready';
+/**
+ * `setup` is the screen opened for the dependencies alone: the model is here and
+ * something else is not. The other five are the model's own.
+ */
+export type Phase = 'ask' | 'downloading' | 'preparing' | 'failed' | 'ready' | 'setup';
 
 export const model = $state({
 	status: null as ModelStatus | null,
@@ -58,10 +62,39 @@ export function detectorSpec(): string | undefined {
 	return modelMissing() ? 'l1' : undefined;
 }
 
-/** Ask the engine at launch; open the screen when the model is missing. */
-export async function checkModel(): Promise<void> {
+/**
+ * Ask the engine at launch; open the screen when the model is missing, or when
+ * `setupWanted` - the caller's reading of `offerSetup` - says the dependency list
+ * has something to show that the user has not seen.
+ */
+export async function checkModel(setupWanted = false): Promise<void> {
 	model.status = await modelStatus();
 	if (modelMissing()) show('ask');
+	else if (setupWanted) show('setup');
+}
+
+/**
+ * Whether the dependency list has been seen, remembered per webview profile.
+ *
+ * A convenience, like the theme: if storage is unavailable the list opens again
+ * next launch, which is the safe direction to fail in.
+ */
+const SETUP_SEEN_KEY = 'freedocs.setup-seen';
+
+export function setupSeen(): boolean {
+	try {
+		return localStorage.getItem(SETUP_SEEN_KEY) === '1';
+	} catch {
+		return false;
+	}
+}
+
+function markSetupSeen(): void {
+	try {
+		localStorage.setItem(SETUP_SEEN_KEY, '1');
+	} catch {
+		// Opens again next launch; nothing depends on it.
+	}
 }
 
 export function onDownload(download: Download): void {
@@ -96,6 +129,7 @@ export async function fetchModel(): Promise<void> {
 
 /** "Not now": the screen closes, and the file step says what is missing. */
 export function deferModel(): void {
+	markSetupSeen();
 	model.phase = null;
 }
 
@@ -105,6 +139,7 @@ export function askForModel(): void {
 }
 
 export function closeModel(): void {
+	markSetupSeen();
 	model.phase = null;
 }
 
@@ -118,7 +153,8 @@ function show(phase: Phase): void {
 		downloading: m.modelDownloadingTitle,
 		preparing: m.modelPreparingTitle,
 		failed: m.modelFailedTitle,
-		ready: m.modelReadyTitle
+		ready: m.modelReadyTitle,
+		setup: m.setupTitle
 	};
 	announce(titles[phase](), { assertive: phase === 'failed' });
 }

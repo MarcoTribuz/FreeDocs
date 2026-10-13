@@ -265,6 +265,26 @@ export const it = {
 		wrong_name: () => 'Quel file deve chiamarsi «tesseract», perché è il nome che cerca il lettore PDF.'
 	},
 	tesseractRefusalOther: () => 'Il motore ha rifiutato quel file.',
+	ocrInstall: () => 'Installa',
+	ocrInstallNote: () =>
+		'Scarica Tesseract con Homebrew, che usa internet. FreeDocs esegue esattamente questo comando, e può richiedere qualche minuto.',
+	ocrCopyNote: () => 'Esegui questo comando in un terminale, poi controlla di nuovo.',
+	ocrInstalling: () => 'Installazione di Tesseract in corso…',
+	ocrInstalled: () => 'Tesseract è stato installato.',
+	ocrInstallFailedTitle: () => 'L\'installazione non è andata a buon fine',
+	setupTitle: () => 'Prepara questo computer',
+	setupLead: () => 'FreeDocs funziona già. Manca un componente per leggere i PDF scansionati.',
+	setupContinue: () => 'Continua',
+	setupListTitle: () => 'Su questo computer',
+	depOcr: () => 'Lettura dei PDF scansionati (Tesseract)',
+	depOcrWhy: () =>
+		'Serve solo per i PDF scansionati. Word, Excel, PowerPoint e i PDF con testo funzionano senza.',
+	depReview: () => 'Revisione locale con un modello linguistico (Ollama)',
+	depReviewWhy: () =>
+		'Non necessario. Se Ollama è attivo su questo computer, FreeDocs può chiedergli di rileggere il risultato.',
+	depReady: () => 'Pronto',
+	depMissing: () => 'Mancante',
+	depOptional: () => 'Facoltativo',
 	engineBuild: () => 'Motore',
 	engineSource: {
 		override: () => 'scelto con FREEDOCS_ENGINE',

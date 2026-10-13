@@ -436,6 +436,16 @@ Those two checks are also what bound the authority `use_tesseract` grants: the
 target must already be executable *and* already be named `tesseract`, and nothing
 reachable over the pipe writes such a file.
 
+**The first-run screen lists the dependencies, and the OCR row can install on a
+Mac.** `SetupList` shows Tesseract and Ollama with the engine's answer as each
+state; the OCR row is `OcrRepair`, the same component the file step uses, so the
+two cannot offer different repairs. `ocrAction` in `lib/setup.ts` maps
+`ocr_available`, `ocr_install_command` and `ocr_installable` to Install, Copy or
+Locate — pure, tested, and it never offers Install without a line to show. The
+screen opens once for the list alone (`setup` phase, `freedocs.setup-seen`) when
+the model is present and OCR is not; a machine that never reads scans must not be
+nagged every launch.
+
 **Which engine is answering is reported, and it is split by who knows.** Both
 builds in the incident that prompted this called themselves `0.1.0`, so the
 version cannot tell a stale sidecar from a current one — and a stale sidecar

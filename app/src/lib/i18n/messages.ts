@@ -268,6 +268,31 @@ export interface Messages {
 	tesseractRefusal: Record<'not_executable' | 'wrong_name', () => string>;
 	/** A refusal key added in Python later must still render as something. */
 	tesseractRefusalOther(): string;
+	/** The button that asks the engine to run the install line it showed. */
+	ocrInstall(): string;
+	/** Under Install: what it reaches and that it runs exactly the line shown. */
+	ocrInstallNote(): string;
+	/** Under Copy, where the engine names a line it will not run. */
+	ocrCopyNote(): string;
+	/** Announced when an install starts, finishes, or fails. */
+	ocrInstalling(): string;
+	ocrInstalled(): string;
+	ocrInstallFailedTitle(): string;
+
+	// ---- the first-run dependency list ---------------------------------------
+	/** The screen opened for the dependencies alone, with the model present. */
+	setupTitle(): string;
+	setupLead(): string;
+	setupContinue(): string;
+	setupListTitle(): string;
+	depOcr(): string;
+	/** Why OCR matters, and that most documents do not need it. */
+	depOcrWhy(): string;
+	depReview(): string;
+	depReviewWhy(): string;
+	depReady(): string;
+	depMissing(): string;
+	depOptional(): string;
 	engineBuild(): string;
 	/** Where the engine came from, by key. A closed vocabulary from Rust. */
 	engineSource: Record<'override' | 'bundled' | 'checkout', () => string>;

@@ -274,6 +274,26 @@ export const fr = {
 		wrong_name: () => 'Ce fichier doit s’appeler « tesseract », car c’est le nom que cherche le lecteur PDF.'
 	},
 	tesseractRefusalOther: () => 'Le moteur a refusé ce fichier.',
+	ocrInstall: () => 'Installer',
+	ocrInstallNote: () =>
+		'Télécharge Tesseract avec Homebrew, qui utilise Internet. FreeDocs exécute exactement cette commande, et cela peut prendre quelques minutes.',
+	ocrCopyNote: () => 'Exécutez cette commande dans un terminal, puis vérifiez à nouveau.',
+	ocrInstalling: () => 'Installation de Tesseract…',
+	ocrInstalled: () => 'Tesseract a été installé.',
+	ocrInstallFailedTitle: () => 'L\'installation n\'a pas abouti',
+	setupTitle: () => 'Préparer cet ordinateur',
+	setupLead: () => 'FreeDocs fonctionne déjà. Il manque un élément pour lire les PDF numérisés.',
+	setupContinue: () => 'Continuer',
+	setupListTitle: () => 'Sur cet ordinateur',
+	depOcr: () => 'Lecture des PDF numérisés (Tesseract)',
+	depOcrWhy: () =>
+		'Nécessaire uniquement pour les PDF numérisés. Word, Excel, PowerPoint et les PDF avec texte fonctionnent sans.',
+	depReview: () => 'Relecture locale par un modèle de langue (Ollama)',
+	depReviewWhy: () =>
+		'Pas nécessaire. Si Ollama tourne sur cet ordinateur, FreeDocs peut lui demander de relire le résultat.',
+	depReady: () => 'Prêt',
+	depMissing: () => 'Manquant',
+	depOptional: () => 'Facultatif',
 	engineBuild: () => 'Moteur',
 	engineSource: {
 		override: () => 'choisi avec FREEDOCS_ENGINE',

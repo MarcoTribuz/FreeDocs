@@ -142,10 +142,11 @@
 								the engine detects the package manager this machine has and
 								names the command.
 
-								Quoted in English and copyable, not run. Spawning a package
-								manager from here would put a network call outside everything
-								`core/egress.py` can see while `capabilities` went on reporting
-								that outbound connections are blocked.
+								Quoted in English and copyable, not run from here. The one
+								install the window runs - Homebrew, where the engine says
+								`ocr_installable` - is offered by `OcrRepair` on the file step
+								and the first-run list, with this same line shown beside it;
+								M17 in `docs/security-review.md` says why only that one.
 							-->
 							<p class="fix">
 								<span class="label">{m.diagnosticsFix()}</span>
