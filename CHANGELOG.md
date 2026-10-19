@@ -23,7 +23,7 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
-## Unreleased
+## 1.2.0 — 2026-10-19
 
 - **The first screen lists what else this computer needs.** Beside the model
   download it shows reading scanned PDFs (Tesseract) and the optional local
