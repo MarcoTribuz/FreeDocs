@@ -35,6 +35,11 @@ htmlcov/
 # Models downloaded at first run, never bundled
 engine/models/
 
+# Staged by app/packaging/tesseract_windows.py from a pinned upstream installer,
+# and its download cache: derived, 167 MB, and reproducible from the pin.
+app/src-tauri/tesseract-bin/
+app/packaging/.cache/
+
 # Node / Tauri
 node_modules/
 app/dist/

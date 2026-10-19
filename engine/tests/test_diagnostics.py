@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -282,7 +283,9 @@ def test_every_install_command_names_the_language_data():
     survives. Shortening one of these lines is a quiet leak.
     """
     for manager, command in diagnostics._PACKAGE_MANAGERS:
-        assert "tesseract" in command, manager
+        assert "tesseract" in command.casefold(), manager
+        if command in diagnostics._LANGUAGES_FROM_THE_BUNDLE:
+            continue
         # Every one names at least one language beyond the base package: a
         # `-lang` metapackage, a `-langpack-xx`, a `-ocr-xxx`, or `tesseract-ita`.
         beyond_base = [
@@ -291,3 +294,148 @@ def test_every_install_command_names_the_language_data():
             if word.startswith("tesseract") and word not in {"tesseract", "tesseract-ocr"}
         ]
         assert beyond_base, manager
+
+
+def test_only_winget_is_excused_from_naming_the_language_data():
+    """The exemption is a closed list, so a shortened line cannot hide in it.
+
+    winget's Tesseract package takes no language choice, and on Windows the
+    language data is the bundle's job. Anything else joining that list has to say
+    where its languages come from, here, in a test somebody will read.
+    """
+    assert {diagnostics._WINGET_COMMAND} == diagnostics._LANGUAGES_FROM_THE_BUNDLE
+
+
+def test_winget_is_located_from_the_user_profile(tmp_path):
+    """An App Installer alias lives under `LOCALAPPDATA`; there is no fixed path."""
+    entries = diagnostics._winget({"LOCALAPPDATA": str(tmp_path)})
+    assert entries == (
+        (
+            str(tmp_path / "Microsoft" / "WindowsApps" / "winget.exe"),
+            diagnostics._WINGET_COMMAND,
+        ),
+    )
+    assert diagnostics._winget({}) == ()
+
+
+def test_a_windows_machine_with_winget_is_told_the_winget_line(monkeypatch, tmp_path):
+    """The gap that left Windows with only a generic sentence to copy."""
+    hide_the_binary(monkeypatch)
+    alias = tmp_path / "Microsoft" / "WindowsApps" / "winget.exe"
+    alias.parent.mkdir(parents=True)
+    alias.write_bytes(b"")
+    monkeypatch.setattr(
+        diagnostics, "_PACKAGE_MANAGERS", diagnostics._winget({"LOCALAPPDATA": str(tmp_path)})
+    )
+    assert diagnostics._ocr_check().fix == diagnostics._WINGET_COMMAND
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the POSIX half of `_present`")
+def test_a_dangling_package_manager_link_is_not_a_package_manager(tmp_path):
+    """`lexists` is for winget's alias only; on POSIX a broken link is a leftover."""
+    link = tmp_path / "brew"
+    link.symlink_to(tmp_path / "uninstalled")
+    assert not diagnostics._present(link)
+
+
+# -- the one install the engine runs ------------------------------------------
+
+
+def a_homebrew(monkeypatch, tmp_path, *, languages_missing: bool):
+    """A fake `brew` the table treats as Homebrew, and a language-data answer."""
+    brew = tmp_path / "brew"
+    brew.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(
+        diagnostics, "_PACKAGE_MANAGERS", ((str(brew), "brew install tesseract tesseract-lang"),)
+    )
+    monkeypatch.setattr(diagnostics, "_UNATTENDED", frozenset({str(brew)}))
+    monkeypatch.setattr(
+        "freedocs.formats.pdf.missing_languages", lambda: ["ita"] if languages_missing else []
+    )
+    return brew
+
+
+def test_homebrew_is_run_and_asks_only_for_the_binary_when_the_languages_are_here(
+    monkeypatch, tmp_path
+):
+    """`tesseract-lang` is over a gigabyte the installer's sidecar already carries."""
+    brew = a_homebrew(monkeypatch, tmp_path, languages_missing=False)
+    plan = diagnostics.install_plan()
+    assert plan == diagnostics.InstallPlan(
+        "brew install tesseract", (str(brew), "install", "tesseract")
+    )
+
+
+def test_homebrew_brings_the_languages_when_they_are_missing(monkeypatch, tmp_path):
+    a_homebrew(monkeypatch, tmp_path, languages_missing=True)
+    plan = diagnostics.install_plan()
+    assert plan is not None and plan.argv is not None
+    assert plan.argv[1:] == ("install", "tesseract", "tesseract-lang")
+
+
+def test_what_is_shown_is_what_runs(monkeypatch, tmp_path):
+    """Nobody presses a button that runs something other than the line they read."""
+    a_homebrew(monkeypatch, tmp_path, languages_missing=False)
+    plan = diagnostics.install_plan()
+    assert plan is not None and plan.argv is not None
+    assert plan.command.split()[1:] == list(plan.argv[1:])
+
+
+def test_a_manager_that_needs_elevation_is_shown_and_never_run(monkeypatch, tmp_path):
+    apt = tmp_path / "apt"
+    apt.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setattr(diagnostics, "_PACKAGE_MANAGERS", ((str(apt), "sudo apt install x"),))
+    plan = diagnostics.install_plan()
+    assert plan == diagnostics.InstallPlan("sudo apt install x", None)
+    with pytest.raises(ValueError):
+        diagnostics.run_install(plan)
+
+
+def test_only_homebrew_is_unattended():
+    """M17: elevation is not a subset of what a person asked for."""
+    assert all(path.endswith("/brew") for path in diagnostics._UNATTENDED)
+    run = {manager for manager, _ in diagnostics._PACKAGE_MANAGERS} & diagnostics._UNATTENDED
+    assert run == diagnostics._UNATTENDED
+
+
+def stand_in(code: str) -> diagnostics.InstallPlan:
+    """A harmless process in place of the package manager."""
+    return diagnostics.InstallPlan("brew install tesseract", (sys.executable, "-c", code))
+
+
+def test_a_successful_install_reports_nothing():
+    assert diagnostics.run_install(stand_in("pass")) is None
+
+
+def test_a_failed_install_says_which_command_and_how_it_ended():
+    failure = diagnostics.run_install(
+        stand_in("import sys; print('Error: no bottle available', file=sys.stderr); sys.exit(1)")
+    )
+    assert failure is not None
+    assert failure.startswith("brew install tesseract exited with status 1")
+    assert "no bottle available" in failure
+
+
+def test_the_installer_cannot_wait_on_a_prompt_nobody_sees():
+    """stdin is closed and Homebrew is told it is not interactive."""
+    code = (
+        "import os, sys; "
+        "sys.exit(0 if os.environ.get('NONINTERACTIVE') == '1' and sys.stdin.read() == '' else 3)"
+    )
+    assert diagnostics.run_install(stand_in(code)) is None
+
+
+def test_an_install_that_hangs_is_ended_and_reported(monkeypatch):
+    monkeypatch.setattr(diagnostics, "INSTALL_TIMEOUT_SECONDS", 0.5)
+    failure = diagnostics.run_install(stand_in("import time; time.sleep(5)"))
+    assert failure is not None and "did not finish" in failure
+
+
+def test_no_passphrase_reaches_the_installer(monkeypatch):
+    """M10, one process further out: Homebrew runs scripts nobody here wrote."""
+    monkeypatch.setenv("FREEDOCS_MAP_PASSPHRASE", "correct horse battery staple")
+    monkeypatch.setenv("FREEDOCS_TERMS_PASSPHRASE", "another one")
+    code = (
+        "import os, sys; sys.exit(3 if any(k.startswith('FREEDOCS_') for k in os.environ) else 0)"
+    )
+    assert diagnostics.run_install(stand_in(code)) is None

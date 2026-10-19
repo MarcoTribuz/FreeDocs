@@ -40,6 +40,19 @@ export interface Capabilities {
 	 */
 	ocr_unavailable_reason: string | null;
 	/**
+	 * The exact line that would install Tesseract here, null while OCR works or
+	 * when no package manager was found. Shown before anything runs, so nobody
+	 * presses a button that executes something they could not read. Optional
+	 * because a sidecar older than this field does not send it.
+	 */
+	ocr_install_command?: string | null;
+	/**
+	 * Whether `install_tesseract` would run that line. The engine's answer - true
+	 * only for a package manager that needs no elevation (Homebrew) - so the
+	 * window offers Install or Copy without knowing why.
+	 */
+	ocr_installable?: boolean;
+	/**
 	 * Whether the NER weights travel with this build or are fetched on first use.
 	 * An enum, so it is translated rather than quoted, and never a path: a local
 	 * filesystem path tells the window nothing it can act on. The window cannot
@@ -643,6 +656,27 @@ export interface TesseractChoice {
  */
 export function useTesseract(path: string): Promise<TesseractChoice> {
 	return request<TesseractChoice>('use_tesseract', { path });
+}
+
+export interface TesseractInstall {
+	installed: boolean;
+	/** The installer's own English, quoted; null when it succeeded. */
+	failure: string | null;
+	/** What ran, for the announcement and nothing else. */
+	command: string;
+	tesseract: string | null;
+	ocr_available: boolean;
+	ocr_unavailable_reason: string | null;
+}
+
+/**
+ * Ask the engine to install Tesseract. No parameters, by design: the engine
+ * decides what runs from its own table, and refuses where that would need
+ * elevation. A failed install is a field, like a refused `use_tesseract`, so
+ * the outcome and the state after it arrive in one payload.
+ */
+export function installTesseract(): Promise<TesseractInstall> {
+	return request<TesseractInstall>('install_tesseract');
 }
 
 /**

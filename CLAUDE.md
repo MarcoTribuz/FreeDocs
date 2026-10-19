@@ -436,6 +436,16 @@ Those two checks are also what bound the authority `use_tesseract` grants: the
 target must already be executable *and* already be named `tesseract`, and nothing
 reachable over the pipe writes such a file.
 
+**The first-run screen lists the dependencies, and the OCR row can install on a
+Mac.** `SetupList` shows Tesseract and Ollama with the engine's answer as each
+state; the OCR row is `OcrRepair`, the same component the file step uses, so the
+two cannot offer different repairs. `ocrAction` in `lib/setup.ts` maps
+`ocr_available`, `ocr_install_command` and `ocr_installable` to Install, Copy or
+Locate — pure, tested, and it never offers Install without a line to show. The
+screen opens once for the list alone (`setup` phase, `freedocs.setup-seen`) when
+the model is present and OCR is not; a machine that never reads scans must not be
+nagged every launch.
+
 **Which engine is answering is reported, and it is split by who knows.** Both
 builds in the incident that prompted this called themselves `0.1.0`, so the
 version cannot tell a stale sidecar from a current one — and a stale sidecar
@@ -449,7 +459,7 @@ Nothing calls a build stale — there is no reference point without the network 
 this tool refuses — and comparing the sidecar's mtime against the app binary's was
 rejected because `tauri build` does not promise to preserve resource timestamps.
 
-**The engine names the install command; it never runs one.** `_PACKAGE_MANAGERS`
+**The engine names the install command, and runs exactly one kind.** `_PACKAGE_MANAGERS`
 in `diagnostics.py` finds the manager this machine actually has, at absolute paths
 for the `_SYSTEM_BINARIES` reason — under a Finder launch `shutil.which("brew")`
 fails on a machine with Homebrew. This is *not* suppressed when frozen, and the
@@ -458,7 +468,16 @@ about a missing *extra* depends on a build shape the engine cannot see, while a
 *platform* it can see and a system package installs the same way whatever build
 asked.
 
-Spawning a package manager was designed and refused. `core/egress.py` patches
+Spawning a package manager was designed and refused, and on 13 October 2026
+reopened for Homebrew alone: a first installation may reach an external source,
+as the model download already does. `install_tesseract` takes no parameters, runs
+only what `install_plan()` builds from the table for a manager in `_UNATTENDED`
+(the two Homebrew paths — no `sudo`, no UAC), shows the exact line before it runs,
+strips every `FREEDOCS_*` variable from the child, and returns its failure as a
+field beside the post-install OCR state. It asks for `tesseract-lang` only when
+the nine languages are not already in the directory OCR would use. The original
+refusal, kept because every reason in it still bounds what was built:
+`core/egress.py` patches
 `socket.socket.connect` inside the engine, so an installer spawned by the shell is
 a sibling process it cannot observe — the app would gain a network path while
 `capabilities.network_blocked` kept reporting `true`, which is an enforced-looking
@@ -473,9 +492,25 @@ Windows would ship untested. See M17 in `docs/security-review.md`.
 languages, and `tessdata_path()` counts a directory holding *any* `.traineddata`
 — so an English-only install makes `ocr_available` true while an Italian scan
 reads badly, and a value OCR misreads fails its checksum and survives. Two related
-gaps are recorded and not fixed: `ocr_unavailable_reason()` naming *which*
-languages are missing would change the single authority's contract, and
-`tauri.conf.json`'s `deb.depends` has the same shortfall.
+gaps were recorded: `ocr_unavailable_reason()` naming *which* languages are
+missing would change the single authority's contract, and is still open; the
+`deb.depends` shortfall closed when the languages moved into the sidecar.
+
+**Every installer carries the OCR languages, and the Windows ones carry
+Tesseract.** Until 13 October 2026 none carried either: the spec bundles whatever
+`engine/models/tessdata` holds, no workflow filled it, and `docs/intune.md` said
+the MSI had nine languages when it had zero. `engine/packaging/tessdata.py` now
+fills it from one pinned commit with a SHA-256 per file, `app.yml` runs it on all
+three platforms, and `build.py` fails under `FREEDOCS_REQUIRE_TESSDATA` when a
+language is missing from the bundle. On Windows,
+`app/packaging/tesseract_windows.py` extracts `tesseract.exe` and its DLLs from
+the pinned UB Mannheim installer with 7-Zip — extracted, never run, so the build
+machine gains no registry entry — and `tauri.windows.conf.json` ships them as
+`bin/`, which `portable_env()` already turned into `FREEDOCS_TESSERACT`. Windows
+only, because that build is one self-contained directory; on macOS and Linux the
+binary is a platform package linked against system libraries. The cost is size:
+169 MB of language data in every sidecar, and 167 MB of Tesseract (uncompressed)
+in the Windows installers.
 
 **Python counts code points; JavaScript counts UTF-16 code units.** Inside the
 BMP they agree, which is almost every document. With an emoji or a rare CJK
@@ -2151,8 +2186,9 @@ engine runs Tesseract; PyMuPDF does, by shelling out, and it resolves the binary
 through `PATH` with no argument for it — only for the language data. An override
 that merely satisfied `tesseract_binary()` would make `capabilities` promise OCR
 and then fail on the first scan, which is the bug that made
-`ocr_unavailable_reason()` the single authority. The binary is never bundled and
-cannot be; the `.traineddata` are. The same rule governs `_SYSTEM_BINARIES`, which
+`ocr_unavailable_reason()` the single authority. Outside the Windows installers
+the binary is not bundled — there it is a platform package — and the
+`.traineddata` always are. The same rule governs `_SYSTEM_BINARIES`, which
 is why both routes go through one `_adopt()`.
 
 **`PATH` says how the process was started, not what is installed.** A macOS

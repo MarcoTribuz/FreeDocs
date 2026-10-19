@@ -23,6 +23,47 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.2.0 — 2026-10-19
+
+- **The first screen lists what else this computer needs.** Beside the model
+  download it shows reading scanned PDFs (Tesseract) and the optional local
+  review (Ollama), each with what the engine found. Where OCR is missing the row
+  offers Install on a Mac with Homebrew, the exact command to copy elsewhere, and
+  Check again and Locate everywhere; the file step offers the same controls. When
+  the model is already present and OCR is not, the screen opens once for the list
+  alone. In English, Italian, German and French.
+- **On a Mac with Homebrew, the window can install Tesseract.** Where OCR is
+  missing and Homebrew is present, `capabilities` publishes the exact line and
+  `install_tesseract` runs it: `brew install tesseract`, plus `tesseract-lang` only
+  when the nine OCR languages are not already present. No other package manager is
+  run, because each needs `sudo` or UAC; those stay Copy-only. This reverses part
+  of M17 by decision — a first installation may reach an external source, as the
+  model download does — and the bounds are recorded there.
+- **Every installer carries the OCR languages, and the Windows ones carry
+  Tesseract.** No CI installer had any language data before this: the sidecar
+  bundles `engine/models/tessdata` and nothing filled it. `app.yml` now fetches
+  the nine languages and `osd` from one pinned commit of `tesseract-ocr/tessdata`,
+  each checked against a pinned SHA-256, and the build fails if one is missing.
+  The Windows installers (NSIS and MSI) also ship `tesseract.exe` and its DLLs in
+  `bin/`, extracted unmodified from the pinned UB Mannheim 5.4.0 installer, so a
+  scanned PDF needs nothing installed on Windows and the Intune package needs no
+  Tesseract dependency. Installers grow by about 169 MB of language data, and the
+  Windows ones by Tesseract as well.
+- **Windows finds a Tesseract installed by hand.** The search covered only a
+  machine-wide install on drive `C:`, so a "just for me" install under
+  `%LOCALAPPDATA%`, a `Program Files` on another drive, or Scoop left OCR reported
+  missing. The locations are now read from the environment, and where winget is
+  present `doctor` and the window offer its install line to copy. Also corrected:
+  `docs/intune.md` said the OCR language data was inside every sidecar, and a
+  CI-built installer carries none.
+- **`SHA256SUMS` is written with LF on every runner.** On Windows it came out
+  with CRLF, and `shasum -c --ignore-missing` then skipped the two Windows lines
+  without a word. The v1.0.2 file was replaced with a normalised copy; its
+  hashes did not change.
+- **A release cannot be pushed without its changelog section.** `pre-push`
+  refuses a release version on `main` or a `v*` tag when `CHANGELOG.md` has no
+  `## X.Y.Z` section for it, and `version.py release` reminds you.
+
 ## 1.1.0 — 2026-10-12
 
 - **A first-run screen fetches the model, with consent and progress.** Before,

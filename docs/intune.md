@@ -25,8 +25,8 @@ land in the SYSTEM profile, where nobody can launch it. The MSI installs under
 Program Files for every user. The NSIS installer is left as it is, because that
 default is right for somebody installing it on their own machine.
 
-**Win32 app, not a line-of-business MSI.** A Win32 app can declare Tesseract as a
-dependency, replace the previous version through supersedence, and use a custom
+**Win32 app, not a line-of-business MSI.** A Win32 app can declare dependencies,
+replace the previous version through supersedence, and use a custom
 detection rule if the MSI one ever stops being enough. A line-of-business app
 can do none of that.
 
@@ -96,7 +96,7 @@ reads the MSI inside and pre-fills most of this; compare it against the
 | Return codes | Intune's defaults: 0, 1707 success; 3010 soft reboot; 1641 hard reboot; 1618 retry |
 | Requirements | x64, Windows 10 1809 or later (WebView2's floor) |
 | Detection | MSI, the product code; no version check |
-| Dependencies | optional: Tesseract, see below |
+| Dependencies | none; the MSI carries Tesseract, see below |
 
 **A new version** is a new app that supersedes the previous one. Leave
 *Uninstall previous version* off: the MSI's own upgrade, keyed on the pinned
@@ -116,11 +116,12 @@ mechanism doing the same job.
   and not built here.
 - **WebView2** is part of Windows 11. On Windows 10 without it, the MSI fetches
   Microsoft's bootstrapper, which needs the network at install time.
-- **OCR for scanned PDFs** needs the Tesseract binary, which is never bundled.
-  The language data is already inside the sidecar. Deploy the UB Mannheim
-  installer as its own Win32 app (silent: `/S`) and make it a dependency; the
-  engine looks in `C:\Program Files\Tesseract-OCR\` without being told. Without
-  it everything except scans works, and the window says why scans do not.
+- **OCR for scanned PDFs** needs nothing extra. The MSI carries Tesseract in
+  `bin\` (the UB Mannheim build, unmodified, with its `NOTICE.txt`) and the nine
+  OCR languages inside the sidecar, and the app points the engine at both. No
+  separate Win32 app and no dependency. A Tesseract the machine already has is
+  not used while the bundled one is present; `FREEDOCS_TESSERACT` set machine-wide
+  still wins over both.
 
 ## What the pilot has to confirm
 

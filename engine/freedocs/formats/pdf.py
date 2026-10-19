@@ -43,7 +43,7 @@ import contextlib
 import os
 import shutil
 import sys
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -95,6 +95,49 @@ DEFAULT_OCR_DPI = 200
 #: checkout that has bothered to download Italian should get Italian.
 _PROJECT_TESSDATA = Path(__file__).resolve().parent.parent.parent / "models" / "tessdata"
 
+
+def _windows_roots(environ: Mapping[str, str]) -> tuple[str, ...]:
+    """Where Windows installs Tesseract, read from the environment, not ``C:\\``.
+
+    The two literal paths in the lists below covered only a machine-wide install
+    on the system drive, and a real Windows machine reported OCR missing after a
+    manual install: the UB Mannheim installer offers "install just for me", which
+    lands under ``%LOCALAPPDATA%``, ``Program Files`` need not be on ``C:``, and
+    Scoop keeps its own tree. None of the three puts anything on ``PATH`` by
+    default, which is the whole reason these lists exist.
+
+    Read once, at import, into ``_WINDOWS_ROOTS``: these name where the host keeps
+    programs, which does not change while a process runs - unlike
+    ``FREEDOCS_TESSERACT``, which a caller sets mid-session and is read per call.
+    Empty off Windows, where none of the variables exist.
+    """
+    roots: list[str] = []
+    # Machine-wide first: an administrator's install is the one a managed fleet
+    # expects to be used. `ProgramW6432` is the 64-bit directory even from a
+    # 32-bit process, where `ProgramFiles` is redirected to the x86 one.
+    for variable in ("ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"):
+        if environ.get(variable):
+            roots.append(os.path.join(environ[variable], "Tesseract-OCR"))
+    local = environ.get("LOCALAPPDATA")
+    if local:
+        # The per-user default of an NSIS multi-user installer, then a flatter
+        # path some per-user installs use. Neither has been observed on a
+        # Windows machine from here; a wrong guess costs one `stat`.
+        roots.append(os.path.join(local, "Programs", "Tesseract-OCR"))
+        roots.append(os.path.join(local, "Tesseract-OCR"))
+    scoop = environ.get("SCOOP") or (
+        os.path.join(environ["USERPROFILE"], "scoop") if environ.get("USERPROFILE") else None
+    )
+    if scoop:
+        # The app directory and not `shims\`: a shim is a launcher reading a
+        # sidecar file, and PyMuPDF should run the program itself.
+        roots.append(os.path.join(scoop, "apps", "tesseract", "current"))
+    # Ordered and deduplicated: on a 64-bit process the first two variables agree.
+    return tuple(dict.fromkeys(roots))
+
+
+_WINDOWS_ROOTS = _windows_roots(os.environ)
+
 #: Where each platform's package manager puts language data. Listed rather than
 #: shelled out for, because asking Tesseract costs a subprocess and this runs on
 #: every PDF. Every path is checked for actual ``.traineddata`` before it counts,
@@ -110,7 +153,9 @@ _SYSTEM_TESSDATA = (
     "/usr/share/tesseract-ocr/tessdata",
     "/usr/share/tessdata",
     "/usr/local/share/tesseract-ocr/tessdata",
-    # Windows, both the UB Mannheim installer's default and the 32-bit path.
+    # Windows: wherever this host keeps programs, then the literal defaults in
+    # case the environment was stripped by whoever started the process.
+    *(os.path.join(root, "tessdata") for root in _WINDOWS_ROOTS),
     r"C:\Program Files\Tesseract-OCR\tessdata",
     r"C:\Program Files (x86)\Tesseract-OCR\tessdata",
 )
@@ -134,7 +179,8 @@ _SYSTEM_BINARIES = (
     "/usr/bin/tesseract",
     # Windows for the same class of bug, not for symmetry: the UB Mannheim
     # installer's "add to PATH" checkbox is optional, so an ordinary install is
-    # invisible to `shutil.which` there too.
+    # invisible to `shutil.which` there too. See `_WINDOWS_ROOTS` for where.
+    *(os.path.join(root, "tesseract.exe") for root in _WINDOWS_ROOTS),
     r"C:\Program Files\Tesseract-OCR\tesseract.exe",
     r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
 )
@@ -391,6 +437,27 @@ def tessdata_path() -> str | None:
         if directory.is_dir() and any(directory.glob("*.traineddata")):
             return candidate
     return None
+
+
+def missing_languages() -> list[str]:
+    """Which of ``DEFAULT_OCR_LANGUAGE`` the directory OCR would use lacks.
+
+    Not part of :func:`ocr_unavailable_reason`, whose contract is "can a scan be
+    read at all" - changing that is recorded as its own piece of work. This
+    answers a narrower question for one caller: whether an install needs to bring
+    languages, or only the binary. Homebrew's ``tesseract-lang`` is every language
+    Tesseract has, over a gigabyte, and an installer that already carries the nine
+    should not make somebody download it to read a scan.
+    """
+    wanted = DEFAULT_OCR_LANGUAGE.split("+")
+    directory = tessdata_path()
+    if directory is None:
+        return wanted
+    return [
+        language
+        for language in wanted
+        if not (Path(directory) / f"{language}.traineddata").is_file()
+    ]
 
 
 def _count_chars(raw: dict) -> int:

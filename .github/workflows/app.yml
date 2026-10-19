@@ -100,11 +100,11 @@ jobs:
         with:
           workspaces: app/src-tauri
 
-      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           enable-cache: true
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: 22
           cache: npm
@@ -119,6 +119,26 @@ jobs:
       - name: Test the engine
         working-directory: engine
         run: uv run pytest -q -m "not slow"
+
+      # Every installer carries the OCR language data, pinned by commit and by
+      # hash. Before this step existed none did: the spec bundles whatever
+      # `engine/models/tessdata` holds, nothing here filled it, and each
+      # installer read scans with whatever languages the user's own Tesseract
+      # happened to have - English, on a default Windows install.
+      - name: Fetch the OCR language data
+        working-directory: engine
+        run: uv run python packaging/tessdata.py
+
+      # Windows installers carry Tesseract itself, extracted from the pinned UB
+      # Mannheim installer, so a scanned PDF needs nothing installed. Before the
+      # Rust tests because `tauri.windows.conf.json` names `tesseract-bin` as a
+      # resource and tauri-build refuses a resource path that does not exist.
+      # The script runs the staged `tesseract.exe --version`, which is what
+      # proves every DLL it loads made it across.
+      - name: Stage Tesseract for Windows
+        if: runner.os == 'Windows'
+        working-directory: engine
+        run: uv run python ../app/packaging/tesseract_windows.py
 
       # The bridge's own tests ran nowhere until now: this workflow only ever
       # built the crate, and the two that a pull request runs have no Rust in
@@ -139,6 +159,10 @@ jobs:
 
       - name: Build the engine sidecar
         working-directory: engine
+        # Required here and not on a developer's machine: a fresh clone may
+        # build an engine that refuses scans, an installer may not.
+        env:
+          FREEDOCS_REQUIRE_TESSDATA: "1"
         run: uv run --with pyinstaller python packaging/build.py
 
       - name: Install the frontend
@@ -198,7 +222,7 @@ jobs:
             app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.msi
             app/src-tauri/target/${{ matrix.target }}/release/bundle/**/*.exe
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: freedocs-${{ matrix.target }}
           path: |
@@ -306,7 +330,7 @@ jobs:
         if: vars.BUILD_PORTABLE == 'true'
         run: python app/packaging/portable.py
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: vars.BUILD_PORTABLE == 'true'
         with:
           name: freedocs-portable-${{ matrix.target }}
@@ -340,7 +364,7 @@ jobs:
       - name: Checksums and SBOM
         run: python scripts/provenance.py
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: freedocs-provenance-${{ matrix.target }}
           path: dist/*

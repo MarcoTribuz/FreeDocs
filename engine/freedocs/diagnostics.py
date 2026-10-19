@@ -19,6 +19,7 @@ import importlib.util
 import os
 import platform
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -239,6 +240,32 @@ def _ner_check(*, hashes: bool = False) -> Check:
     )
 
 
+#: The one install line that cannot name the language data, because the package
+#: it installs takes no language choice. Languages on Windows are the bundle's
+#: job: the spec ships ``engine/models/tessdata`` beside the executable, and
+#: ``tessdata_path()`` prefers that copy to the system's. So this line is honest
+#: exactly where that copy is present, which every installer built by ``app.yml``
+#: is (``packaging/tessdata.py`` runs first). A Windows installer also carries
+#: the binary, so this line is for a checkout or a portable copy.
+_WINGET_COMMAND = "winget install --exact --id UB-Mannheim.TesseractOCR"
+
+#: Commands exempt from naming the language data, each with the reason above.
+_LANGUAGES_FROM_THE_BUNDLE = frozenset({_WINGET_COMMAND})
+
+
+def _winget(environ: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    """Where winget is, as a ``_PACKAGE_MANAGERS`` entry, or nothing.
+
+    winget is an App Installer alias inside the user's own profile, so it can
+    only be located from ``LOCALAPPDATA`` - there is no fixed path to list the
+    way ``/opt/homebrew/bin/brew`` is listed.
+    """
+    local = environ.get("LOCALAPPDATA")
+    if not local:
+        return ()
+    return ((os.path.join(local, "Microsoft", "WindowsApps", "winget.exe"), _WINGET_COMMAND),)
+
+
 #: Where each platform's package manager lives, and the one line that installs
 #: Tesseract with it.
 #:
@@ -273,7 +300,23 @@ _PACKAGE_MANAGERS: tuple[tuple[str, str], ...] = (
         " tesseract-langpack-por tesseract-langpack-pol tesseract-langpack-swe",
     ),
     ("/usr/bin/pacman", "sudo pacman -S tesseract tesseract-data-ita tesseract-data-deu"),
+    # Windows: see `_winget`. The one entry that installs the binary only.
+    *_winget(os.environ),
 )
+
+
+def _present(path: Path) -> bool:
+    """Is a package manager installed here, asked so Windows can answer.
+
+    ``winget.exe`` is an App Execution Alias - a reparse point that ``stat``
+    cannot always follow - so ``is_file()`` may be false for a winget that runs.
+    ``lexists`` asks whether the entry is there without following it. Kept to
+    Windows because on POSIX a dangling Homebrew symlink is exactly the leftover
+    whose command would fail.
+    """
+    if path.is_file():
+        return True
+    return os.name == "nt" and os.path.lexists(path)
 
 
 def _install_command() -> str | None:
@@ -290,18 +333,110 @@ def _install_command() -> str | None:
     installs the same way whatever build asked for it. So this is honest exactly
     where ``uv sync`` is not.
 
-    This is also as far as the engine goes. It says the line; it never runs one.
-    Spawning a package manager would put a network call outside everything
-    ``core/egress.py`` can observe while ``capabilities`` went on reporting that
-    outbound connections are blocked - an enforced-looking claim with the hole
-    beside it. The user pastes this into a shell where the process already *is*
-    the user, which is the same reasoning ``core/sandbox.py`` gives for the CLI
-    needing no confinement.
+    The engine runs one of these lines in exactly one case, Homebrew, and only
+    when a person asks: see :func:`install_plan` and :func:`run_install`.
     """
+    plan = install_plan()
+    return plan.command if plan else None
+
+
+#: Package managers that install without elevation, and therefore the only ones
+#: the engine will run - see M17 in ``docs/security-review.md``. Homebrew installs
+#: as the user into a prefix the user owns. MacPorts, apt, dnf and pacman need
+#: ``sudo``, and winget installs the UB Mannheim package machine-wide behind a UAC
+#: prompt: teaching people to elevate for a document anonymiser is a net negative
+#: even when it works, and Windows installers carry Tesseract anyway.
+_UNATTENDED = frozenset({"/opt/homebrew/bin/brew", "/usr/local/bin/brew"})
+
+
+@dataclass(frozen=True)
+class InstallPlan:
+    """How Tesseract gets onto this machine: a line to show, and maybe one to run.
+
+    ``argv`` is None where the engine will not run the command itself, and it is
+    built here from the table and nothing else: a caller can ask for the install,
+    never choose what is executed.
+    """
+
+    command: str
+    argv: tuple[str, ...] | None
+
+
+def install_plan() -> InstallPlan | None:
+    """The install for the package manager this machine has, or None.
+
+    For Homebrew the language data is asked for only when the directory OCR would
+    use lacks some of the nine: every installer now carries them in its sidecar,
+    and ``tesseract-lang`` is over a gigabyte of languages nobody asked for. The
+    shown line and the run line are the same words, so what the window displays
+    is exactly what executes.
+    """
+    from .formats.pdf import missing_languages
+
     for manager, command in _PACKAGE_MANAGERS:
-        if Path(manager).is_file():
-            return command
+        if not _present(Path(manager)):
+            continue
+        if manager not in _UNATTENDED:
+            return InstallPlan(command, None)
+        packages = ("tesseract", "tesseract-lang") if missing_languages() else ("tesseract",)
+        argv = (manager, "install", *packages)
+        return InstallPlan(" ".join(("brew", *argv[1:])), argv)
     return None
+
+
+#: Under the ten minutes the shell waits for any answer (`REQUEST_TIMEOUT` in
+#: ``engine.rs``), so a stuck install ends as this engine's reported failure and
+#: not as the window's timeout with the process still running behind it.
+INSTALL_TIMEOUT_SECONDS = 540
+
+#: How much of the installer's output a failure carries. The end is where both
+#: Homebrew and a network error say what went wrong.
+_FAILURE_TAIL_LINES = 12
+
+
+def run_install(plan: InstallPlan) -> str | None:
+    """Run ``plan.argv``; None on success, else the end of what it printed.
+
+    A separate process, so ``core/egress.py`` neither blocks nor sees it - which is
+    the reason this is reachable only from a person's explicit request and only
+    for :data:`_UNATTENDED`. ``NONINTERACTIVE`` keeps Homebrew from waiting on a
+    prompt nobody can see; nothing else in the environment changes.
+
+    The failure text is the installer's own English, quoted by the window and
+    never written to a report: it can name paths under the user's home, which is
+    fine down the local pipe and nowhere else.
+    """
+    import subprocess
+
+    if plan.argv is None:
+        raise ValueError("this install is shown, never run")
+    # No `FREEDOCS_*` variable reaches the installer. M10 was a passphrase
+    # inherited by every process the engine spawned; the CLI pops its own, but a
+    # sidecar launched with one set would hand it to Homebrew - and every script
+    # Homebrew runs - which has no business holding it.
+    environment = {
+        name: value for name, value in os.environ.items() if not name.startswith("FREEDOCS_")
+    }
+    environment.update(NONINTERACTIVE="1", HOMEBREW_NO_ENV_HINTS="1")
+    try:
+        result = subprocess.run(
+            plan.argv,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=INSTALL_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        return f"{plan.command} did not finish within {INSTALL_TIMEOUT_SECONDS} seconds"
+    except OSError as exc:
+        return f"{plan.command} could not be started: {exc.strerror or exc}"
+    if result.returncode == 0:
+        return None
+    output = (result.stderr or result.stdout or "").strip().splitlines()
+    tail = "\n".join(output[-_FAILURE_TAIL_LINES:])
+    return f"{plan.command} exited with status {result.returncode}" + (f":\n{tail}" if tail else "")
 
 
 def _ocr_check() -> Check:
@@ -321,9 +456,10 @@ def _ocr_check() -> Check:
     if tesseract_binary() is None:
         # The command for the manager this machine actually has, when it has one.
         # Falling back to the generic sentence rather than naming a manager that
-        # is not installed: both routes are still named there, because the binary
-        # cannot be bundled - PyMuPDF shells out to it - so a portable copy's only
-        # way to OCR is a binary the user supplies. The override is named first
+        # is not installed: both routes are still named there, because outside
+        # the Windows installers the binary is not bundled - PyMuPDF shells out to
+        # a platform package - so a portable copy's only way to OCR is a binary
+        # the user supplies. The override is named first
         # now that the usual install locations are searched: reaching this branch
         # means the binary is either absent or somewhere unusual, and "install it"
         # is the wrong advice for the second case.

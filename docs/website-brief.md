@@ -5,8 +5,8 @@ be handed, whole, to another Claude instance as its starting context. It says
 what the product is and for whom, what the site must and must not claim, how it
 is positioned, what each page says, how it is found, how it is launched, how the
 content is modelled in Strapi, and when the work is done. Where a decision
-belongs to the maintainer it is listed under *Open questions* (§19) rather than
-guessed.
+belongs to the maintainer it is listed under *Open questions* (§20) rather than
+guessed, and the answers are in *Decisions* (§21).
 
 Read the sources in *What to read first* (§18) before writing anything. The
 site's whole credibility is that it says no more than the repository can prove.
@@ -57,6 +57,7 @@ before building, because several sections depend on it:
 18. What to read first
 19. Deliverables and definition of done
 20. Open questions for the maintainer
+21. Decisions (2026-10-12)
 
 ---
 
@@ -138,9 +139,10 @@ Every page has exactly one primary CTA (§11), and it points down this path.
 
 ### 2.3 Success metrics measurable without trackers
 
-The site carries no analytics script and sets no cookie (§9). Everything below
-is read from systems that already exist, at build time or by hand, and none of
-it adds a request to the visitor's browser.
+The site sets no cookie (§9). Its one script is a self-hosted, cookieless
+Umami served from the site's own origin (decided in §21); everything else below
+is read from systems that already exist, at build time or by hand, and adds no
+request to the visitor's browser.
 
 | KPI | Source | How to read it | Notes |
 |---|---|---|---|
@@ -888,8 +890,9 @@ open question 7 says so.
 
 ### 11.11 Privacy policy and Imprint
 
-Privacy: "This site sets no cookies, loads nothing from any other origin and
-runs no analytics" — true only while §9 holds; if any server log or analytics is
+Privacy: "This site sets no cookies, loads nothing from any other origin, and
+counts visits with a self-hosted Umami that stores no personal data" — true
+only while §9 and §21 hold; if any server log or analytics is
 introduced, this page changes in the same deploy. Name the host and what logs it
 keeps **[MAINTAINER]**. Imprint: legal entity, address, contact — required in
 Switzerland and Germany **[MAINTAINER]**.
@@ -1556,3 +1559,47 @@ Ask these before building; do not assume.
 13. **Use-case pages** — which personas get a page in phase 2 (this brief
     proposes lawyers, fiduciaries, HR, IT deployment; healthcare deliberately
     excluded)?
+
+## 21. Decisions (2026-10-12)
+
+The maintainer's answers to §20. Where an earlier section disagrees, this one
+wins and the earlier section is the one to fix.
+
+1. **Domain:** `freedocs.ch`, one domain, locale prefixes (`/it`, `/de`, `/fr`;
+   English at the root).
+2. **Hosting:** a server at the maintainer's home. Put a tunnel or a small proxy
+   in front (Cloudflare Tunnel or a VPS) so the home IP is not published, and
+   fix an access-log retention period before launch; the privacy page names
+   both. Strapi runs on the same machine and is never reachable from outside.
+3. **Analytics:** self-hosted **Umami**, cookieless, served from the site's own
+   origin, so no consent banner and no third-party request. Plus **Google
+   Search Console** and **Bing Webmaster Tools**, verified by DNS record — no
+   script on the page. Google Analytics was considered and declined: a Google
+   cookie on the site of a tool whose promise is that data stays put is the
+   contradiction the technical audience notices first.
+4. **Publisher:** a natural person, Marco Tribuzio. Structured data uses
+   `Person`, not `Organization`. The imprint needs a postal address; a P.O. box
+   or c/o address is acceptable if the home address should stay private.
+5. **Contact:** `info@freedocs.ch`.
+6. **Guides:** phase 1 has none beyond the changelog. Phase 2 adds three or four
+   evergreen guides, English first, translated (with a human review) only where
+   one demonstrably brings traffic. The legal-adjacent guides (G2, G8) are
+   published only after a lawyer has read them, or not at all.
+7. **Funding:** GitHub Sponsors, linked from the footer and the about page. No
+   paid support is offered.
+8. **GitHub Discussions:** enabled at launch, not before, with three
+   categories: Q&A, Ideas, Announcements. An empty forum reads as an abandoned
+   project.
+9. **Comparisons:** dedicated "alternative to X" pages are approved. Swiss law
+   permits comparative advertising only when it is accurate, verifiable and not
+   misleading, so every claim is dated, reproducible and free of adjectives
+   about the competitor — the same standard as the README table.
+10. **AI crawlers:** allow GPTBot, ClaudeBot, PerplexityBot and Google-Extended.
+11. **Launch:** the first release with installers is v1.0.2, and v1.1.0 is
+    current. The public launch waits for a Windows or Linux install report from
+    someone other than the maintainer.
+12. **Market:** Switzerland first (`og:locale` `de_CH`, `fr_CH`, `it_CH`,
+    `en`; CHF where a currency appears).
+13. **Use-case pages:** all four proposed — lawyers, fiduciaries, HR, IT
+    deployment. Healthcare stays excluded until a measurement says otherwise;
+    a clinical de-identification spike is under way on its own branch.

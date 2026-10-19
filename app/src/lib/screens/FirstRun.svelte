@@ -9,6 +9,7 @@
 	import Icon from '$lib/components/Icon.svelte';
 	import Logo from '$lib/components/Logo.svelte';
 	import ProgressBar from '$lib/components/Progress.svelte';
+	import SetupList from './SetupList.svelte';
 
 	/**
 	 * The first thing a new user sees, and the one screen that reaches the
@@ -75,10 +76,17 @@
 				<li><Icon name="check" size={16} /><span>{m.modelFactOffline()}</span></li>
 			</ul>
 			<div class="actions">
-				<Button variant="primary" onclick={fetchModel}>{m.modelDownload()}</Button>
-				<Button variant="ghost" onclick={deferModel}>{m.modelNotNow()}</Button>
+				<!-- Disabled during a Tesseract install: the engine serves one request
+				     at a time, so a download pressed now would only queue behind it. -->
+				<Button variant="primary" disabled={session.installing} onclick={fetchModel}>
+					{m.modelDownload()}
+				</Button>
+				<Button variant="ghost" disabled={session.installing} onclick={deferModel}>
+					{m.modelNotNow()}
+				</Button>
 			</div>
 			<p class="note">{m.modelWithout()}</p>
+			<SetupList />
 		{:else if model.phase === 'downloading'}
 			<h2 bind:this={heading} tabindex="-1">{m.modelDownloadingTitle()}</h2>
 			<ProgressBar
@@ -122,9 +130,26 @@
 		{:else if model.phase === 'ready'}
 			<h2 bind:this={heading} tabindex="-1">{m.modelReadyTitle()}</h2>
 			<p class="lead">{m.modelReadyLead()}</p>
+			<SetupList />
 			<div class="actions">
 				<Button variant="primary" icon="arrow-right" onclick={closeModel}>
 					{m.modelChooseDocument()}
+				</Button>
+			</div>
+		{:else if model.phase === 'setup'}
+			<!-- The model is here; something else is not. Opened once, never again
+			     after Continue - see `offerSetup`. -->
+			<h2 bind:this={heading} tabindex="-1">{m.setupTitle()}</h2>
+			<p class="lead">{m.setupLead()}</p>
+			<SetupList />
+			<div class="actions">
+				<Button
+					variant="primary"
+					icon="arrow-right"
+					disabled={session.installing}
+					onclick={closeModel}
+				>
+					{m.setupContinue()}
 				</Button>
 			</div>
 		{/if}

@@ -83,11 +83,11 @@ Install, once, in this order:
    uv installs Python 3.12 itself, from `engine/.python-version`.
 5. **Git for Windows**, then allow long paths — torch and `node_modules` both
    exceed 260 characters: `git config --global core.longpaths true`.
-6. **Tesseract**, for the OCR half of the launch test: the UB Mannheim installer
-   (<https://github.com/UB-Mannheim/tesseract/wiki>), with the Italian, German and
-   French language data ticked. The engine looks in
-   `C:\Program Files\Tesseract-OCR\` by itself. How it behaves beyond being found
-   is part of what this test is for.
+6. **7-Zip** (<https://www.7-zip.org>). `scripts/ci.py build` runs
+   `app/packaging/tesseract_windows.py`, which extracts Tesseract from its pinned
+   installer into `app/src-tauri/tesseract-bin/`; the installer then carries it,
+   so the OCR half of the launch test needs no Tesseract installed. A bare
+   `npm run tauri build` without that step fails on the missing resource.
 
 WebView2 is part of Windows 11, so the installer needs nothing more.
 
