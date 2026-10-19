@@ -124,6 +124,40 @@ def test_blank_lines_are_ignored(session: Session):
     assert sum(1 for item in responses if item.get("id") == 1) == 1
 
 
+def test_a_path_with_accents_survives_a_cp1252_locale(tmp_path: Path, monkeypatch):
+    """Windows opens stdio as cp1252; the shell writes UTF-8 regardless.
+
+    Found on a release install: every file under `C:\\Users\\JürgMüller\\` was
+    refused as "does not exist", with the right path quoted in the refusal.
+    """
+    folder = tmp_path / "Müller - Réalise"
+    folder.mkdir()
+    target = folder / "activité.txt"
+    target.write_text("Mario Rossi abita a Lugano.\n", encoding="utf-8")
+    request = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "inspect",
+        "params": {"path": str(target), "detectors": "l1"},
+    }
+    stdin = io.TextIOWrapper(
+        io.BytesIO((json.dumps(request, ensure_ascii=False) + "\n").encode("utf-8")),
+        encoding="cp1252",
+    )
+    raw = io.BytesIO()
+    stdout = io.TextIOWrapper(raw, encoding="cp1252", write_through=True)
+    monkeypatch.setattr(sys, "stdin", stdin)
+    monkeypatch.setattr(sys, "stdout", stdout)
+
+    serve()
+
+    stdout.flush()
+    lines = raw.getvalue().decode("utf-8").splitlines()
+    response = next(json.loads(line) for line in lines if json.loads(line).get("id") == 1)
+    assert "error" not in response
+    assert response["result"]["path"] == str(target)
+
+
 def test_the_session_announces_itself_on_startup():
     """The app renders capabilities before the user picks a file."""
     out = io.StringIO()

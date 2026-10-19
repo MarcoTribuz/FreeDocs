@@ -6,10 +6,13 @@ from pathlib import Path
 
 import pytest
 
+from freedocs.core.errors import MalformedDocument
 from freedocs.core.findings import Span
 from freedocs.core.stream import Edit
 from freedocs.formats.plaintext import PlainTextHandler
 from freedocs.formats.router import UnsupportedFormat, handler_for
+
+from .conftest import CANARIES, l1_scrubber
 
 
 def handler(text: str, name: str = "doc.txt", encoding: str = "utf-8") -> PlainTextHandler:
@@ -53,6 +56,38 @@ def test_cp1252_file_round_trips_in_its_own_encoding():
     instance = PlainTextHandler(Path("doc.txt"), source)
     instance.extract()
     assert instance.write_back([]) == source
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-be", "utf-32"])
+def test_a_text_with_a_byte_order_mark_is_read_as_what_it_is(encoding: str):
+    """UTF-16 used to decode as cp1252, a NUL after every character."""
+    text = "Zürich, Rue de l'Église 4\r\n"
+    source = (
+        text.encode(encoding) if encoding != "utf-16-be" else b"\xfe\xff" + text.encode("utf-16-be")
+    )
+    instance = PlainTextHandler(Path("export.txt"), source)
+    assert instance.extract().text == text
+    assert instance.write_back([]) == source
+
+
+def test_a_utf16_export_is_actually_scrubbed(tmp_path: Path):
+    """What PowerShell's `>` and Excel's "Unicode Text" write.
+
+    Before the byte-order mark was read, nothing in this file was detected, it
+    was written back untouched, and verification reported no leak.
+    """
+    path = tmp_path / "export.txt"
+    path.write_bytes(f"IBAN: {CANARIES['IBAN']}\r\n".encode("utf-16"))
+    result = l1_scrubber().scrub_file(path)
+    assert result.output.startswith(b"\xff\xfe")
+    assert CANARIES["IBAN"] not in result.output.decode("utf-16")
+    assert "[IBAN_1]" in result.output.decode("utf-16")
+
+
+def test_a_utf16_text_without_its_mark_is_refused():
+    """No guess at its encoding is safe to report as a scrub."""
+    with pytest.raises(MalformedDocument, match="NUL"):
+        PlainTextHandler(Path("export.txt"), "Mario Rossi\n".encode("utf-16-le"))
 
 
 def test_edit_is_applied_at_the_right_offset():

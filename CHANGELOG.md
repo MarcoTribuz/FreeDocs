@@ -23,6 +23,40 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.2.1 — 2026-10-19
+
+A Windows hotfix. Every fix below was found on, or follows from, one real
+install under an accented user name.
+
+- **Files under a path with an accent open on Windows.** The engine read the
+  window's requests in the system's legacy encoding (cp1252) instead of UTF-8.
+  So `C:\Users\JürgMüller\…\activité.pdf` was refused as "does not exist", while
+  the error message quoted the correct path. The engine now sets its standard
+  streams to UTF-8 itself. The CLI does the same, so `scrub -` reads a UTF-8 pipe
+  correctly, and a redirected output no longer fails on a character outside
+  cp1252 after the file is written.
+- **OCR works when the app is installed under an accented user name.** MuPDF
+  opens Tesseract's language data with a narrow `fopen`, and on Windows that
+  could not find `.traineddata` files under `C:\Users\JürgMüller\AppData\…`, where
+  the per-user installer puts them. Every scan was then refused, with the reason
+  given as "OCR is not available: None". OCR now runs from inside the language
+  directory and passes MuPDF a plain-ASCII name. When OCR runs and fails, the
+  refusal now says it failed and gives the reason, instead of telling you to
+  install Tesseract.
+- **UTF-16 text files are scrubbed rather than passed through.** A `.txt` or `.csv`
+  with a UTF-16 or UTF-32 byte-order mark used to be decoded as cp1252, so nothing
+  in it was detected. It was written back untouched, and verification reported
+  no leak. This is what PowerShell's `>` and Excel's "Unicode Text" produce. The
+  mark is now read, and kept on write. A text containing NUL characters is refused
+  rather than guessed at.
+- **One bad byte from the engine no longer ends the session.** The window's
+  reader stopped at the first line that was not valid UTF-8 and treated a running
+  engine as dead. It then waited for that engine to exit, which it never did. The
+  line is now decoded leniently and logged by length only, never by content. An
+  engine that has closed its output is stopped, not waited on.
+- **The packaging smoke test drives the bundle with an accented path and raw
+  UTF-8**, so the Windows build in CI now fails on this class of bug.
+
 ## 1.2.0 — 2026-10-19
 
 - **The first screen lists what else this computer needs.** Beside the model
