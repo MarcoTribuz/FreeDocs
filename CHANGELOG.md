@@ -54,6 +54,11 @@ install under an accented user name.
   engine as dead. It then waited for that engine to exit, which it never did. The
   line is now decoded leniently and logged by length only, never by content. An
   engine that has closed its output is stopped, not waited on.
+- **A file that cannot be written no longer blames a symbolic link.** Every
+  failed write said "a symbolic link where an output file belongs is refused",
+  including on Windows, where that check does not exist. The usual cause there
+  is the previous output still open in a PDF viewer, and the message now says
+  so. The symbolic-link sentence appears only when one was actually refused.
 - **The packaging smoke test drives the bundle with an accented path and raw
   UTF-8**, so the Windows build in CI now fails on this class of bug.
 
