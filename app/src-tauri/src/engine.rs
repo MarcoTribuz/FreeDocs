@@ -689,7 +689,7 @@ mod lifecycle {
     //! script speaking two lines of JSON-RPC stands in for the engine.
     //!
     //! **Unix only, and that is a gap rather than a decision.** The fake is a
-    //! `/bin/sh` script; a Windows equivalent would be a second fixture in a
+    //! bash script; a Windows equivalent would be a second fixture in a
     //! second language, testing the same Rust. The behaviour under test has no
     //! platform-specific code in it - the one `cfg` is `describe_exit`'s signal
     //! branch, which is covered below - so this is the usual shape for this
@@ -718,10 +718,12 @@ mod lifecycle {
     /// waited out the ten-minute timeout: six runs in a hundred and fifty, with
     /// `lsof` showing an `answers` fake holding three pipes that were not its
     /// own. A shipped app starts one engine at a time, so this stays in the tests.
+    /// Bash rather than `/bin/sh`: on Ubuntu that is dash, which reads `exec 10>&-`
+    /// as a command named `10` - the first Linux run of this fix failed on it.
     fn fake(directory: &std::path::Path, name: &str, body: &str) -> PathBuf {
         let path = directory.join(name);
         let mut file = std::fs::File::create(&path).unwrap();
-        write!(file, "#!/bin/sh
+        write!(file, "#!/bin/bash
 fd=3; while [ $fd -lt 64 ]; do eval \"exec $fd>&-\"; fd=$((fd + 1)); done
 while IFS= read -r line; do
 {body}
