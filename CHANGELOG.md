@@ -23,6 +23,25 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.3.0 — 2026-10-20
+
+A scrub finds more in PDFs, so this is a minor version: the same document can
+come out with more removed than under 1.2.
+
+- **Text inside pictures in an ordinary PDF is now read and redacted.** A logo
+  with a name in it, a table pasted as a screenshot, a signature with the
+  signatory printed under it. Until now only scanned pages were read by OCR. On
+  a page that also had normal text, the pictures were skipped: what was in them
+  was never removed, and the check after the scrub noticed only when the same
+  value had also been removed from the text. A real activity report failed for
+  this reason, on a city name under a partner logo. Pictures are read at 300 dpi,
+  because a logo's lettering is small. This adds about a second per page that
+  carries pictures, and those pages are named in a warning to check by eye.
+- **A PDF with a picture in it no longer fails on a computer without OCR.**
+  Every such file was refused after the scrub, with a message claiming the page
+  had no text. The text is now scrubbed as usual, and a warning says which
+  pages carry pictures that could not be read.
+
 ## 1.2.1 — 2026-10-19
 
 A Windows hotfix. Every fix below was found on, or follows from, one real
