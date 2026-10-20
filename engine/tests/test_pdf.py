@@ -531,7 +531,8 @@ def test_verification_re_reads_the_pixels(tmp_path: Path, monkeypatch):
 
 @ocr
 def test_verification_hardening_is_off_during_extraction(source: Path):
-    """OCRing a born-digital page is pure cost, so it is opt-in."""
+    """OCRing a born-digital page's own text is pure cost, so it is opt-in.
+    Its pictures are read either way - see the tests below."""
     handler = handler_for(source)
     assert handler.ocr_every_imaged_page is False
     handler.harden_for_verification()
@@ -554,6 +555,74 @@ def test_a_mixed_document_ocrs_only_the_scanned_page(tmp_path: Path):
     assert handler.ocr_pages == [2]
     assert CANARIES["IBAN"] in stream.text
     assert "Allegato firmato" in stream.text
+
+
+def make_pasted_picture(path: Path) -> Path:
+    """A born-digital page with a picture of text on it: a table pasted as a
+    screenshot, a logo with a name in it. The page's own text is long enough
+    that nothing treats it as a scan."""
+    picture = pymupdf.open(
+        stream=make_pdf(
+            path.with_suffix(".src.pdf"), [f"IBAN per il rimborso: {CANARIES['IBAN']}"]
+        ).read_bytes(),
+        filetype="pdf",
+    )
+    pixmap = picture[0].get_pixmap(dpi=200, clip=pymupdf.Rect(50, 60, 450, 90))
+    doc = pymupdf.open()
+    page = doc.new_page()
+    page.insert_text((60, 80), "Verbale di riunione - allegato", fontname="helv", fontsize=11)
+    page.insert_image(pymupdf.Rect(60, 120, 460, 150), pixmap=pixmap)
+    doc.save(str(path))
+    doc.close()
+    return path
+
+
+@ocr
+def test_text_inside_a_picture_on_a_born_digital_page_is_read(tmp_path: Path):
+    """Extraction read only the text layer of such a page while verification
+    OCRs every imaged page, so a value in a picture was never redacted. Stage 6
+    noticed only when the same value was also removed from the text."""
+    handler = handler_for(make_pasted_picture(tmp_path / "allegato.pdf"))
+    stream = handler.extract()
+    assert CANARIES["IBAN"] in stream.text
+    assert handler.ocr_image_pages == [1]
+    assert handler.ocr_pages == []
+
+
+@ocr
+def test_a_picture_does_not_fuse_with_the_page_text(tmp_path: Path):
+    """In reading order MuPDF interleaves OCR words with native lines -
+    `CANTONImpression` on a real report. The text layer must come through
+    exactly as it would without the picture."""
+    stream = handler_for(make_pasted_picture(tmp_path / "allegato.pdf")).extract()
+    assert "Verbale di riunione - allegato\n" in stream.text
+    assert stream.text.count("Verbale di riunione") == 1
+
+
+@ocr
+@pytest.mark.leak
+def test_a_canary_inside_a_picture_is_no_longer_readable(tmp_path: Path):
+    result = l1_scrubber().scrub_file(make_pasted_picture(tmp_path / "allegato.pdf"))
+    assert result.verify.ok, result.verify.summary()
+    assert "CH93" not in reocr(result.output)
+    assert "Verbale di riunione" in text_of(result.output)
+    assert any("text inside the images on page(s) 1" in w for w in result.warnings)
+
+
+def test_a_picture_on_a_born_digital_page_is_not_refused_without_ocr(tmp_path: Path, monkeypatch):
+    """Verification OCRs every imaged page, and without OCR it treated a page
+    with a logo on it as an unreadable scan: every PDF with a picture in it was
+    refused on a machine without Tesseract, after the scrub, with a sentence
+    claiming the page had no text layer. The text layer is real; the pictures
+    are stated as unread."""
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: None)
+    result = l1_scrubber().scrub_file(make_pasted_picture(tmp_path / "allegato.pdf"))
+    assert result.verify.ok
+    assert any(
+        "carry images that were not read" in w and "not redacted" in w for w in result.warnings
+    )
 
 
 # -- what "OCR is available" has to mean --------------------------------------
