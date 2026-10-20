@@ -296,7 +296,18 @@ impl Engine {
         let status = {
             let taken = self.live.lock().ok().and_then(|mut live| live.take());
             match taken {
-                Some(mut process) => process.child.wait().ok(),
+                Some(Live { stdin, mut child }) => {
+                    // The end of stdout is not the end of the process. `wait`
+                    // with our end of stdin still open leaves an engine that is
+                    // alive but no longer read blocked on a read for ever, and
+                    // this thread blocked on it - so close the pipe, and stop an
+                    // engine that has not already exited by itself.
+                    drop(stdin);
+                    if let Ok(None) = child.try_wait() {
+                        let _ = child.kill();
+                    }
+                    child.wait().ok()
+                }
                 None => None,
             }
         };
@@ -421,14 +432,28 @@ fn describe_exit(status: Option<std::process::ExitStatus>) -> String {
     }
 }
 
-fn read_loop(engine: &Arc<Engine>, reader: BufReader<std::process::ChildStdout>) {
-    for line in reader.lines() {
-        let Ok(line) = line else { break };
+fn read_loop(engine: &Arc<Engine>, mut reader: BufReader<std::process::ChildStdout>) {
+    // Bytes, then a lossy decode, rather than `lines()`. `lines()` ends with an
+    // error on the first line that is not valid UTF-8, and ending the loop is
+    // what declares the engine dead - so one stray byte from a C library on fd 1
+    // took the whole session down, which is what a cp1252 engine did to every
+    // response carrying an accent.
+    let mut buffer = Vec::new();
+    loop {
+        buffer.clear();
+        match reader.read_until(b'\n', &mut buffer) {
+            Ok(0) | Err(_) => break,
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&buffer);
         if line.trim().is_empty() {
             continue;
         }
         let Ok(message) = serde_json::from_str::<Value>(&line) else {
-            eprintln!("engine sent a line that is not JSON: {line}");
+            // The length, never the line: on this pipe a line is as likely to
+            // be part of a document as anything else, and stderr reaches the
+            // system log.
+            eprintln!("engine sent a line that is not JSON ({} bytes)", buffer.len());
             continue;
         };
 
@@ -785,6 +810,43 @@ done
         }
         let refusal = refusal.expect("the restart budget must run out");
         assert!(refusal.contains("restart the application"), "{refusal}");
+    }
+
+    #[test]
+    fn a_line_that_is_not_utf8_does_not_end_the_session() {
+        // `\351` is `é` in cp1252 and not valid UTF-8 - what a Windows engine
+        // reading its locale's encoding wrote for every accented path. `lines()`
+        // ended the reader on it, which declared a live engine dead.
+        let dir = tempfile::tempdir().unwrap();
+        let body = format!("  printf 'activit\\351\\n'
+{ANSWERS}");
+        let engine = engine(fake(dir.path(), "stray-byte", &body));
+        assert_eq!(
+            engine.request("capabilities", json!({})).unwrap(),
+            json!({"ok": true})
+        );
+        assert_eq!(
+            engine.request("capabilities", json!({})).unwrap(),
+            json!({"ok": true})
+        );
+    }
+
+    #[test]
+    fn an_engine_that_closes_stdout_but_stays_alive_is_stopped() {
+        // End of stdout is not the end of the process. Waiting on one that is
+        // still running, with our end of its stdin open, never returned - and
+        // the request in flight waited out the whole timeout behind it.
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(fake(dir.path(), "mute", "  exec 1>&-\n  sleep 60"));
+
+        let started = std::time::Instant::now();
+        let error = engine.request("inspect", json!({})).unwrap_err();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "it waited {:?}",
+            started.elapsed()
+        );
+        assert!(error.contains("stopped before answering"), "{error}");
     }
 
     #[test]

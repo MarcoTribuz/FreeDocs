@@ -115,8 +115,19 @@ def smoke_test(bundle: Path) -> None:
     import json
     import tempfile
 
-    with tempfile.TemporaryDirectory() as scratch:
-        sample = Path(scratch) / "campione.txt"
+    def wire(request: dict) -> str:
+        # Raw UTF-8, as the shell's serde_json writes it. The default escapes
+        # every accent to `\u00e9`, which is ASCII and would sail past the
+        # bug this sample is named for.
+        return json.dumps(request, ensure_ascii=False)
+
+    with tempfile.TemporaryDirectory() as root:
+        # Accented on purpose. A Windows engine reading stdin as cp1252 refused
+        # every file under `C:\Users\JürgMüller\` as "does not exist", and
+        # an ASCII temp path on a CI runner could never have shown it.
+        scratch = Path(root) / "Jürg Müller - Réalise"
+        scratch.mkdir()
+        sample = Path(scratch) / "activité.txt"
         sample.write_text(SMOKE_TEXT, encoding="utf-8")
         clean = Path(scratch) / "clean"
         keys = Path(scratch) / "keys"
@@ -124,8 +135,8 @@ def smoke_test(bundle: Path) -> None:
         terms = Path(scratch) / "firm.fdterms"
         requests = "\n".join(
             [
-                json.dumps({"jsonrpc": "2.0", "id": 1, "method": "capabilities"}),
-                json.dumps(
+                wire({"jsonrpc": "2.0", "id": 1, "method": "capabilities"}),
+                wire(
                     {
                         "jsonrpc": "2.0",
                         "id": 2,
@@ -133,7 +144,7 @@ def smoke_test(bundle: Path) -> None:
                         "params": {"path": str(sample)},
                     }
                 ),
-                json.dumps(
+                wire(
                     {
                         "jsonrpc": "2.0",
                         "id": 3,
@@ -146,7 +157,7 @@ def smoke_test(bundle: Path) -> None:
                         },
                     }
                 ),
-                json.dumps(
+                wire(
                     {
                         "jsonrpc": "2.0",
                         "id": 4,
@@ -159,7 +170,7 @@ def smoke_test(bundle: Path) -> None:
                         },
                     }
                 ),
-                json.dumps(
+                wire(
                     {
                         "jsonrpc": "2.0",
                         "id": 5,
@@ -167,7 +178,7 @@ def smoke_test(bundle: Path) -> None:
                         "params": {"path": str(terms), "passphrase": SMOKE_PASSPHRASE},
                     }
                 ),
-                json.dumps(
+                wire(
                     {
                         "jsonrpc": "2.0",
                         "id": 6,
@@ -175,7 +186,7 @@ def smoke_test(bundle: Path) -> None:
                         "params": {"add": [SMOKE_TERM], "passphrase": SMOKE_PASSPHRASE},
                     }
                 ),
-                json.dumps(
+                wire(
                     {
                         "jsonrpc": "2.0",
                         "id": 7,
@@ -190,6 +201,9 @@ def smoke_test(bundle: Path) -> None:
             input=requests + "\n",
             capture_output=True,
             text=True,
+            # Both ways: the locale's encoding on Windows is cp1252, which decodes
+            # some UTF-8 bytes to nothing at all and raises on others.
+            encoding="utf-8",
             # Generous: the first model load in a fresh bundle is slow, and a
             # timeout here reads as a broken build rather than a slow one.
             timeout=900,

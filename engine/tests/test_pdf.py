@@ -8,6 +8,7 @@ every object in the output and search there too.
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -449,6 +450,64 @@ def reocr(data: bytes) -> str:
         )
         out.append(page.get_text("text", textpage=textpage))
     return "\n".join(out)
+
+
+@ocr
+def test_ocr_hands_mupdf_an_ascii_name_under_an_accented_install(tmp_path: Path, monkeypatch):
+    """MuPDF opens the language data with a narrow `fopen`.
+
+    On Windows that reads a UTF-8 path in the ANSI code page, so a per-user
+    install under `C:\\Users\\JürgMüller\\` found no `.traineddata` and every
+    scan was refused. macOS cannot reproduce that failure, so this pins the
+    shape of the call instead: an ASCII name, resolved from the right directory,
+    and the working directory put back afterwards.
+    """
+    from freedocs.formats import pdf as pdf_module
+
+    accented = tmp_path / "Jürg Müller - Réalise" / "tessdata"
+    shutil.copytree(pdf_module.tessdata_path(), accented)
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: str(accented))
+    seen: list[tuple[str, Path]] = []
+    original = pymupdf.Page.get_textpage_ocr
+
+    def spy(page, *args, **kwargs):
+        seen.append((kwargs["tessdata"], Path.cwd()))
+        return original(page, *args, **kwargs)
+
+    monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", spy)
+    before = Path.cwd()
+
+    stream = handler_for(make_scan(tmp_path / "scansione.pdf")).extract()
+
+    assert "Scheda cliente" in stream.text
+    assert seen and all(name.isascii() for name, _ in seen)
+    assert all(where.resolve() == accented.resolve() for _, where in seen)
+    assert Path.cwd() == before
+
+
+def test_a_failed_ocr_is_not_reported_as_a_missing_one(tmp_path: Path, monkeypatch):
+    """The refusal used to read "OCR is not available: None".
+
+    OCR was available and had failed, so the advice to install Tesseract sent
+    the reader after the one thing that was not wrong.
+    """
+    from freedocs.formats import pdf as pdf_module
+
+    monkeypatch.setattr(pdf_module, "tessdata_path", lambda: str(tmp_path))
+    monkeypatch.setattr(pdf_module, "tesseract_binary", lambda: "tesseract")
+    monkeypatch.setattr(pdf_module, "ocr_unavailable_reason", lambda: None)
+
+    def broken(page, *args, **kwargs):
+        raise RuntimeError("Tesseract language initialisation failed")
+
+    monkeypatch.setattr(pymupdf.Page, "get_textpage_ocr", broken)
+    before = Path.cwd()
+    with pytest.raises(ScannedPdfNotSupported) as caught:
+        handler_for(make_scan(tmp_path / "scansione.pdf")).extract()
+    message = str(caught.value)
+    assert "OCR failed on it: Tesseract language initialisation failed" in message
+    assert "None" not in message
+    assert Path.cwd() == before
 
 
 @ocr

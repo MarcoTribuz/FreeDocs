@@ -469,6 +469,27 @@ def _count_chars(raw: dict) -> int:
     )
 
 
+@contextlib.contextmanager
+def _working_directory(path: Path | str) -> Iterator[None]:
+    """Run OCR from inside the language-data directory, then go back.
+
+    MuPDF links Tesseract itself and reads each `.traineddata` with a narrow
+    `fopen`, which on Windows interprets the UTF-8 path PyMuPDF hands it in the
+    ANSI code page. So a per-user install under `C:\\Users\\JürgMüller\\`
+    found no language data, every scan was refused, and `capabilities` still said
+    OCR was available - Python reads the same directory without trouble. Changing
+    directory goes through the wide API and leaves `fopen` a relative, pure-ASCII
+    name. The engine serves one request at a time, so the process-wide working
+    directory is not raced; it is restored even when OCR raises.
+    """
+    previous = os.getcwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(previous)
+
+
 class ScannedPdfNotSupported(RuntimeError):
     """The PDF has no usable text layer, so there is nothing to redact.
 
@@ -572,6 +593,7 @@ class PdfTextHandler(FormatHandler):
         # again.
         refuse_too_many_pages(path.name, pages)
         self.ocr_pages: list[int] = []
+        self.ocr_failure: str | None = None
 
     @classmethod
     def sniff(cls, path: Path, head: bytes) -> bool:
@@ -590,6 +612,7 @@ class PdfTextHandler(FormatHandler):
         #: Pages that were machine-read. Reported, because an OCR misreading is a
         #: character this tool cannot detect.
         self.ocr_pages: list[int] = []
+        self.ocr_failure = None
         unreadable: list[int] = []
 
         for page_index, page in enumerate(self._doc):
@@ -632,10 +655,21 @@ class PdfTextHandler(FormatHandler):
             )
 
         if unreadable:
+            reason = ocr_unavailable_reason()
+            if reason is None and self.ocr_failure is not None:
+                # OCR was available and failed on the page. Quoting the reason it
+                # is unavailable printed "None" here, and pointed the reader at an
+                # installation that was not the problem.
+                raise ScannedPdfNotSupported(
+                    f"{self.path.name} has no usable text layer on page(s) "
+                    f"{', '.join(str(number) for number in unreadable)}, and OCR "
+                    f"failed on it: {self.ocr_failure}. This build will not pretend "
+                    "to have processed a scan it could not read."
+                )
             raise ScannedPdfNotSupported(
                 f"{self.path.name} has no usable text layer on page(s) "
                 f"{', '.join(str(number) for number in unreadable)}, and OCR is not "
-                f"available: {ocr_unavailable_reason()}. Install Tesseract and point "
+                f"available: {reason}. Install Tesseract and point "
                 "FREEDOCS_TESSDATA or TESSDATA_PREFIX at its language data. This "
                 "build will not pretend to have processed a scan it could not read."
             )
@@ -691,10 +725,12 @@ class PdfTextHandler(FormatHandler):
         if tessdata is None or tesseract_binary() is None:
             return None
         try:
-            return page.get_textpage_ocr(
-                flags=0, language=self.ocr_language, dpi=self.ocr_dpi, full=True, tessdata=tessdata
-            )
+            with _working_directory(tessdata):
+                return page.get_textpage_ocr(
+                    flags=0, language=self.ocr_language, dpi=self.ocr_dpi, full=True, tessdata="."
+                )
         except Exception as exc:
+            self.ocr_failure = str(exc)
             self.warn(f"OCR failed on page {page.number + 1} ({exc}); nothing on it was redacted")
             return None
 

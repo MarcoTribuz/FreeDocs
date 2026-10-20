@@ -14,6 +14,7 @@ from __future__ import annotations
 import codecs
 from pathlib import Path
 
+from ..core.errors import MalformedDocument
 from ..core.stream import AnchorEdit, TextStream, TextStreamBuilder, apply_anchor_edits
 from .base import FormatHandler
 
@@ -22,6 +23,18 @@ from .base import FormatHandler
 #: wrong somewhere upstream. utf-8-sig is deliberately absent: it decodes
 #: BOM-less UTF-8 happily, and picking it would add a BOM on write-back.
 _ENCODINGS = ("utf-8", "cp1252", "latin-1")
+
+#: Checked before any of the above, and UTF-32 before UTF-16 because the
+#: little-endian UTF-32 mark begins with the UTF-16 one. Without this a UTF-16
+#: file - what PowerShell's `>` and Excel's "Unicode Text" write - decoded as
+#: cp1252 without an error, every character came out followed by a NUL, nothing
+#: matched a detector, and the file was written back untouched under "no leak".
+_BOMS = (
+    (codecs.BOM_UTF32_LE, "utf-32-le"),
+    (codecs.BOM_UTF32_BE, "utf-32-be"),
+    (codecs.BOM_UTF16_LE, "utf-16-le"),
+    (codecs.BOM_UTF16_BE, "utf-16-be"),
+)
 
 
 def _split_terminator(line: str) -> tuple[str, str]:
@@ -38,24 +51,36 @@ class PlainTextHandler(FormatHandler):
 
     def __init__(self, path: Path, data: bytes) -> None:
         super().__init__(path, data)
-        self.encoding = self._detect_encoding(data)
-        text = data.decode(self.encoding)
+        self.bom, self.encoding = self._detect_encoding(data)
+        text = data[len(self.bom) :].decode(self.encoding)
+        if "\x00" in text:
+            # The same failure as a UTF-16 file without its mark: text a detector
+            # cannot read, scrubbed of nothing and reported clean. Refused, since
+            # no guess at the encoding is safe to report as a scrub.
+            raise MalformedDocument(
+                f"{path.name} contains NUL characters, so it is binary or a UTF-16 "
+                "text without a byte-order mark; save it as UTF-8 and try again"
+            )
         self._lines: list[tuple[str, str]] = [
             _split_terminator(line) for line in text.splitlines(keepends=True)
         ]
 
     @staticmethod
-    def _detect_encoding(data: bytes) -> str:
+    def _detect_encoding(data: bytes) -> tuple[bytes, str]:
+        """The byte-order mark to put back on write, and the codec for the rest."""
         # Only claim utf-8-sig when a BOM is genuinely present, so that writing
         # the file back cannot introduce one that was not there before.
         if data.startswith(codecs.BOM_UTF8):
-            return "utf-8-sig"
+            return b"", "utf-8-sig"
+        for bom, encoding in _BOMS:
+            if data.startswith(bom):
+                return bom, encoding
         for encoding in _ENCODINGS:
             try:
                 data.decode(encoding)
             except UnicodeDecodeError:
                 continue
-            return encoding
+            return b"", encoding
         raise AssertionError("latin-1 decodes any byte string; this cannot be reached")
 
     def extract(self) -> TextStream:
@@ -81,6 +106,6 @@ class PlainTextHandler(FormatHandler):
         # character the original encoding cannot represent: changing the encoding
         # beats refusing to save.
         try:
-            return text.encode(self.encoding)
+            return self.bom + text.encode(self.encoding)
         except UnicodeEncodeError:
             return text.encode("utf-8")
