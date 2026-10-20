@@ -71,6 +71,7 @@ from .core.policy import (
 )
 from .core.sandbox import describe as describe_sandbox
 from .core.sandbox import harden
+from .core.stdio import utf8
 from .core.terms import (
     MIN_TERM_CHARS,
     TermList,
@@ -1832,8 +1833,8 @@ def serve(stdin: TextIO | None = None, stdout: TextIO | None = None) -> int:
 
 
 def _serve(stdin: TextIO | None, stdout: TextIO | None) -> int:
-    source: Iterator[str] = iter(stdin or sys.stdin)
-    session = Session(out=stdout or sys.stdout)
+    source: Iterator[str] = iter(stdin or utf8(sys.stdin))
+    session = Session(out=stdout or utf8(sys.stdout))
     session.notify("ready", **session.capabilities())
     for line in source:
         line = line.strip()

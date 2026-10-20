@@ -38,6 +38,7 @@ from .core.overrides import Override, parse_override
 from .core.policy import DEFAULT_LOCALE, PLACEHOLDER_LOCALES, Action, Policy
 from .core.sandbox import harden
 from .core.sealed import MalformedSealed
+from .core.stdio import utf8
 from .core.terms import (
     Term,
     TermList,
@@ -1256,6 +1257,12 @@ def main(argv: list[str] | None = None) -> int:
     """
     harden()
     block_external()
+    # `scrub -` reads a document from stdin, and every command prints values and
+    # paths. On Windows both streams are cp1252 when redirected: a pasted `Jürg`
+    # reached the detectors as `JÃ¼rg`, and a `Łódź` in a path raised after the
+    # file was written, losing the rest of the batch.
+    utf8(sys.stdin)
+    utf8(sys.stdout)
     try:
         return _dispatch(argv)
     finally:

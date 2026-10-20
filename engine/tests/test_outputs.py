@@ -10,6 +10,7 @@ write.
 
 from __future__ import annotations
 
+import errno
 import os
 from pathlib import Path
 
@@ -113,3 +114,40 @@ def test_a_report_is_written_with_the_same_bytes_everywhere(tmp_path: Path):
     write_private_json(path, [{"file": "offerta.txt"}])
     assert b"\r\n" not in path.read_bytes()
     assert path.read_bytes().endswith(b"\n")
+
+
+def _refusal(monkeypatch, tmp_path: Path, code: int, *, platform: str) -> str:
+    """The message a failed ``os.open`` turns into, for one errno and platform."""
+
+    def refuse(*_args, **_kwargs):
+        raise OSError(code, os.strerror(code))
+
+    monkeypatch.setattr(os, "open", refuse)
+    monkeypatch.setattr(os, "name", platform)
+    with pytest.raises(OutputRefused) as raised:
+        write_output(tmp_path / "statuts.pdf", b"[PERSON_1]")
+    return str(raised.value)
+
+
+def test_a_locked_file_on_windows_is_not_blamed_on_a_symlink(monkeypatch, tmp_path: Path):
+    """Reported from a real Windows machine: the previous output was open in a
+    PDF viewer, and the message sent the user looking for a symbolic link on a
+    platform where O_NOFOLLOW does not exist."""
+    message = _refusal(monkeypatch, tmp_path, errno.EACCES, platform="nt")
+    assert "symbolic link" not in message
+    assert "open in another program" in message
+
+
+def test_a_denied_write_elsewhere_points_at_the_folder(monkeypatch, tmp_path: Path):
+    message = _refusal(monkeypatch, tmp_path, errno.EACCES, platform="posix")
+    assert "symbolic link" not in message
+    assert "output folder" in message
+
+
+@posix_only
+def test_a_refused_symlink_still_says_so(tmp_path: Path):
+    elsewhere = tmp_path / "config"
+    elsewhere.write_bytes(b"do not touch")
+    (tmp_path / "out.txt").symlink_to(elsewhere)
+    with pytest.raises(OutputRefused, match="symbolic link"):
+        write_output(tmp_path / "out.txt", b"redirected")

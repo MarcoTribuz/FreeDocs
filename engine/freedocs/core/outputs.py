@@ -34,6 +34,7 @@ been launched on Windows, only built there.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import secrets
@@ -120,13 +121,40 @@ def _write(path: Path, data: bytes, *, mode: int) -> None:
     try:
         descriptor = os.open(path, flags, mode)
     except OSError as exc:
-        raise OutputRefused(
-            f"cannot write {path.name}: {exc.strerror or 'the path is not a plain file'}; "
-            "a symbolic link where an output file belongs is refused rather than followed"
-        ) from exc
+        raise OutputRefused(f"cannot write {path.name}: {_why(exc)}") from exc
     with os.fdopen(descriptor, "wb") as handle:
         handle.write(data)
     if mode == PRIVATE_MODE and os.name != "nt":
         # O_CREAT leaves an existing file's mode alone, so writing over
         # yesterday's output would otherwise keep yesterday's permissions.
         os.chmod(path, mode)
+
+
+#: What ``O_NOFOLLOW`` answers when the last component is a link: ``ELOOP`` on
+#: Linux and macOS, ``EMLINK`` on FreeBSD.
+_SYMLINK_ERRNOS = frozenset({errno.ELOOP, errno.EMLINK})
+
+
+def _why(exc: OSError) -> str:
+    """Say why a write failed, and blame a symlink only when one was refused.
+
+    Every ``OSError`` used to carry the symlink sentence. On Windows, where
+    ``O_NOFOLLOW`` does not exist and so cannot refuse anything, the realistic
+    ``Permission denied`` is the previous run's output still open in a PDF
+    viewer, which holds the file locked; a user told about symbolic links goes
+    looking for one, finds none, and has no next step.
+    """
+    reason = exc.strerror or "the path is not a plain file"
+    if exc.errno in _SYMLINK_ERRNOS and _NOFOLLOW:
+        return (
+            f"{reason}; a symbolic link where an output file belongs is refused "
+            "rather than followed"
+        )
+    if exc.errno in (errno.EACCES, errno.EPERM):
+        if os.name == "nt":
+            return (
+                f"{reason}; the file may be open in another program (a PDF viewer "
+                "locks it) - close it or choose another output folder"
+            )
+        return f"{reason}; check that the output folder can be written to"
+    return reason
