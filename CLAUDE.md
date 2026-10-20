@@ -1801,6 +1801,17 @@ coordinate system with the same `rawdict` shape as the text layer, so `_add_page
 handles both. Do not rasterise and map pixel coordinates by hand; it is the same
 result with an extra transform to get wrong.
 
+**A born-digital page has its pictures read, after its text and never inside
+it.** Extraction used to read only the text layer of a page that had one, while
+`harden_for_verification()` OCRs every imaged page — so a name in a logo or a
+screenshot was never redacted, and stage 6 caught it only when the same value was
+also removed from the text (`Genève` under a partner logo, on a real report).
+`_ocr_images` asks for `full=False`, subtracts the native blocks by content, and
+appends what is left: sorted into reading order the OCR words fuse with native
+lines. Pictures get `IMAGE_OCR_DPI` 300 because 200 did not read that logo. Such
+a page is never refused for missing OCR — verification used to, which made every
+PDF with a logo unprocessable without Tesseract. See `docs/scanned-pdfs.md`.
+
 **`harden_for_verification()` exists because verification was checking the wrong
 thing.** A scanned page is only machine-read when its text layer looks empty, and
 a *redacted* scan carries the placeholders that replaced its content — enough text

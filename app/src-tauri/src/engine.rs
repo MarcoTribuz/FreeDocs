@@ -149,13 +149,30 @@ fn identify(path: &Path, source: Source) -> Identity {
     }
 }
 
+/// A request waiting for its answer, and which process it was written to.
+///
+/// The process is recorded because "the engine died" is a fact about one
+/// generation. `on_disconnect` used to fail every waiting request, and it runs
+/// after the slot is already empty - so a request that arrived in that moment
+/// found no engine, started the next one, and was then failed with the old
+/// one's exit status. The macOS release build of 1.3.0 hit exactly that, in
+/// `the_next_request_starts_the_engine_again`.
+///
+/// An atomic rather than a field under `pending`'s lock, because `send` records
+/// it while holding `live`, and the two locks are never held together.
+struct Waiting {
+    sender: Sender<Value>,
+    /// The generation this request was written to; 0 until it has been.
+    sent_to: Arc<AtomicU64>,
+}
+
 pub struct Engine {
     launch: Launch,
     /// Where a notification goes. A closure rather than an `AppHandle` so this
     /// type knows nothing about Tauri - the same reason `lib.rs` is thin.
     notify: Box<dyn Fn(Value) + Send + Sync>,
     live: Mutex<Option<Live>>,
-    pending: Mutex<HashMap<u64, Sender<Value>>>,
+    pending: Mutex<HashMap<u64, Waiting>>,
     next_id: AtomicU64,
     /// Which start the live process is. A reader thread outlives its own
     /// process by a moment, so it carries the number it was started with and
@@ -280,12 +297,15 @@ impl Engine {
     /// the app, and its exit status is the only account of *how* the engine
     /// died - a signal reads very differently from a clean exit.
     ///
-    /// Every request still waiting is **failed now**. Their senders used to sit
+    /// Every request still waiting on *this* process is **failed now**. Their
+    /// senders used to sit
     /// in the map untouched, so a request in flight when the sidecar died waited
     /// out the full ten-minute timeout with the window waiting with it. The
     /// window is told this way rather than by a new notification: an event
     /// nobody consumes is dead protocol, and a fault that heals before the next
-    /// request is a fault worth not mentioning.
+    /// request is a fault worth not mentioning. Only this process's requests:
+    /// one not yet written will start, or reach, the next process - see
+    /// [`Waiting`].
     ///
     /// And the slot is **emptied**, which is what lets the next request start a
     /// new one.
@@ -314,7 +334,17 @@ impl Engine {
         let detail = describe_exit(status);
 
         let waiting: Vec<Sender<Value>> = match self.pending.lock() {
-            Ok(mut pending) => pending.drain().map(|(_, sender)| sender).collect(),
+            Ok(mut pending) => {
+                let ours: Vec<u64> = pending
+                    .iter()
+                    .filter(|(_, waiting)| waiting.sent_to.load(Ordering::SeqCst) == generation)
+                    .map(|(id, _)| *id)
+                    .collect();
+                ours.into_iter()
+                    .filter_map(|id| pending.remove(&id))
+                    .map(|waiting| waiting.sender)
+                    .collect()
+            }
             Err(_) => Vec::new(),
         };
         for sender in waiting {
@@ -329,13 +359,20 @@ impl Engine {
     pub fn request(self: &Arc<Self>, method: &str, params: Value) -> Result<Value, String> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver): (Sender<Value>, Receiver<Value>) = channel();
+        let sent_to = Arc::new(AtomicU64::new(0));
         self.pending
             .lock()
             .map_err(|_| "the engine lock is poisoned".to_string())?
-            .insert(id, sender);
+            .insert(
+                id,
+                Waiting {
+                    sender,
+                    sent_to: Arc::clone(&sent_to),
+                },
+            );
 
         let request = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        if let Err(error) = self.send(&request) {
+        if let Err(error) = self.send(&request, &sent_to) {
             // Removed rather than left to time out, for the same reason
             // `on_disconnect` drains the map: nothing else will ever answer it.
             if let Ok(mut pending) = self.pending.lock() {
@@ -365,7 +402,7 @@ impl Engine {
     /// pay for a model reload it will never use. The whole check-and-start
     /// happens under one lock, so two requests racing after a crash produce one
     /// process rather than two.
-    fn send(self: &Arc<Self>, request: &Value) -> Result<(), String> {
+    fn send(self: &Arc<Self>, request: &Value, sent_to: &AtomicU64) -> Result<(), String> {
         let mut live = self
             .live
             .lock()
@@ -382,6 +419,8 @@ impl Engine {
         let process = live
             .as_mut()
             .ok_or_else(|| "the engine is not running".to_string())?;
+        // Under `live`, so this is the generation of the process in the slot.
+        sent_to.store(self.generation.load(Ordering::SeqCst), Ordering::SeqCst);
         writeln!(process.stdin, "{request}")
             .map_err(|error| format!("engine write failed: {error}"))?;
         process
@@ -463,7 +502,8 @@ fn read_loop(engine: &Arc<Engine>, mut reader: BufReader<std::process::ChildStdo
                     .pending
                     .lock()
                     .ok()
-                    .and_then(|mut pending| pending.remove(&id));
+                    .and_then(|mut pending| pending.remove(&id))
+                    .map(|waiting| waiting.sender);
                 if let Some(sender) = sender {
                     let _ = sender.send(message);
                 }
@@ -649,27 +689,42 @@ mod lifecycle {
     //! script speaking two lines of JSON-RPC stands in for the engine.
     //!
     //! **Unix only, and that is a gap rather than a decision.** The fake is a
-    //! `/bin/sh` script; a Windows equivalent would be a second fixture in a
+    //! bash script; a Windows equivalent would be a second fixture in a
     //! second language, testing the same Rust. The behaviour under test has no
     //! platform-specific code in it - the one `cfg` is `describe_exit`'s signal
     //! branch, which is covered below - so this is the usual shape for this
     //! project: verified on one platform, said out loud rather than implied.
 
-    use super::{describe_exit, Engine, Launch};
+    use super::{describe_exit, Engine, Launch, Waiting};
     use serde_json::json;
     use std::io::Write;
     use std::os::unix::fs::PermissionsExt;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::mpsc::channel;
     use std::sync::Arc;
 
     /// A sidecar in three lines of shell: read a request, answer it, or stop.
     ///
     /// `body` runs in a loop over stdin with `$line` holding one request, so a
     /// test writes only the interesting part.
+    ///
+    /// The first line closes every descriptor above stderr, and the tests hang
+    /// without it. On macOS the standard library makes a pipe with `pipe()` and
+    /// marks it close-on-exec in a second call; a sibling test spawning in
+    /// between hands its child the other engine's pipe, and that child lives as
+    /// long as the test binary. So a fake that died kept a writer on its stdout
+    /// somewhere else, its reader never saw the end of the pipe, and the request
+    /// waited out the ten-minute timeout: six runs in a hundred and fifty, with
+    /// `lsof` showing an `answers` fake holding three pipes that were not its
+    /// own. A shipped app starts one engine at a time, so this stays in the tests.
+    /// Bash rather than `/bin/sh`: on Ubuntu that is dash, which reads `exec 10>&-`
+    /// as a command named `10` - the first Linux run of this fix failed on it.
     fn fake(directory: &std::path::Path, name: &str, body: &str) -> PathBuf {
         let path = directory.join(name);
         let mut file = std::fs::File::create(&path).unwrap();
-        write!(file, "#!/bin/sh
+        write!(file, "#!/bin/bash
+fd=3; while [ $fd -lt 64 ]; do eval \"exec $fd>&-\"; fd=$((fd + 1)); done
 while IFS= read -r line; do
 {body}
 done
@@ -784,6 +839,40 @@ done
             engine.request("capabilities", json!({})).unwrap(),
             json!({"ok": true})
         );
+    }
+
+    #[test]
+    fn a_dead_engine_fails_only_the_requests_written_to_it() {
+        // Deterministic form of the race the macOS release build lost: the
+        // slot is empty before `on_disconnect` drains, so a request can arrive,
+        // start the next process and be waiting by the time the drain runs.
+        let dir = tempfile::tempdir().unwrap();
+        let engine = engine(fake(dir.path(), "once-more", &format!("{ANSWERS}\n  exit 0")));
+        assert!(engine.request("capabilities", json!({})).is_ok());
+        wait_until_stopped(&engine);
+        let dead = engine.generation.load(Ordering::SeqCst);
+
+        let waiting = |sent_to: u64| {
+            let (sender, receiver) = channel();
+            let waiting = Waiting {
+                sender,
+                sent_to: Arc::new(AtomicU64::new(sent_to)),
+            };
+            (waiting, receiver)
+        };
+        let (written, written_rx) = waiting(dead);
+        let (unwritten, unwritten_rx) = waiting(0);
+        engine.pending.lock().unwrap().insert(9001, written);
+        engine.pending.lock().unwrap().insert(9002, unwritten);
+
+        engine.on_disconnect(dead);
+
+        assert!(written_rx.try_recv().is_ok(), "the dead process's request waits on");
+        assert!(
+            unwritten_rx.try_recv().is_err(),
+            "a request not yet written was failed with another process's exit"
+        );
+        assert!(engine.pending.lock().unwrap().contains_key(&9002));
     }
 
     #[test]

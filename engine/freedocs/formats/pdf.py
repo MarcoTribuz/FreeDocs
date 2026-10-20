@@ -43,6 +43,7 @@ import contextlib
 import os
 import shutil
 import sys
+from collections import Counter
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -89,6 +90,12 @@ DEFAULT_OCR_LANGUAGE = "ita+deu+fra+eng+spa+nld+por+pol+swe"
 #: recognition of body text; 72 loses characters and 300 costs time for little
 #: gain on documents rather than photographs.
 DEFAULT_OCR_DPI = 200
+
+#: For the pictures on a born-digital page. A logo's lettering is a fraction of
+#: body-text size, and at 200 dpi the `Genève` under one partner logo on a real
+#: report was not read at all - so it was not redacted, and verification, which
+#: re-read the page after the logo beside it had been blanked, found it.
+IMAGE_OCR_DPI = 300
 
 #: The repository's own copy, holding the four corpus languages. Checked before
 #: the system's, because a Homebrew install of Tesseract ships English only and a
@@ -460,6 +467,14 @@ def missing_languages() -> list[str]:
     ]
 
 
+def _block_text(block: dict) -> str:
+    """A rawdict block's characters, lines joined, for telling blocks apart."""
+    return "\n".join(
+        "".join(char["c"] for span in line.get("spans", ()) for char in span.get("chars", ()))
+        for line in block.get("lines", ())
+    )
+
+
 def _count_chars(raw: dict) -> int:
     return sum(
         len(span.get("chars", ()))
@@ -567,9 +582,10 @@ class PdfTextHandler(FormatHandler):
     #: Requested from Tesseract when a page has to be machine-read.
     ocr_language: str = DEFAULT_OCR_LANGUAGE
     ocr_dpi: int = DEFAULT_OCR_DPI
-    #: Machine-read every page carrying an image, not only those whose text layer
-    #: looks empty. Set by :meth:`harden_for_verification`; off during extraction
-    #: because OCRing a born-digital page is pure cost.
+    #: Machine-read every page carrying an image as a whole, text layer included,
+    #: not only those whose text layer looks empty. Set by
+    #: :meth:`harden_for_verification`. During extraction a born-digital page has
+    #: only its *images* read - see :meth:`_ocr_images`.
     ocr_every_imaged_page: bool = False
 
     def __init__(self, path: Path, data: bytes) -> None:
@@ -613,6 +629,10 @@ class PdfTextHandler(FormatHandler):
         #: character this tool cannot detect.
         self.ocr_pages: list[int] = []
         self.ocr_failure = None
+        #: Born-digital pages whose pictures held text OCR could read.
+        self.ocr_image_pages: list[int] = []
+        #: Born-digital pages whose pictures nobody read, because OCR is missing.
+        images_unread: list[int] = []
         unreadable: list[int] = []
 
         for page_index, page in enumerate(self._doc):
@@ -628,10 +648,21 @@ class PdfTextHandler(FormatHandler):
             # read, however much text it already has: a redacted scan carries the
             # placeholders that replaced its content, which is enough text to look
             # like an ordinary page while the pixels go unchecked.
-            if page.get_images() and (count < MIN_CHARS_PER_PAGE or self.ocr_every_imaged_page):
+            #
+            # A born-digital page with a picture on it is neither, and is not
+            # refused when OCR is missing: its text layer is real and was read.
+            # Refusing it is what made every PDF with a logo in it unprocessable
+            # on a machine without Tesseract - at verification, after the scrub.
+            images = page.get_images()
+            scan = bool(images) and count < MIN_CHARS_PER_PAGE
+            pictures: list[dict] = []
+            if scan or (images and self.ocr_every_imaged_page):
                 ocr = self._ocr(page)
                 if ocr is None:
-                    unreadable.append(page_index + 1)
+                    if scan:
+                        unreadable.append(page_index + 1)
+                    else:
+                        images_unread.append(page_index + 1)
                 else:
                     raw = page.get_text("rawdict", sort=True, textpage=ocr)
                     self.ocr_pages.append(page_index + 1)
@@ -641,8 +672,21 @@ class PdfTextHandler(FormatHandler):
                             "text in; if it holds text this tool cannot see, nothing on "
                             "it was redacted"
                         )
+            elif images:
+                found = self._ocr_images(page)
+                if found is None:
+                    images_unread.append(page_index + 1)
+                elif found:
+                    pictures = found
+                    self.ocr_image_pages.append(page_index + 1)
 
             self._add_page(builder, raw, part, page_index)
+            if pictures:
+                # After the page's own text, never interleaved with it: sorted
+                # into reading order, OCR words land inside native lines and
+                # fuse with them (`CANTONImpression`), which damages detection
+                # on the text that was read exactly.
+                self._add_page(builder, {"blocks": pictures}, part, page_index)
 
             # Every page, not only the machine-read ones. Reporting only the OCR
             # pages of a mixed document makes the bar fly through the
@@ -651,7 +695,9 @@ class PdfTextHandler(FormatHandler):
             self.report_progress(
                 page_index + 1,
                 self._doc.page_count,
-                "read by OCR" if page_index + 1 in self.ocr_pages else "",
+                "read by OCR"
+                if page_index + 1 in self.ocr_pages or page_index + 1 in self.ocr_image_pages
+                else "",
             )
 
         if unreadable:
@@ -685,6 +731,20 @@ class PdfTextHandler(FormatHandler):
                 + " were read by OCR. A value OCR misreads cannot be detected, so "
                 "check those pages by eye before sending the file"
             )
+        if self.ocr_image_pages:
+            self.warn(
+                "text inside the images on page(s) "
+                + ", ".join(str(number) for number in self.ocr_image_pages)
+                + " was read by OCR. A value OCR misreads cannot be detected, so "
+                "check those images by eye before sending the file"
+            )
+        if images_unread:
+            self.warn(
+                "page(s) "
+                + ", ".join(str(number) for number in images_unread)
+                + " carry images that were not read, because OCR is not available: "
+                f"{ocr_unavailable_reason()}. Text inside those images was not redacted"
+            )
         return builder.build()
 
     def _add_page(self, builder: TextStreamBuilder, raw: dict, part: str, page: int) -> None:
@@ -711,7 +771,46 @@ class PdfTextHandler(FormatHandler):
                 builder.add_filler("\n")
             builder.add_filler("\n")
 
-    def _ocr(self, page: pymupdf.Page) -> object | None:
+    def _ocr_images(self, page: pymupdf.Page) -> list[dict] | None:
+        """The text inside a born-digital page's pictures, or None without OCR.
+
+        Extraction used to read only the text layer of such a page, while
+        verification OCRs every imaged page. So a name in a logo, or a table
+        pasted as a screenshot, was never detected and never redacted - and
+        stage 6 noticed only when the same value happened to be removed
+        elsewhere in the text. Otherwise the file was written as clean.
+
+        ``full=False`` OCRs the image areas and keeps the text layer as it is.
+        MuPDF hands back the native blocks first and unchanged, then the
+        recognised ones, so the native blocks are subtracted by content rather
+        than trusted to keep their position. Each returned block carries
+        per-character boxes in page coordinates, so write-back redacts the
+        pixels exactly as it does on a scan.
+        """
+        if tessdata_path() is None or tesseract_binary() is None:
+            return None
+        ocr = self._ocr(page, full=False, dpi=IMAGE_OCR_DPI)
+        if ocr is None:
+            # `_ocr` has already said why. An empty list rather than None, so
+            # the failure is not reported a second time as OCR being missing.
+            return []
+        native = Counter(
+            _block_text(block) for block in page.get_text("rawdict")["blocks"] if "lines" in block
+        )
+        found = []
+        for block in page.get_text("rawdict", textpage=ocr)["blocks"]:
+            if "lines" not in block:
+                continue
+            text = _block_text(block)
+            if native[text]:
+                native[text] -= 1
+            elif text.strip():
+                found.append(block)
+        return found
+
+    def _ocr(
+        self, page: pymupdf.Page, *, full: bool = True, dpi: int | None = None
+    ) -> object | None:
         """Machine-read one page, or None if OCR is unavailable.
 
         PyMuPDF drives Tesseract itself and hands back a text page in the *page's*
@@ -727,11 +826,16 @@ class PdfTextHandler(FormatHandler):
         try:
             with _working_directory(tessdata):
                 return page.get_textpage_ocr(
-                    flags=0, language=self.ocr_language, dpi=self.ocr_dpi, full=True, tessdata="."
+                    flags=0,
+                    language=self.ocr_language,
+                    dpi=dpi or self.ocr_dpi,
+                    full=full,
+                    tessdata=".",
                 )
         except Exception as exc:
             self.ocr_failure = str(exc)
-            self.warn(f"OCR failed on page {page.number + 1} ({exc}); nothing on it was redacted")
+            lost = "nothing on it" if full else "text inside its images"
+            self.warn(f"OCR failed on page {page.number + 1} ({exc}); {lost} was redacted")
             return None
 
     def harden_for_verification(self) -> None:
