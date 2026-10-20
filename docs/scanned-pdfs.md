@@ -8,7 +8,7 @@ tests check exactly that: they machine-read the scrubbed file and assert the
 canary is unreadable while the rest of the page still is. Checking `get_text()`
 would prove nothing about a scan.
 
-## Three things worth keeping
+## Four things worth keeping
 
 **The decision is per page, not per document.** Real files mix them — a contract
 exported from Word with the signed page scanned back in. `page.get_images()` is
@@ -26,6 +26,31 @@ would have passed. `harden_for_verification()` now makes the check re-read every
 imaged page, and any handler that reads less than everything for speed must
 override that hook.
 
+**A picture on a born-digital page is read too.** A table pasted as a
+screenshot, a logo with a company's name in it, a signature with the signatory
+printed under it: the page has a real text layer, so it is not a scan, and until
+1.3 extraction read that layer and nothing else. Verification, meanwhile, OCRs
+every imaged page. So a value inside a picture was never detected and never
+redacted, and stage 6 noticed only when the same value had also been removed from
+the text — on a real activity report, `Genève` under a partner logo failed the run
+for exactly that reason. Otherwise the file was written as clean.
+
+Extraction now asks for `full=False` on such a page, which OCRs the image areas
+and leaves the text layer alone. Two details are each there for a measured reason.
+The recognised blocks are appended **after** the page's own text rather than
+sorted into it: in reading order MuPDF interleaves OCR words with native lines and
+fuses them (`CANTONImpression`), which damages detection on the text that was read
+exactly. MuPDF returns the native blocks first and unchanged, and they are
+subtracted by content rather than by position. And pictures are read at
+`IMAGE_OCR_DPI` (300), not the 200 a scan gets: a logo's lettering is a fraction
+of body-text size, and at 200 the `Genève` above was not read at all.
+
+The cost is about 1.3 seconds per imaged page on that report — 15 seconds for
+twelve pages, on top of the OCR verification already did. A document with a
+logo in the header of every page pays it on every page; caching the reading per
+image `xref` would remove that, and is not built. Text MuPDF draws as an image
+mask or a vector path is not an image and is not read.
+
 **OCR is a reading, not the text.** A codice fiscale with one character misread
 fails its checksum, is never detected, and survives. That is inherent to
 redacting a scan, so every machine-read page is named in a warning telling the
@@ -36,6 +61,13 @@ user to check it by eye. Do not remove the warning to tidy the output.
 `extract()` raises `ScannedPdfNotSupported` when a page has no usable text layer
 *and OCR is unavailable*, naming the pages and what to install, rather than
 producing an untouched file the user believes was scrubbed.
+
+A page with a real text layer and a picture on it is **not** refused when OCR is
+missing: its text was read, and the pictures are named in a warning as unread.
+Verification used to refuse it — it OCRs every imaged page, and treated one it
+could not OCR as an unreadable scan — so on a machine without Tesseract every PDF
+with a logo in it failed after the scrub, with a message claiming the page had no
+text layer.
 
 `hidden_text=False` is passed to `scrub()` deliberately: an OCR layer over a scan
 *is* invisible text, and deleting it blind would throw away content this pipeline
