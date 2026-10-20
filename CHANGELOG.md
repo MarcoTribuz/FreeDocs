@@ -41,6 +41,10 @@ come out with more removed than under 1.2.
   Every such file was refused after the scrub, with a message claiming the page
   had no text. The text is now scrubbed as usual, and a warning says which
   pages carry pictures that could not be read.
+- **The first request after the engine stops is no longer failed by mistake.**
+  When the engine stopped, the window failed every request still waiting,
+  including one that had arrived a moment later and was already being answered
+  by the restarted engine. That request now waits for its own answer.
 
 ## 1.2.1 — 2026-10-19
 
