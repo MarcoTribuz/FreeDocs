@@ -23,6 +23,21 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.4.1 — 2026-11-13
+
+1.4.0 was tagged and never published: this release replaces it, and
+everything listed under 1.4.0 below is in it.
+
+- **A username inside an email address or a path fails verification again.**
+  1.4.0 stopped failing a scrub when a removed name survived only inside a
+  longer ordinary word (`Acteurs` inside `facteurs`). The stated cost was a
+  lowercase username such as `mrossi` standing alone. The exemption also
+  covered `mrossi@acme.ch`, `/home/mrossi` and `C:\Users\mrossi`, which is
+  where a username identifies somebody. An occurrence written inside something
+  holding `@`, `/` or `\`, or a dot or colon between two characters, is a leak
+  again, and the file is not written. Sentence punctuation does not count, so
+  the prose cases are unchanged.
+
 ## 1.4.0 — 2026-11-13
 
 Word documents. Every change below was found on one real French document, and
