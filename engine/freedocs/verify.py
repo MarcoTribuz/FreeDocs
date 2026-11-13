@@ -52,6 +52,12 @@ class Leak:
     #: the message cannot be read as "the override did not work": with an
     #: allowance in play the failure is the *excess*, not the presence.
     allowed: int = 0
+    #: Where one occurrence of this value was found in the *source* extraction,
+    #: in code points. A position, not a value: it lets a caller that already
+    #: holds the preview findings say which value this is without the error
+    #: having to carry it. -1 when built without a finding.
+    start: int = -1
+    end: int = -1
 
     def describe(self) -> str:
         if self.allowed:
@@ -207,6 +213,8 @@ def verify_output(
                     detector=finding.detector,
                     occurrences=occurrences,
                     allowed=permitted,
+                    start=finding.span.start,
+                    end=finding.span.end,
                 )
             )
         if inside:

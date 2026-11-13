@@ -1,6 +1,16 @@
 <script lang="ts">
 	import { revealItemInDir } from '@tauri-apps/plugin-opener';
-	import { clearFiles, goTo, session } from '$lib/app.svelte';
+	import {
+		clearFiles,
+		goTo,
+		removeSurvivor,
+		session,
+		survivorQueued,
+		writeAnyway,
+		writeAnywayBlocker
+	} from '$lib/app.svelte';
+	import { LEAK_DETECTED, type ScrubResult } from '$lib/engine';
+	import { survivors, writtenWithLeaks } from '$lib/leaks';
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
 	import { categoryOf } from '$lib/entities';
@@ -12,7 +22,46 @@
 
 	const m = $derived(i18n.m);
 	let heading: HTMLHeadingElement | undefined = $state();
+
+	/** The preview's findings for a file: where a survivor's value is read from. */
+	const findingsOf = (result: ScrubResult) => session.inspections[result.path]?.findings ?? [];
 </script>
+
+<!--
+	What verification found still in the output, by type, value and count. The
+	value comes from the preview the user already saw (lib/leaks.ts), never from
+	the engine's error. `actions` is the refused case, where the user can still
+	do something about it; a file written anyway only says what it contains.
+-->
+{#snippet survivorList(result: ScrubResult, actions: boolean)}
+	<ul class="survivors">
+		{#each survivors(result, findingsOf(result)) as item, index (index)}
+			<li>
+				<Badge tone="entity" category={categoryOf(item.entity)}>
+					{m.entity[item.entity]?.() ?? item.entity}
+				</Badge>
+				{#if item.value}
+					<span class="value">{item.value}</span>
+				{:else}
+					<span class="hint">{m.leftValueUnknown()}</span>
+				{/if}
+				<span class="mono">×{item.occurrences}</span>
+				{#if actions && item.value}
+					{#if survivorQueued(result.path, item.value)}
+						<Badge tone="accent">{m.removeEverywhereAdded()}</Badge>
+					{:else}
+						<Button
+							variant="link"
+							onclick={() => removeSurvivor(result.path, item.value!, item.entity)}
+						>
+							{m.removeEverywhere()}
+						</Button>
+					{/if}
+				{/if}
+			</li>
+		{/each}
+	</ul>
+{/snippet}
 
 <div class="head">
 	<h2 bind:this={heading} tabindex="-1">{m.resultTitle()}</h2>
@@ -26,7 +75,11 @@
 	<Card tone={result.ok ? 'default' : 'danger'}>
 		{#snippet header()}
 			<h3>{basename(result.path)}</h3>
-			{#if result.ok && result.report}
+			{#if writtenWithLeaks(result)}
+				<!-- Written because the user asked, with values still in it. Never the
+				     green line: that line means "searched and found nothing". -->
+				<Badge tone="danger">{m.verificationFailed()}</Badge>
+			{:else if result.ok && result.report}
 				<!--
 					Verification is the feature that earns the trust, so it is stated as a
 					fact rather than left in a JSON blob the window never rendered. In
@@ -47,7 +100,12 @@
 					flagged: result.flagged ?? 0
 				})}
 			</p>
-			{#if result.report}
+			{#if result.report && writtenWithLeaks(result)}
+				<p class="failed">
+					{m.verificationFailedHint({ count: result.report.verification.leaks.length })}
+				</p>
+				{@render survivorList(result, false)}
+			{:else if result.report}
 				<p class="hint">
 					{m.verificationPassedHint({ checked: result.report.verification.values_checked })}
 				</p>
@@ -149,6 +207,26 @@
 					</ul>
 				{/if}
 			{/if}
+		{:else if result.error?.code === LEAK_DETECTED}
+			<!-- Point of the screen: say what is left and offer the two ways on,
+			     instead of a sentence and a dead end. -->
+			<p class="failed">{m.nothingWritten()}</p>
+			<h4>{m.leftTitle({ count: survivors(result).length })}</h4>
+			<p class="hint">{m.leftHint()}</p>
+			{@render survivorList(result, true)}
+			<div class="leakactions">
+				<Button variant="secondary" onclick={() => goTo('review')}>{m.backToReview()}</Button>
+				<Button
+					variant="danger"
+					disabled={session.busy !== null || writeAnywayBlocker() !== null}
+					onclick={() => writeAnyway(result.path)}
+				>
+					{m.writeAnyway()}
+				</Button>
+			</div>
+			<p class="hint">
+				{writeAnywayBlocker() === 'passphrase' ? m.writeAnywayNeedsPassphrase() : m.writeAnywayHint()}
+			</p>
 		{:else}
 			<p class="failed">
 				{m.nothingWritten()} <span lang="en">{result.error?.message}</span>
@@ -296,5 +374,32 @@
 
 	.failed {
 		color: var(--danger-text);
+	}
+
+	.survivors {
+		list-style: none;
+		margin: var(--space-2) 0;
+	}
+
+	.survivors li {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		margin: var(--space-1) 0;
+		font-size: var(--text-sm);
+	}
+
+	.value {
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		overflow-wrap: anywhere;
+	}
+
+	.leakactions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: var(--space-2);
+		margin-top: var(--space-3);
 	}
 </style>

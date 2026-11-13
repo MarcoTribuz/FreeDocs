@@ -252,6 +252,31 @@ export const de = {
 			one: 'Die Ausgabe wurde erneut geöffnet und durchsucht: {n} Wert ist weg.',
 			other: 'Die Ausgabe wurde erneut geöffnet und durchsucht: alle {n} Werte sind weg.'
 		}),
+	leftTitle: ({ count }) =>
+		plural(L, count, {
+			one: '{n} Wert ist noch in der Ausgabe',
+			other: '{n} Werte sind noch in der Ausgabe'
+		}),
+	leftHint: () =>
+		'Die bereinigte Kopie wurde erneut geöffnet und diese Werte wurden darin gefunden. ' +
+		'Entfernen Sie sie überall und bereinigen Sie erneut, oder schreiben Sie die Datei ' +
+		'trotzdem und prüfen Sie sie selbst.',
+	leftValueUnknown: () => 'Wert nicht in der Vorschau',
+	removeEverywhere: () => 'Überall entfernen',
+	removeEverywhereAdded: () => 'Wird entfernt',
+	backToReview: () => 'Zurück zur Prüfung',
+	writeAnyway: () => 'Diese Datei trotzdem schreiben',
+	writeAnywayHint: () =>
+		'Die Kopie enthält weiterhin die obigen Werte. Lesen Sie sie, bevor Sie sie weitergeben.',
+	writeAnywayNeedsPassphrase: () =>
+		'Eine Schlüsseldatei wurde angefordert: Geben Sie die Passphrase in den Optionen erneut ein, ' +
+		'um die Datei zu schreiben.',
+	verificationFailed: () => 'Nicht geprüft',
+	verificationFailedHint: ({ count }) =>
+		plural(L, count, {
+			one: 'Auf Wunsch geschrieben: {n} Wert ist noch in der Ausgabe.',
+			other: 'Auf Wunsch geschrieben: {n} Werte sind noch in der Ausgabe.'
+		}),
 	openFolder: () => 'Ordner öffnen',
 	scrubAgain: () => 'Neu beginnen',
 

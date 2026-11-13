@@ -2140,6 +2140,20 @@ engine beyond the slice the editor shows. A finding from the list is told apart
 by `detector === 'terms'` (`isFromTerms`), not by its layer, which is `H` like
 the person's own.
 
+**A refused scrub is no longer a dead end, and the value still never rides the
+error.** Each leak in the refusal's `data.detail` and in the report carries
+`start`/`end` — one occurrence in the *source* extraction, in code points — and
+`lib/leaks.ts` names the value from the preview findings the window already holds
+at those offsets. Both sides are the engine's numbers, so the UTF-16 trap does not
+arise: nothing is sliced, two integers are compared. The result card lists what is
+left with "Remove everywhere" (feeds the same `extraValues` as the "also remove"
+box) and offers "Write this file anyway", which re-runs that one file with
+`allow_leaks` and the options of the run it follows (`scrubOptions`), and is then
+badged "Not verified" — never the green line. It is disabled when a key file was
+asked for and its passphrase has already been forgotten, because writing without
+the key file would be a different run than the one chosen. The default is
+unchanged: a survivor still writes nothing until somebody asks.
+
 **Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
 entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
 of this feature entirely — read the note under *The desktop app* before adding a

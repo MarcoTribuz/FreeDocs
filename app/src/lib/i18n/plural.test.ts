@@ -91,6 +91,8 @@ describe('the catalogues', () => {
 		foundBy: { detector: 'it_codice_fiscale' },
 		keepEveryOne: { entity: 'Place' },
 		verificationPassedHint: { checked: 9 },
+		leftTitle: { count: 2 },
+		verificationFailedHint: { count: 2 },
 		rulesSilenced: { count: 7 },
 		stageOf: { name: 'reading the document', index: 2, count: 6 },
 		stagePages: { done: 3, of: 12 },

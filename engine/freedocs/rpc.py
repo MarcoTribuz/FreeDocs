@@ -1671,6 +1671,12 @@ def _scrub_refusal(path: Path, exc: Exception) -> dict[str, Any]:
                         "detector": leak.detector,
                         "occurrences": leak.occurrences,
                         "allowed": leak.allowed,
+                        # Code points into the source extraction the preview
+                        # was built from, so the window can name the value
+                        # from the findings it already holds. A position is
+                        # what the report may carry; the value stays out.
+                        "start": leak.start,
+                        "end": leak.end,
                     }
                     for leak in exc.result.leaks
                 ],

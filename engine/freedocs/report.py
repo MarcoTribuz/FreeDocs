@@ -157,6 +157,8 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
                     "entity": leak.entity,
                     "detector": leak.detector,
                     "occurrences": leak.occurrences,
+                    "start": leak.start,
+                    "end": leak.end,
                 }
                 for leak in result.verify.leaks
             ],

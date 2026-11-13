@@ -1877,6 +1877,10 @@ def test_a_leak_is_described_per_value(session: Session, tmp_path: Path, monkeyp
             "detector": "stub:location",
             "occurrences": 1,
             "allowed": 0,
+            # The first Lugano: where the finding was, so the window can name it
+            # from its own preview. A position, never the value.
+            "start": 9,
+            "end": 15,
         }
     ]
     assert "Lugano" not in json.dumps(failure)

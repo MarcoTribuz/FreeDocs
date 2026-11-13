@@ -256,6 +256,30 @@ export const fr = {
 			one: 'Le résultat a été réouvert et fouillé : {n} valeur a disparu.',
 			other: 'Le résultat a été réouvert et fouillé : les {n} valeurs ont disparu.'
 		}),
+	leftTitle: ({ count }) =>
+		plural(L, count, {
+			one: '{n} valeur est encore dans le résultat',
+			other: '{n} valeurs sont encore dans le résultat'
+		}),
+	leftHint: () =>
+		'La copie anonymisée a été réouverte et ces valeurs y ont été trouvées. Supprimez-les ' +
+		'partout et relancez, ou écrivez quand même ce fichier et vérifiez-le vous-même.',
+	leftValueUnknown: () => 'valeur absente de l’aperçu',
+	removeEverywhere: () => 'Supprimer partout',
+	removeEverywhereAdded: () => 'Sera supprimée',
+	backToReview: () => 'Retour à la vérification',
+	writeAnyway: () => 'Écrire quand même ce fichier',
+	writeAnywayHint: () =>
+		'La copie contiendra encore les valeurs ci-dessus. Lisez-la avant de l’envoyer.',
+	writeAnywayNeedsPassphrase: () =>
+		'Un fichier de clé a été demandé : saisissez à nouveau sa phrase secrète dans les options ' +
+		'pour écrire ce fichier.',
+	verificationFailed: () => 'Non vérifié',
+	verificationFailedHint: ({ count }) =>
+		plural(L, count, {
+			one: 'Écrit sur demande : {n} valeur est encore dans le résultat.',
+			other: 'Écrit sur demande : {n} valeurs sont encore dans le résultat.'
+		}),
 	openFolder: () => 'Ouvrir le dossier',
 	scrubAgain: () => 'Recommencer',
 
