@@ -1976,6 +1976,18 @@ not a newline: a link sits inside a sentence, and a break would stop
 `detect/addresses.py` assembling an address written around one. The walk is
 skipped entirely in a part with no link in it.
 
+**A redacted link target must still be a URI, or Word calls the file corrupt.**
+A placeholder written straight into a relationship target gave `mailto:[EMAIL_1]`
+and `https://prod.[ORGANISATION_2]-ge.ch/...`; square brackets are legal in a URI
+only around an IPv6 address, and a real document with sixteen redacted links
+opened with "Word found unreadable content" every time while every part was
+well-formed XML. `valid_link_target` runs on an *edited* target only: a `mailto:`
+keeps its scheme with the rest percent-encoded, anything else is re-pointed under
+`https://redacted.invalid/` with the redacted text encoded in the path — encoding
+into the host is valid on paper and is what strict parsers refuse. The cost:
+`restore` does not put a link's address back, since the placeholder in it is
+encoded and matching is literal by design.
+
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.
 Only ever added, never removed.

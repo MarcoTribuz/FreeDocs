@@ -24,7 +24,7 @@ from freedocs.core.findings import EntityType, Span
 from freedocs.core.overrides import Override, RemovedValue
 from freedocs.core.stream import Edit
 from freedocs.formats.ooxml import docprops
-from freedocs.formats.ooxml.common import AttributeLocator
+from freedocs.formats.ooxml.common import AttributeLocator, valid_link_target
 from freedocs.formats.ooxml.docx import DOCUMENT, DocxHandler
 from freedocs.formats.router import handler_for
 from freedocs.verify import LeakDetected
@@ -284,7 +284,51 @@ def test_a_canary_in_a_hyperlink_target_does_not_survive(tmp_path: Path):
     path = make(tmp_path / "s.docx", hyperlink=("scrivi", f"mailto:{CANARIES['EMAIL']}"))
     result = l1_scrubber().scrub_file(path)
     assert not survives_anywhere(result.output, CANARIES["EMAIL"])
-    assert "[EMAIL_1]" in part_text(result.output, "word/_rels/document.xml.rels")
+    # Percent-encoded: a bracket is not legal in a URI, and Word refuses the file.
+    assert "mailto:%5BEMAIL_1%5D" in part_text(result.output, "word/_rels/document.xml.rels")
+
+
+def _targets(data: bytes) -> list[str]:
+    root = etree.fromstring(part_text(data, "word/_rels/document.xml.rels").encode("utf-8"))
+    return [rel.get("Target") for rel in root if rel.get("TargetMode") == "External"]
+
+
+#: RFC 3986's characters as written. Anything else and Word reports the file as
+#: holding unreadable content - verbatim what a real document did.
+_URI_SAFE = set(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&'()*+,;=%"
+)
+
+
+@pytest.mark.parametrize(
+    ("target", "value", "entity"),
+    [
+        (f"mailto:{CANARIES['EMAIL']}", None, None),
+        ("https://prod.nordwind-consulting.ch/wiki/page", "nordwind", EntityType.ORGANISATION),
+    ],
+)
+def test_a_redacted_link_target_is_still_a_valid_uri(tmp_path: Path, target, value, entity):
+    """``[ORGANISATION_1]`` in a link made Word ask to repair the document."""
+    path = make(tmp_path / "s.docx", hyperlink=("vedi", target))
+    overrides = Override(remove=(RemovedValue(value, entity),)) if value else Override()
+    result = l1_scrubber(overrides=overrides).scrub_file(path)
+    assert result.verify.ok, result.verify.summary()
+    for written in _targets(result.output):
+        assert set(written) <= _URI_SAFE, written
+        assert "[" not in written
+
+
+def test_a_redacted_web_link_points_nowhere(tmp_path: Path):
+    path = make(tmp_path / "s.docx", hyperlink=("vedi", "https://prod.nordwind-consulting.ch/x"))
+    overrides = Override(remove=(RemovedValue("nordwind", EntityType.ORGANISATION),))
+    [target] = _targets(l1_scrubber(overrides=overrides).scrub_file(path).output)
+    assert target.startswith("https://redacted.invalid/")
+
+
+def test_a_valid_target_is_returned_untouched():
+    """The sanitiser runs only on an edited target, and leaves a valid one alone."""
+    assert valid_link_target("https://example.org/a?b=c#d") == "https://example.org/a?b=c#d"
+    assert valid_link_target("mailto:[EMAIL_1]") == "mailto:%5BEMAIL_1%5D"
 
 
 @pytest.mark.leak

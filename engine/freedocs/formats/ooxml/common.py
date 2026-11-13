@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from ...core.stream import AnchorEdit, TextStreamBuilder, apply_anchor_edits
 from .zip_part import NS, OoxmlPackage
@@ -62,6 +63,41 @@ def add_attribute(
     builder.add_filler(separator)
 
 
+#: Characters RFC 3986 allows in a URI as written. Anything else - ``[`` and
+#: ``]`` above all, which every placeholder contains - makes the target invalid.
+_URI_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&'()*+,;=%"
+)
+
+#: Where a redacted link points. ``.invalid`` is reserved and never resolves, so
+#: a reader who clicks it reaches nothing - least of all the original address.
+REDACTED_LINK = "https://redacted.invalid/"
+
+
+def valid_link_target(value: str) -> str:
+    """Make a redacted relationship target a URI Word will accept.
+
+    A placeholder written straight into a link gave ``mailto:[EMAIL_1]`` and
+    ``https://prod.[ORGANISATION_2]-ge.ch/...``. Square brackets are legal in a
+    URI only around an IPv6 address, Word parses relationship targets strictly,
+    and a real document with sixteen redacted links opened with "Word found
+    unreadable content" every time - while the file itself was well-formed.
+
+    A ``mailto:`` keeps its scheme with the rest percent-encoded, which RFC 6068
+    allows in an address. Everything else is re-pointed under ``REDACTED_LINK``
+    with the redacted text encoded in the path: encoding it into the *host*
+    would also be valid on paper, and is what strict parsers refuse.
+
+    Only called on a target an edit changed, and a target that is already a
+    valid URI is returned untouched.
+    """
+    if all(char in _URI_CHARACTERS for char in value):
+        return value
+    if value.lower().startswith("mailto:"):
+        return "mailto:" + quote(value[len("mailto:") :], safe="@.-_~")
+    return REDACTED_LINK + quote(value, safe="")
+
+
 def add_relationship_targets(
     package: OoxmlPackage, builder: TextStreamBuilder, prefix: str
 ) -> None:
@@ -76,7 +112,7 @@ def add_relationship_targets(
         for relationship in tree.iter(RELATIONSHIP_TAG):  # type: ignore[attr-defined]
             if relationship.get("TargetMode") != "External":
                 continue
-            add_attribute(builder, relationship, "Target", part=part)
+            add_attribute(builder, relationship, "Target", part=part, sanitise=valid_link_target)
 
 
 def apply_ooxml_edits(package: OoxmlPackage, edits: Iterable[AnchorEdit]) -> None:
