@@ -413,6 +413,23 @@ def test_metadata_values_do_not_survive(loaded: Path):
         assert not survives_anywhere(output, value), value
 
 
+def test_a_blanked_property_is_removed_not_left_empty(loaded: Path):
+    """``<TotalTime/>`` is an empty ``xsd:int``, which Word reports as unreadable.
+
+    Found on a real document: every part well-formed, and Word still offered to
+    repair the file until the metadata step was bisected out.
+    """
+    import io
+    import zipfile
+
+    output = l1_scrubber().scrub_file(loaded).output
+    with zipfile.ZipFile(io.BytesIO(output)) as archive:
+        app = archive.read("docProps/app.xml").decode()
+        core = archive.read("docProps/core.xml").decode()
+    assert "TotalTime" not in app
+    assert "creator" not in core and "lastModifiedBy" not in core
+
+
 @pytest.fixture
 def linked(tmp_path: Path) -> Path:
     """A link in the body, and Word's second copy of it in ``docProps/app.xml``.

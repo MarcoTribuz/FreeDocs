@@ -48,16 +48,23 @@ APP_FIELDS: tuple[tuple[str, str], ...] = (
 def blank_fields(
     package: OoxmlPackage, part: str, fields: tuple[tuple[str, str], ...], kind: str
 ) -> list[HiddenItem]:
-    """Empty the named elements, reporting which of them held anything."""
+    """Remove the named elements, reporting which of them held anything.
+
+    Removed, not emptied. Several are typed — ``cp:lastPrinted`` is an
+    ``xsd:dateTime``, ``ep:TotalTime`` an ``xsd:int`` — and an empty one is not
+    a valid value of either: Word called a real scrubbed document "unreadable
+    content" for exactly that, while every part was well-formed XML. Every
+    field here is optional in its schema, so absence is valid for all of them.
+    """
     if not package.has(part):
         return []
     tree = package.tree(part)
     populated: list[str] = []
     for tag, label in fields:
-        for element in tree.iter(qn(tag)):  # type: ignore[attr-defined]
+        for element in list(tree.iter(qn(tag))):  # type: ignore[attr-defined]
             if element.text:
                 populated.append(label)
-                element.text = None
+                element.getparent().remove(element)
     if not populated:
         return []
     package.mark_dirty(part)

@@ -37,6 +37,10 @@ redacted, and named in the report.
   documents to the same author.
 - **Metadata** names the author, the last editor, the company, the manager, and
   the local template path — which contains a username.
+  Those fields are removed, not emptied: `TotalTime` is an integer and
+  `lastPrinted` a date, an empty one is not a valid value of either, and Word
+  reported a scrubbed file as "unreadable content" for exactly that while every
+  part was well-formed XML.
 
 Relationship targets reach the pipeline as ordinary anchors through
 `AttributeLocator` rather than being pattern-matched in the handler: the

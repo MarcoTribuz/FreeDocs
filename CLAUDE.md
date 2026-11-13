@@ -1998,6 +1998,16 @@ right direction for a link nobody reads. The cost: `restore` does not put a
 link's address back, since the placeholder in it is encoded and matching is
 literal by design.
 
+**A metadata field is removed, never emptied.** `docprops.blank_fields` used to
+set `.text = None`, which left `<TotalTime/>` and `<cp:lastPrinted/>` — an empty
+`xsd:int` and an empty `xsd:dateTime`. Well-formed, schema-invalid, and Word
+calls the file "unreadable content". Found by bisecting a real document one
+hidden step at a time; `fd_structure`-style checks of well-formedness, broken
+relationships and dangling ids all passed it. Every field in those tables is
+optional, so absence is valid for all of them. Note for a test: openpyxl reports
+`creator='openpyxl'` when the element is absent, so read the part, not the
+library.
+
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.
 Only ever added, never removed.
