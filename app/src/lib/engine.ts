@@ -160,9 +160,22 @@ export interface Finding {
 }
 
 /** A stretch of the extracted text that came from one page, sheet or slide. */
+/**
+ * A place in a document as a reader would name it. `kind` is a closed set the
+ * window translates (`lib/readable.ts`); `number` is present only where the
+ * format has one the reader can find — a PDF page, a slide, a sheet's tab — and
+ * never for Word, which has no pages until Word lays the document out.
+ */
+export interface Region {
+	kind: string;
+	number: number | null;
+}
+
 export interface Part {
 	/** The engine's own name for it: `page:3`, a sheet's part path, a slide. */
 	part: string;
+	/** The same part in the reader's words. Absent from an older engine. */
+	region?: Region;
 	start: number;
 	end: number;
 }
@@ -274,13 +287,36 @@ export interface Report {
 	caveats: string[];
 }
 
+/**
+ * A removed one-word value still present inside longer words: `Acteurs` taken
+ * out wherever it stood alone and left inside `facteurs`. Not a failure; said so
+ * the reader can check the words.
+ *
+ * **Carries document text** — the value and the words — which is why it is on
+ * the response and not in `report`: the report counts these and names nothing.
+ */
+export interface InsideWords {
+	entity: string;
+	value: string;
+	detector: string;
+	occurrences: number;
+	words: { word: string; region: Region; occurrences: number }[];
+}
+
 export interface ScrubResult {
 	path: string;
 	ok: boolean;
 	output?: string;
 	removed?: number;
 	flagged?: number;
+	/** Engine prose, quoted. The inside-a-word facts are in `inside_words` instead. */
 	warnings?: string[];
+	inside_words?: InsideWords[];
+	/**
+	 * Placeholders in the key file that stood for a value written more than one
+	 * way; a restore writes the first spelling. Zero without a key file.
+	 */
+	key_respelled?: number;
 	hidden_removed?: HiddenItem[];
 	/** Null when no review was requested. */
 	review?: Review | null;
@@ -307,6 +343,8 @@ export interface TextScrubResult {
 	removed?: number;
 	flagged?: number;
 	warnings?: string[];
+	inside_words?: InsideWords[];
+	key_respelled?: number;
 	review?: Review | null;
 	/** The engine's name for the held mapping, or null when none was kept. */
 	handle?: string | null;
@@ -360,6 +398,8 @@ export interface RestoreResult {
 	 * file.** The engine's own restore report deliberately carries a count instead.
 	 */
 	warnings: string[];
+	/** Placeholders whose value was written more than one way in the source. */
+	respelled?: number;
 	problems: { placeholder: string; entity: string; kind: string }[];
 	report?: Record<string, unknown>;
 }

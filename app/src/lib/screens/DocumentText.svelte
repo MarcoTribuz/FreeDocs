@@ -7,6 +7,7 @@
 	import { i18n } from '$lib/i18n/index.svelte';
 	import { basename } from '$lib/format';
 	import { categoryOf } from '$lib/entities';
+	import { regionLabel } from '$lib/readable';
 	import EmptyState from '$lib/components/EmptyState.svelte';
 
 	interface Props {
@@ -20,6 +21,8 @@
 
 	const m = $derived(i18n.m);
 	const view = $derived(viewFor(path, inspection));
+	/** Each part's name in the reader's words; an older engine sends none. */
+	const regions = $derived(new Map((inspection.parts ?? []).map((part) => [part.part, part.region])));
 
 	/**
 	 * The rows to render: a block, or a run of blocks with nothing in them.
@@ -241,7 +244,11 @@
 			{:else}
 				{@const block = row.block}
 				{#if row.heading}
-					<h3 class="part">{row.heading}</h3>
+					<!-- The reader's name for the part, the engine's in a tooltip for
+					     anyone who needs to find it in the package. -->
+					<h3 class="part" title={row.heading}>
+						{regions.get(row.heading) ? regionLabel(m, regions.get(row.heading)) : row.heading}
+					</h3>
 				{/if}
 				<p
 					class="block"
@@ -309,7 +316,6 @@
 	.part {
 		margin: var(--space-4) 0 var(--space-1);
 		font-size: var(--text-xs);
-		font-family: var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: var(--tracking-caps);
 		color: var(--text-3);

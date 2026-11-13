@@ -108,6 +108,9 @@
 			</ul>
 		{/if}
 
+		{#if result.respelled}
+			<p class="warnline">{m.keyRespelled({ count: result.respelled })}</p>
+		{/if}
 		{#each result.warnings as warning (warning)}
 			<p class="warnline" lang="en">{warning}</p>
 		{/each}

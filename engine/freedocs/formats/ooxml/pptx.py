@@ -29,10 +29,11 @@ from pathlib import Path
 
 from ...core.errors import InputTooLarge, MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
-from ..base import FormatHandler, HiddenItem
+from ..base import FormatHandler, HiddenItem, Region
 from .common import add_attribute, add_relationship_targets, apply_ooxml_edits
 from .docprops import unextracted_properties_text
 from .pptx_hidden import scrub_pptx_hidden
+from .regions import ooxml_region, ordered_parts, slide_of_notes
 from .xlsx import XlsxHandler
 from .zip_part import NS, OoxmlPackage, qn
 
@@ -207,6 +208,18 @@ class PptxHandler(FormatHandler):
             theirs = [a for a in stream.anchors if self._nested_locators.get(id(a.locator)) == name]
             chunks.append(unextracted_properties_text(handler.package, theirs))  # type: ignore[attr-defined]
         return "\n".join(chunk for chunk in chunks if chunk)
+
+    def region_of(self, part: str) -> Region:
+        if part.startswith("xl/"):
+            # An embedded workbook's parts: the data behind a chart.
+            return Region("chart")
+        region = ooxml_region(part)
+        if region.kind not in ("slide", "notes"):
+            return region
+        if not hasattr(self, "_slide_order"):
+            self._slide_order = ordered_parts(self.package, PRESENTATION, qn("p:sldId"))
+        slide = part if region.kind == "slide" else slide_of_notes(self.package, part)
+        return Region(region.kind, self._slide_order.get(slide or ""))
 
     def scrub_hidden(self) -> list[HiddenItem]:
         removed = scrub_pptx_hidden(self.package)

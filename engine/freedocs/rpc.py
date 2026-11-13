@@ -56,6 +56,7 @@ from .core.mapping import (
     mapping_unavailable_reason,
     read_key_map,
     refuse_inside,
+    respelled_note,
     write_key_map,
 )
 from .core.outputs import private_directory, write_output, write_private
@@ -110,6 +111,7 @@ from .pipeline import (
     LAYER_SPECS,
     Extraction,
     Scrubber,
+    ScrubResult,
     build_registry,
     country_coverage,
     default_registry,
@@ -968,7 +970,7 @@ class Session:
             return _failure(path, OUTPUT_REFUSED, str(exc))
 
         key_file: str | None = None
-        key_warnings: list[str] = []
+        respelled = 0
         if map_target is not None:
             key_path = map_path_for(map_target, path)
             key_map = key_map_from(result, placeholder_language=placeholder_language)
@@ -988,7 +990,7 @@ class Session:
             # pipe to the process that chose the location, and a window that
             # cannot say where the key went is a window nobody can find it from.
             key_file = str(key_path)
-            key_warnings = key_map.warnings()
+            respelled = key_map.respelled
 
         return {
             "path": str(path),
@@ -998,7 +1000,9 @@ class Session:
             "flagged": len(result.reported),
             # The quoting form: this response goes down the local pipe, which
             # already carries matched text. The `report` below does not quote.
-            "warnings": [*result.caller_warnings, *key_warnings],
+            "warnings": _pipe_warnings(result),
+            "inside_words": _inside_words(result),
+            "key_respelled": respelled,
             "hidden_removed": [
                 {"part": item.part, "kind": item.kind, "detail": item.detail}
                 for item in result.hidden_removed
@@ -1131,7 +1135,6 @@ class Session:
             key_map = key_map_from(result, placeholder_language=placeholder_language)
 
         key_file: str | None = None
-        key_warnings: list[str] = []
         if map_target is not None and key_map is not None:
             key_path = map_path_for(map_target, pasted)
             try:
@@ -1143,12 +1146,10 @@ class Session:
             except ValueError as exc:
                 return _failure(pasted, INVALID_REQUEST, str(exc))
             key_file = str(key_path)
-            key_warnings = key_map.warnings()
 
         handle: str | None = None
         if params.get("keep_map") and key_map is not None:
             handle = self._text_maps.hold(key_map)
-            key_warnings = key_map.warnings()
 
         return {
             "path": PASTED_NAME,
@@ -1156,7 +1157,11 @@ class Session:
             "text": decoded(handler, result.output),
             "removed": len(result.removed),
             "flagged": len(result.reported),
-            "warnings": [*result.caller_warnings, *key_warnings],
+            "warnings": _pipe_warnings(result),
+            "inside_words": _inside_words(result),
+            # Said only when a map was kept, because only then is there a
+            # restore for the spelling to be lost in.
+            "key_respelled": key_map.respelled if key_map is not None else 0,
             "review": _review_payload(result),
             "suppressed": suppressed_section(result.suppressed),
             "handle": handle,
@@ -1492,7 +1497,14 @@ def _restore_payload(result: Any) -> dict[str, Any]:
         ],
         "not_present": list(result.unused),
         "unknown_placeholders": list(result.unknown),
-        "warnings": list(result.warnings),
+        # The key map's sentence goes as `respelled`, which the window says in
+        # the reader's language; everything else is the handler's, quoted.
+        "warnings": [
+            warning
+            for warning in result.warnings
+            if not result.respelled or warning != respelled_note(result.respelled)
+        ],
+        "respelled": result.respelled,
         "problems": [
             {
                 "placeholder": problem.placeholder,
@@ -1505,7 +1517,48 @@ def _restore_payload(result: Any) -> dict[str, Any]:
     }
 
 
-def _preview(stream: Any) -> dict[str, Any]:
+def _region(region: Any) -> dict[str, Any]:
+    return {"kind": region.kind, "number": region.number}
+
+
+def _pipe_warnings(result: ScrubResult) -> list[str]:
+    """``caller_warnings`` less what this response says in structured form.
+
+    The inside-a-word sentences stay in the report and on the console; here
+    ``inside_words`` carries the same facts with the words themselves, and the
+    window says them in the reader's language instead of quoting English.
+    """
+    structured = {item.describe() for item in result.verify.embedded}
+    return [warning for warning in result.caller_warnings if warning not in structured]
+
+
+def _inside_words(result: ScrubResult) -> list[dict[str, Any]]:
+    """Each value left inside longer words, the words, and where they stand.
+
+    **Carries document text**: the value and the words around it. That is safe
+    down this pipe, which already carries every matched value, and is why
+    ``build_report`` counts these instead - the report is a file that travels.
+    """
+    return [
+        {
+            "entity": item.entity,
+            "value": item.text,
+            "detector": item.detector,
+            "occurrences": item.occurrences,
+            "words": [
+                {
+                    "word": word.word,
+                    "region": _region(word.region),
+                    "occurrences": word.occurrences,
+                }
+                for word in item.words
+            ],
+        }
+        for item in result.verify.embedded
+    ]
+
+
+def _preview(stream: Any, handler: FormatHandler) -> dict[str, Any]:
     """The extracted text, and which part each region of it came from.
 
     One blob rather than a window around each finding. The findings' offsets are
@@ -1529,7 +1582,13 @@ def _preview(stream: Any) -> dict[str, Any]:
         # Clipped to what was actually sent, so the index never points past the
         # end of the string it indexes.
         "parts": [
-            {"part": segment.part, "start": segment.start, "end": min(segment.end, end)}
+            {
+                "part": segment.part,
+                # The same part in the reader's words, for the heading above it.
+                "region": _region(handler.region_of(segment.part)),
+                "start": segment.start,
+                "end": min(segment.end, end),
+            }
             for segment in stream.part_segments()
             if segment.start < end
         ],
@@ -1607,7 +1666,7 @@ def _inspection_payload(
             "matched": inspection.terms.matched,
         }
     if include_text:
-        payload.update(_preview(stream))
+        payload.update(_preview(stream, extraction.handler))
     return payload
 
 

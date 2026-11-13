@@ -159,6 +159,26 @@ export const de = {
 	},
 	hiddenRemovedTitle: () => 'Entfernte versteckte Inhalte',
 	hiddenPendingTitle: () => 'Versteckte Inhalte, die entfernt werden',
+	hiddenParts: ({ count }) =>
+		plural(L, count, {
+			one: 'in {n} Teil der Datei',
+			other: 'in {n} Teilen der Datei'
+		}),
+	hiddenDetailsShow: () => 'Technische Details anzeigen',
+	hiddenDetailsHide: () => 'Technische Details ausblenden',
+	hiddenDetailsNote: () => 'Die Details stammen von der Engine, auf Englisch.',
+	insideWordsTitle: () => 'Zu prüfen: in längeren Wörtern verblieben',
+	insideWordsLead: ({ value, count }) =>
+		plural(L, count, {
+			one: `«${value}»: entfernt, wo es allein steht, aber noch in {n} längeren Wort enthalten.`,
+			other: `«${value}»: entfernt, wo es allein steht, aber noch in {n} längeren Wörtern enthalten.`
+		}),
+	insideWordsHint: () => 'Meist sind das gewöhnliche Wörter (wie «facteurs» für «Acteurs») und dürfen bleiben. Prüfen Sie sie nur, wenn der Wert Teil eines Benutzernamens, Dateinamens oder Codes sein könnte – dann fügen Sie ihn unter «Auch entfernen» hinzu und bereinigen erneut.',
+	keyRespelled: ({ count }) =>
+		plural(L, count, {
+			one: '{n} Wert war unterschiedlich geschrieben (Groß-/Kleinschreibung oder Leerzeichen): die Wiederherstellung verwendet die erste Form im Dokument.',
+			other: '{n} Werte waren unterschiedlich geschrieben (Groß-/Kleinschreibung oder Leerzeichen): die Wiederherstellung verwendet die erste Form im Dokument.'
+		}),
 	nothingWritten: () => 'Es wurde nichts geschrieben.',
 
 	announceValuesFound: ({ file, count }) =>
@@ -552,5 +572,59 @@ export const de = {
 		surrogate: () => 'wird ersetzt',
 		report: () => 'markiert, nicht entfernt',
 		keep: () => 'bleibt unverändert'
+	},
+	hiddenKind: {
+		metadata: () => 'Dokumenteigenschaften (Autor, zuletzt bearbeitet von, Daten, Titel)',
+		'extended-metadata': () => 'Erweiterte Eigenschaften (Firma, Vorlage, Bearbeitungszeit)',
+		'custom-properties': () => 'Benutzerdefinierte Eigenschaften',
+		'xmp-metadata': () => 'XMP-Metadaten',
+		'titles-of-parts': () => 'Titel als Kopie in den Eigenschaften',
+		'hyperlink-cache': () => 'Versteckte Kopie der Link-Adressen',
+		'page-thumbnail': () => 'Miniaturansicht der ersten Seite',
+		'custom-xml-store': () => 'Daten hinter den Formularfeldern',
+		'printer-settings': () => 'Druckereinstellungen',
+		'macro-project': () => 'Makros',
+		'data-connections': () => 'Verbindungen zu externen Daten',
+		comments: () => 'Kommentare',
+		'comment-anchors': () => 'Kommentarmarken im Text',
+		'comment-ids': () => 'Kommentar-Kennungen',
+		'comment-metadata': () => 'Zusätzliche Kommentardaten',
+		'comment-shapes': () => 'Kommentarfelder',
+		'comment-threading': () => 'Antworten auf Kommentare',
+		'commenter-directory': () => 'Liste der Kommentierenden',
+		'revision-markup': () => 'Aufgezeichnete Formatänderungen mit Autor',
+		'revision-save-ids': () => 'Spuren der Bearbeitungssitzungen',
+		'revision-save-id-table': () => 'Protokoll der Bearbeitungssitzungen',
+		'tracked-deletions': () => 'Gelöschter Text bei aktiver Nachverfolgung',
+		'tracked-insertions': () => 'Eingefügter Text bei aktiver Nachverfolgung (angenommen, Autor und Datum entfernt)',
+		'hidden-cells': () => 'Ausgeblendete Zeilen und Spalten (Inhalt bereinigt)',
+		'hidden-sheet': () => 'Ausgeblendete Blätter',
+		'hidden-slide': () => 'Ausgeblendete Folien',
+		'offscreen-shape': () => 'Objekte außerhalb der Folie',
+		'pivot-cache': () => 'Kopie der Pivot-Daten (bereinigt)',
+		'external-link-cache': () => 'Kopie verknüpfter Dateidaten (bereinigt)',
+		annotations: () => 'Anmerkungen und Notizen',
+		'embedded-files': () => 'Angehängte Dateien',
+		'form-fields': () => 'Werte der Formularfelder',
+		'form-widgets': () => 'Formularfelder',
+		'optional-content-layers': () => 'Ausgeblendete Ebenen (belassen: von Hand prüfen)',
+		outline: () => 'Lesezeichen'
+	},
+
+	region: {
+		body: () => 'Text',
+		header: () => 'Kopfzeile',
+		footer: () => 'Fußzeile',
+		footnote: () => 'Fußnote',
+		endnote: () => 'Endnote',
+		comment: () => 'Kommentar',
+		link: () => 'Link-Adresse',
+		metadata: () => 'Dokumenteigenschaften',
+		sheet: ({ number }) => (number ? `Blatt ${number}` : 'Blatt'),
+		chart: () => 'Diagramm',
+		slide: ({ number }) => (number ? `Folie ${number}` : 'Folie'),
+		notes: ({ number }) => (number ? `Notizen zu Folie ${number}` : 'Notizen'),
+		page: ({ number }) => (number ? `Seite ${number}` : 'Seite'),
+		other: () => 'anderer Teil der Datei'
 	}
 } satisfies Messages;

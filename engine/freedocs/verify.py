@@ -24,7 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .core.findings import EntityType, Finding
-from .formats.base import FormatHandler
+from .core.stream import TextStream
+from .formats.base import FormatHandler, Region
 
 #: Values shorter than this are not searched for. A two-character original would
 #: match somewhere in almost any document and every run would "leak".
@@ -73,6 +74,21 @@ class Leak:
 
 
 @dataclass(frozen=True)
+class EmbeddedWord:
+    """One longer word a removed value was left inside, and where it stands.
+
+    **Carries document text**, so it travels down the local pipe to the window
+    and never into the report: ``build_report`` reads ``Embedded.occurrences``
+    and nothing here. ``word`` is the whole word as the output spells it, which
+    is what lets a reader check ``facteurs`` without being told the value.
+    """
+
+    word: str
+    region: Region
+    occurrences: int
+
+
+@dataclass(frozen=True)
 class Embedded:
     """A removed one-word value that is still in the output inside longer words.
 
@@ -85,6 +101,8 @@ class Embedded:
     text: str
     detector: str
     occurrences: int
+    #: The words themselves, for the window. Value-bearing: see `EmbeddedWord`.
+    words: tuple[EmbeddedWord, ...] = ()
 
     def describe(self) -> str:
         return (
@@ -215,7 +233,8 @@ def verify_output(
         # One search, classified per occurrence: `inside` counts positions that
         # are themselves among the `occurrences` just counted, so the exemption
         # can never subtract something it did not look at.
-        inside = _language_collisions(searched, haystack, needle, finding.entity)
+        positions = _language_collisions(searched, haystack, needle, finding.entity)
+        inside = len(positions)
         occurrences -= inside
         permitted = allowance.get(needle, 0)
         if occurrences > permitted:
@@ -237,6 +256,7 @@ def verify_output(
                     text=finding.text,
                     detector=finding.detector,
                     occurrences=inside,
+                    words=_words_at(handler, stream, searched, positions, len(needle)),
                 )
             )
     return VerifyResult(
@@ -255,8 +275,43 @@ def verify_output(
 _PROSE_TYPES = frozenset({EntityType.PERSON, EntityType.ORGANISATION, EntityType.LOCATION})
 
 
-def _language_collisions(text: str, haystack: str, needle: str, entity: EntityType) -> int:
-    """Occurrences of ``needle`` in ``haystack`` that are part of an ordinary word.
+def _words_at(
+    handler: FormatHandler,
+    stream: TextStream,
+    searched: str,
+    positions: Sequence[int],
+    length: int,
+) -> tuple[EmbeddedWord, ...]:
+    """The whole word around each position, grouped by word and region.
+
+    A position past the stream is in ``verification_extras`` - document
+    properties - which has no anchors, so it is named as metadata.
+    """
+    counts: Counter[tuple[str, Region]] = Counter()
+    spelling: dict[tuple[str, Region], str] = {}
+    for start in positions:
+        left, right = start, start + length
+        while left > 0 and searched[left - 1].isalnum():
+            left -= 1
+        while right < len(searched) and searched[right].isalnum():
+            right += 1
+        word = searched[left:right]
+        if start < len(stream.text):
+            part = stream.part_at(start)
+            region = handler.region_of(part) if part else Region("other")
+        else:
+            region = Region("metadata")
+        key = (word.casefold(), region)
+        spelling.setdefault(key, word)
+        counts[key] += 1
+    return tuple(
+        EmbeddedWord(word=spelling[key], region=key[1], occurrences=count)
+        for key, count in counts.items()
+    )
+
+
+def _language_collisions(text: str, haystack: str, needle: str, entity: EntityType) -> list[int]:
+    """Where ``needle`` occurs in ``haystack`` as part of an ordinary word.
 
     Narrow by construction, because every occurrence counted here is one that
     does not fail the scrub:
@@ -288,10 +343,10 @@ def _language_collisions(text: str, haystack: str, needle: str, entity: EntityTy
     ``mrossi``.
     """
     if entity not in _PROSE_TYPES or not needle.isalpha():
-        return 0
+        return []
     if len(haystack) != len(text):
-        return 0
-    count = 0
+        return []
+    found: list[int] = []
     start = haystack.find(needle)
     while start != -1:
         end = start + len(needle)
@@ -303,9 +358,9 @@ def _language_collisions(text: str, haystack: str, needle: str, entity: EntityTy
             and (not joined_after or _one_word_after(text, end))
             and not _inside_an_address(haystack, start, end)
         ):
-            count += 1
+            found.append(start)
         start = haystack.find(needle, end)
-    return count
+    return found
 
 
 _ADDRESS_MARKS = frozenset("@/\\")

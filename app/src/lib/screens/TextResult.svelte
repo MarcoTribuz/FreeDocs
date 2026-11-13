@@ -16,6 +16,7 @@
 	import Card from '$lib/components/Card.svelte';
 	import Icon from '$lib/components/Icon.svelte';
 	import TextField from '$lib/components/TextField.svelte';
+	import InsideWords from './InsideWords.svelte';
 
 	/**
 	 * The scrubbed text to copy, and the way back: paste the model's reply, get
@@ -90,6 +91,14 @@
 						</li>
 					{/each}
 				</ul>
+			{/if}
+
+			{#if result.inside_words?.length}
+				<InsideWords items={result.inside_words} />
+			{/if}
+
+			{#if result.key_respelled}
+				<p class="warnline">{m.keyRespelled({ count: result.key_respelled })}</p>
 			{/if}
 
 			{#each result.warnings ?? [] as warning (warning)}
@@ -192,6 +201,9 @@
 						<li><code>{placeholder}</code></li>
 					{/each}
 				</ul>
+			{/if}
+			{#if restored.respelled}
+				<p class="warnline">{m.keyRespelled({ count: restored.respelled })}</p>
 			{/if}
 			{#each restored.warnings as warning (warning)}
 				<p class="warnline" lang="en">{warning}</p>

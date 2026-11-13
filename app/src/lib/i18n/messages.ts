@@ -31,6 +31,8 @@
  * an f-string, quote it. Entity names, actions and country codes are
  * enumerable, so they get real words. Sentences do not.
  */
+import type { HiddenKind, RegionKind } from '../readable';
+
 export interface Messages {
 	// ---- chrome -------------------------------------------------------------
 	appName(): string;
@@ -171,6 +173,20 @@ export interface Messages {
 	hiddenRemovedTitle(): string;
 	/** The same list before the scrub, so the preview is not silent about it. */
 	hiddenPendingTitle(): string;
+	/** Beside a hidden-content line found in more than one part of the file. */
+	hiddenParts(a: { count: number }): string;
+	hiddenDetailsShow(): string;
+	hiddenDetailsHide(): string;
+	/** Above the details, which are the engine's own English. */
+	hiddenDetailsNote(): string;
+
+	/** A removed value still present inside longer words: the heading. */
+	insideWordsTitle(): string;
+	/** Beside the entity badge; `value` is the document's own text. */
+	insideWordsLead(a: { value: string; count: number }): string;
+	insideWordsHint(): string;
+	/** The key file will restore one spelling for values written several ways. */
+	keyRespelled(a: { count: number }): string;
 	nothingWritten(): string;
 
 	// ---- announced, not shown ----------------------------------------------
@@ -504,4 +520,8 @@ export interface Messages {
 	// ---- engine vocabulary: enumerable, so translated ----------------------
 	entity: Record<string, () => string>;
 	action: Record<'redact' | 'surrogate' | 'report' | 'keep', () => string>;
+	/** What a piece of hidden content is. Pinned to the engine by `tests/test_readable.py`. */
+	hiddenKind: Record<HiddenKind, () => string>;
+	/** Where in a document something is. `number` is null where the format has none. */
+	region: Record<RegionKind, (a: { number: number | null }) => string>;
 }

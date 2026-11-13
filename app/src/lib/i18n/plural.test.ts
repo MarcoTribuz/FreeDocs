@@ -120,6 +120,9 @@ describe('the catalogues', () => {
 		announceTextScrubbed: { count: 3 },
 		modelBytes: { done: '412 MB', of: '1,244 MB' },
 		modelEtaMinutes: { minutes: 3 },
+		hiddenParts: { count: 9 },
+		insideWordsLead: { value: 'Acteurs', count: 7 },
+		keyRespelled: { count: 3 },
 		modelSampleAfter: {
 			person: '[PERSON_1]',
 			organisation: '[ORGANISATION_1]',
@@ -152,7 +155,10 @@ describe('the catalogues', () => {
 				termsImportedTitle: catalogue.termsImportedTitle({ added: 1, skipped: 1 }),
 				termsMatched: catalogue.termsMatched({ matched: 1, loaded: 1 }),
 				textCount: catalogue.textCount({ count: 1 }),
-				announceTextScrubbed: catalogue.announceTextScrubbed({ count: 1 })
+				announceTextScrubbed: catalogue.announceTextScrubbed({ count: 1 }),
+				hiddenParts: catalogue.hiddenParts({ count: 1 }),
+				insideWordsLead: catalogue.insideWordsLead({ value: 'Acteurs', count: 1 }),
+				keyRespelled: catalogue.keyRespelled({ count: 1 })
 			};
 			for (const [key, produced] of Object.entries(ones)) {
 				expect(produced, `${name}.${key}`).toBeTruthy();

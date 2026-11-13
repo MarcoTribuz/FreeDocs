@@ -19,6 +19,8 @@
 	import Callout from '$lib/components/Callout.svelte';
 	import Card from '$lib/components/Card.svelte';
 	import Icon from '$lib/components/Icon.svelte';
+	import HiddenList from './HiddenList.svelte';
+	import InsideWords from './InsideWords.svelte';
 
 	const m = $derived(i18n.m);
 	let heading: HTMLHeadingElement | undefined = $state();
@@ -167,11 +169,15 @@
 				<!-- What the user never saw in the first place, which is where the leaks
 				     they do not expect actually live. -->
 				<h4>{m.hiddenRemovedTitle()}</h4>
-				<ul class="hidden" lang="en">
-					{#each result.hidden_removed as item (item.part + item.kind)}
-						<li><span class="mono">{item.part}</span> — {item.kind}: {item.detail}</li>
-					{/each}
-				</ul>
+				<HiddenList items={result.hidden_removed} />
+			{/if}
+
+			{#if result.inside_words?.length}
+				<InsideWords items={result.inside_words} />
+			{/if}
+
+			{#if result.key_respelled}
+				<p class="warnline">{m.keyRespelled({ count: result.key_respelled })}</p>
 			{/if}
 
 			{#each result.warnings ?? [] as warning (warning)}
@@ -328,16 +334,6 @@
 
 	.countries {
 		text-transform: uppercase;
-	}
-
-	.hidden {
-		list-style: none;
-		font-size: var(--text-sm);
-		color: var(--text-2);
-	}
-
-	.hidden li {
-		margin: var(--space-1) 0;
 	}
 
 	.warnline {

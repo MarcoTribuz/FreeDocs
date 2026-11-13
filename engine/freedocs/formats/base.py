@@ -44,6 +44,102 @@ class HiddenItem:
     kind: str
     detail: str
 
+    def __post_init__(self) -> None:
+        # The window translates ``kind`` by key, so a kind outside the set
+        # reaches a reader as a raw slug. Refused here, where the handler author
+        # is, rather than discovered on somebody's screen.
+        if self.kind not in HIDDEN_KINDS:
+            raise ValueError(f"unknown hidden-content kind {self.kind!r}; add it to HIDDEN_KINDS")
+
+
+#: Every ``HiddenItem.kind`` a handler may report. Closed because it is a
+#: vocabulary the desktop window translates into four languages; a test in
+#: ``tests/test_readable.py`` checks each one has a label there.
+HIDDEN_KINDS = frozenset(
+    {
+        # Document properties
+        "metadata",
+        "extended-metadata",
+        "custom-properties",
+        "xmp-metadata",
+        "titles-of-parts",
+        "hyperlink-cache",
+        "page-thumbnail",
+        "custom-xml-store",
+        "printer-settings",
+        "macro-project",
+        "data-connections",
+        # Comments and revisions
+        "comments",
+        "comment-anchors",
+        "comment-ids",
+        "comment-metadata",
+        "comment-shapes",
+        "comment-threading",
+        "commenter-directory",
+        "revision-markup",
+        "revision-save-ids",
+        "revision-save-id-table",
+        "tracked-deletions",
+        "tracked-insertions",
+        # Things hidden from view
+        "hidden-cells",
+        "hidden-sheet",
+        "hidden-slide",
+        "offscreen-shape",
+        "pivot-cache",
+        "external-link-cache",
+        # PDF
+        "annotations",
+        "embedded-files",
+        "form-fields",
+        "form-widgets",
+        "optional-content-layers",
+        "outline",
+    }
+)
+
+
+#: Where in a document a piece of text sits, in the words a reader uses. Closed,
+#: for the reason ``HIDDEN_KINDS`` is: the window translates it.
+REGION_KINDS = frozenset(
+    {
+        "body",
+        "header",
+        "footer",
+        "footnote",
+        "endnote",
+        "comment",
+        "link",
+        "metadata",
+        "sheet",
+        "chart",
+        "slide",
+        "notes",
+        "page",
+        "other",
+    }
+)
+
+
+@dataclass(frozen=True)
+class Region:
+    """A part of a document named for a person rather than for the package.
+
+    ``word/footnotes.xml`` and ``page:3`` are the engine's vocabulary; "a
+    footnote" and "page 3" are the reader's. ``number`` is set only where the
+    format really has one a reader could find - a PDF page, a slide, a sheet's
+    position - and never invented: a Word document has no pages until Word lays
+    it out, so nothing here can say which page a word is on.
+    """
+
+    kind: str
+    number: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.kind not in REGION_KINDS:
+            raise ValueError(f"unknown region kind {self.kind!r}")
+
 
 class FormatHandler(ABC):
     """Reads one document, exposes its text, writes a scrubbed copy."""
@@ -148,6 +244,13 @@ class FormatHandler(ABC):
         Default is a no-op: for most formats one reading is the reading.
         """
         return None
+
+    def region_of(self, part: str) -> Region:
+        """Name the part an anchor came from in the reader's words.
+
+        The default suits a format with one undivided body, which is plain text.
+        """
+        return Region("body")
 
     def verification_extras(self, stream: TextStream) -> str:
         """Text in the output that ``extract`` does not read, for stage 6 alone.

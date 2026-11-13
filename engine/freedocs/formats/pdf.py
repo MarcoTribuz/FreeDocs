@@ -52,7 +52,7 @@ from typing import TYPE_CHECKING, Any
 from ..core.errors import InputTooLarge, MalformedDocument, MissingDependency
 from ..core.limits import refuse_too_many_pages
 from ..core.stream import AnchorEdit, TextStream, TextStreamBuilder
-from .base import FormatHandler, HiddenItem
+from .base import FormatHandler, HiddenItem, Region
 
 if TYPE_CHECKING:  # pragma: no cover
     import pymupdf
@@ -850,6 +850,12 @@ class PdfTextHandler(FormatHandler):
         self.ocr_every_imaged_page = True
 
     # -- hidden content --------------------------------------------------------
+
+    def region_of(self, part: str) -> Region:
+        # ``page:N`` is 1-based already: the page number a viewer shows.
+        if part.startswith("page:") and part[5:].isdigit():
+            return Region("page", int(part[5:]))
+        return Region("other")
 
     def scrub_hidden(self) -> list[HiddenItem]:
         with _translating(self.path.name, "strip this PDF's hidden content"):
