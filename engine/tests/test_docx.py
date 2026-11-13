@@ -359,6 +359,45 @@ def test_metadata_values_do_not_survive(loaded: Path):
         assert not survives_anywhere(output, value), value
 
 
+@pytest.fixture
+def linked(tmp_path: Path) -> Path:
+    """A link in the body, and Word's second copy of it in ``docProps/app.xml``.
+
+    The cache also holds an address the body no longer carries - a link deleted
+    after the cache was written - which no detector reading the document can
+    see, so only dropping the cache whole removes it.
+    """
+    return make(
+        tmp_path / "linked.docx",
+        hyperlink=("scrivi al referente", f"mailto:{CANARIES['EMAIL']}"),
+        hlinks=(
+            f"mailto:{CANARIES['EMAIL']}",
+            "http://intranet.rossi-consulting.invalid/clienti/bianchi",
+        ),
+        hyperlink_base="\\\\fileserver\\rossi-consulting\\",
+    )
+
+
+@pytest.mark.leak
+def test_the_hyperlink_cache_does_not_survive(linked: Path):
+    """Found on a real document: every URL removed from the body was still here.
+
+    Stage 6 does not read ``docProps/``, so this was invisible to verification
+    and the scrub reported success.
+    """
+    output = l1_scrubber().scrub_file(linked).output
+    assert not survives_anywhere(output, CANARIES["EMAIL"])
+    assert not survives_anywhere(output, "rossi-consulting")
+    assert not survives_anywhere(output, "HLinks")
+
+
+def test_the_hyperlink_cache_is_inventoried_without_its_addresses(linked: Path):
+    removed = l1_scrubber().scrub_file(linked).hidden_removed
+    details = {item.kind: item.detail for item in removed}
+    assert details["hyperlink-cache"] == "2 cached hyperlink address(es)"
+    assert "hyperlink base" in details["extended-metadata"]
+
+
 def test_revision_save_ids_are_stripped(loaded: Path):
     """They fingerprint the editing session and link documents to one author."""
     output = l1_scrubber().scrub_file(loaded).output

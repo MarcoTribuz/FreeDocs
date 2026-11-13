@@ -35,6 +35,10 @@ APP_FIELDS: tuple[tuple[str, str], ...] = (
     ("ep:TotalTime", "total editing time"),
     ("ep:Template", "template path"),
     ("ep:LastAuthor", "last author"),
+    # The base every relative hyperlink resolves against: in practice a server
+    # path or an intranet address, which names the organisation as surely as
+    # ``Company`` does.
+    ("ep:HyperlinkBase", "hyperlink base"),
 )
 
 
@@ -62,7 +66,44 @@ def scrub_core_properties(package: OoxmlPackage) -> list[HiddenItem]:
 
 
 def scrub_app_properties(package: OoxmlPackage) -> list[HiddenItem]:
-    return blank_fields(package, "docProps/app.xml", APP_FIELDS, "extended-metadata")
+    return [
+        *blank_fields(package, "docProps/app.xml", APP_FIELDS, "extended-metadata"),
+        *drop_hyperlink_cache(package),
+    ]
+
+
+def drop_hyperlink_cache(package: OoxmlPackage) -> list[HiddenItem]:
+    """Remove ``HLinks``, Office's second copy of every hyperlink target.
+
+    Word writes each link's address into ``docProps/app.xml`` as well as into
+    the relationship the link actually uses. The relationship is anchored and
+    redacted; this copy was not, so on a real document every URL the scrub had
+    removed from the body was still in the package, and stage 6 - which reads
+    the parts a handler extracts, not ``docProps/`` - passed over all of them.
+
+    The whole element goes rather than its strings being edited: it is a cache
+    Office rebuilds on the next save, a stale one does no harm, and an emptied
+    vector would still have to agree with its own ``size`` attribute.
+    """
+    part = "docProps/app.xml"
+    if not package.has(part):
+        return []
+    tree = package.tree(part)
+    removed = 0
+    for element in list(tree.iter(qn("ep:HLinks"))):  # type: ignore[attr-defined]
+        # Six variants per link; the targets are the string-valued ones.
+        removed += sum(1 for value in element.iter(qn("vt:lpwstr")) if value.text)
+        element.getparent().remove(element)
+        package.mark_dirty(part)
+    if not removed:
+        return []
+    return [
+        HiddenItem(
+            part=part,
+            kind="hyperlink-cache",
+            detail=f"{removed} cached hyperlink address(es)",
+        )
+    ]
 
 
 def drop_thumbnail(package: OoxmlPackage) -> list[HiddenItem]:

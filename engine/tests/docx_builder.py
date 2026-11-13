@@ -57,7 +57,7 @@ APP = """{decl}
 <Company>{company}</Company>
 <Manager>{manager}</Manager>
 <TotalTime>{total_time}</TotalTime>
-<Template>{template}</Template>
+<Template>{template}</Template>{extra}
 </Properties>"""
 
 SETTINGS = """{decl}
@@ -113,6 +113,11 @@ class DocxSpec:
     company: str = "Realise Consulting SA"
     manager: str = "Giuseppe Conti"
     template: str = "C:\\Users\\mtribuzio\\Templates\\Riservato.dotx"
+    #: Hyperlink targets Word also caches in ``docProps/app.xml`` ``HLinks``.
+    #: Empty by default: most fixtures have no links, and Word writes no
+    #: ``HLinks`` element then.
+    hlinks: tuple[str, ...] = ()
+    hyperlink_base: str = ""
     #: Blankable so a genuinely clean document can be built for the tests.
     revision: str = "7"
     total_time: str = "412"
@@ -226,6 +231,31 @@ def _document_rels(spec: DocxSpec) -> str:
     return f'{DECL}\n<Relationships xmlns="{REL}">{"".join(entries)}</Relationships>'
 
 
+def _app_extra(spec: DocxSpec) -> str:
+    """``HyperlinkBase`` and ``HLinks`` as Word writes them: six variants a link."""
+    out = []
+    if spec.hyperlink_base:
+        out.append(f"<HyperlinkBase>{_escape(spec.hyperlink_base)}</HyperlinkBase>")
+    if spec.hlinks:
+        variants = []
+        for index, target in enumerate(spec.hlinks):
+            variants.extend(
+                [
+                    f"<vt:variant><vt:i4>{7536703 + index}</vt:i4></vt:variant>",
+                    "<vt:variant><vt:i4>63</vt:i4></vt:variant>",
+                    "<vt:variant><vt:i4>0</vt:i4></vt:variant>",
+                    "<vt:variant><vt:i4>5</vt:i4></vt:variant>",
+                    f"<vt:variant><vt:lpwstr>{_escape(target)}</vt:lpwstr></vt:variant>",
+                    "<vt:variant><vt:lpwstr></vt:lpwstr></vt:variant>",
+                ]
+            )
+        out.append(
+            f'<HLinks><vt:vector size="{len(variants)}" baseType="variant">'
+            f"{''.join(variants)}</vt:vector></HLinks>"
+        )
+    return "".join(out)
+
+
 def build_docx(spec: DocxSpec) -> bytes:
     extra_types = []
     if spec.comment:
@@ -259,6 +289,7 @@ def build_docx(spec: DocxSpec) -> bytes:
             manager=_escape(spec.manager),
             template=_escape(spec.template),
             total_time=_escape(spec.total_time),
+            extra=_app_extra(spec),
         ),
     }
     if spec.comment:
