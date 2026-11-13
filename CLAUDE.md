@@ -1575,6 +1575,13 @@ Four decisions, each of which has a failure it prevents:
   a suggestion, not a control. It is a layer purely so that `LAYER_PRECEDENCE`
   settles an overlap; it is not a detector and produces nothing without a caller
   supplying the decision.
+- **A removal ignores case, because stage 6 does.** It was an exact search while
+  verification casefolds, so removing `Mario Rossi` left `MARIO ROSSI` in a
+  header and the file was refused again — the window's "Remove everywhere" on a
+  survivor would have gone round that loop. `re.IGNORECASE`, not `casefold`,
+  so a span is always a span of the text as it is; each finding carries the
+  document's spelling. Still a substring instruction, so `Acteurs` also takes
+  the letters inside `facteurs`.
 - **A keep is a span, a removal is a value.** The window lists one row per
   occurrence, so "keep this one" is a range the caller already has — and it *must*
   be a range, because the same city is confidential in a party's address and not
@@ -1981,12 +1988,15 @@ A placeholder written straight into a relationship target gave `mailto:[EMAIL_1]
 and `https://prod.[ORGANISATION_2]-ge.ch/...`; square brackets are legal in a URI
 only around an IPv6 address, and a real document with sixteen redacted links
 opened with "Word found unreadable content" every time while every part was
-well-formed XML. `valid_link_target` runs on an *edited* target only: a `mailto:`
-keeps its scheme with the rest percent-encoded, anything else is re-pointed under
-`https://redacted.invalid/` with the redacted text encoded in the path — encoding
-into the host is valid on paper and is what strict parsers refuse. The cost:
-`restore` does not put a link's address back, since the placeholder in it is
-encoded and matching is literal by design.
+well-formed XML. `valid_link_target` runs on an *edited* target only and keeps
+**the placeholders and nothing else**: a `mailto:` keeps its scheme, anything else
+points under `https://redacted.invalid/`. The first version percent-encoded the
+whole edited address, which hid a missed value from stage 6 — `Genève` became
+`Gen%C3%A8ve`, `Mario Rossi` became `Mario%20Rossi`, and neither is what the
+search looks for. Dropping the rest also drops whatever no detector named, the
+right direction for a link nobody reads. The cost: `restore` does not put a
+link's address back, since the placeholder in it is encoded and matching is
+literal by design.
 
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.

@@ -121,6 +121,16 @@ class TestRemove:
     def test_a_value_that_is_there_is_not_reported(self):
         assert Override(remove=(RemovedValue("Zurigo"),)).unmatched(TEXT) == []
 
+    def test_a_removal_ignores_case_because_verification_does(self):
+        """``Mario Rossi`` removed, ``MARIO ROSSI`` left: stage 6 casefolds and refused it."""
+        text = "Firmato: Mario Rossi.\nINTESTAZIONE: MARIO ROSSI\n"
+        added = Override(remove=(RemovedValue("Mario Rossi"),)).apply(text, [])
+        # Each finding carries the document's own spelling, not the request's.
+        assert [f.text for f in added] == ["Mario Rossi", "MARIO ROSSI"]
+
+    def test_a_value_present_only_in_another_case_is_not_unmatched(self):
+        assert Override(remove=(RemovedValue("zurigo"),)).unmatched(TEXT) == []
+
 
 class TestKeepBeatsRemove:
     def test_a_kept_span_exempts_an_occurrence_the_caller_also_asked_to_remove(self):
