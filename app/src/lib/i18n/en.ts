@@ -245,6 +245,29 @@ export const en = {
 			one: 'The output was re-opened and searched: {n} value is gone.',
 			other: 'The output was re-opened and searched: all {n} values are gone.'
 		}),
+	leftTitle: ({ count }) =>
+		plural(L, count, {
+			one: '{n} value is still in the output',
+			other: '{n} values are still in the output'
+		}),
+	leftHint: () =>
+		'The scrubbed copy was re-opened and these were found in it. Remove them everywhere and ' +
+		'scrub again, or write this file anyway and check it yourself.',
+	leftValueUnknown: () => 'value not in the preview',
+	removeEverywhere: () => 'Remove everywhere',
+	removeEverywhereAdded: () => 'Will be removed',
+	backToReview: () => 'Back to review',
+	writeAnyway: () => 'Write this file anyway',
+	writeAnywayHint: () =>
+		'The copy will still contain the values above. Read it before sending it anywhere.',
+	writeAnywayNeedsPassphrase: () =>
+		'A key file was asked for: enter its passphrase again in the options to write this file.',
+	verificationFailed: () => 'Not verified',
+	verificationFailedHint: ({ count }) =>
+		plural(L, count, {
+			one: 'Written on request: {n} value was found still in the output.',
+			other: 'Written on request: {n} values were found still in the output.'
+		}),
 	openFolder: () => 'Open the folder',
 	scrubAgain: () => 'Start again',
 

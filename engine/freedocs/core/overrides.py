@@ -32,6 +32,7 @@ nothing merely removes nothing, and is reported instead.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 
@@ -191,7 +192,9 @@ class Override:
         return [
             item.value
             for item in self.remove
-            if item.detector == DETECTOR and item.value and item.value not in text
+            if item.detector == DETECTOR
+            and item.value
+            and _pattern(item.value).search(text) is None
         ]
 
     def terms_use(self, findings: Iterable[Finding]) -> TermsUse | None:
@@ -208,7 +211,9 @@ class Override:
         loaded = sum(1 for item in self.remove if item.detector == TERMS_DETECTOR)
         if not loaded:
             return None
-        matched = {f.text for f in findings if f.detector == TERMS_DETECTOR}
+        # Casefolded because a removal now matches regardless of case, so one
+        # entry can claim `Acme` and `ACME` - still one entry that matched.
+        matched = {f.text.casefold() for f in findings if f.detector == TERMS_DETECTOR}
         return TermsUse(loaded=loaded, matched=len(matched))
 
     def _check(self, text: str) -> None:
@@ -245,6 +250,13 @@ class Override:
         while this is an instruction. A caller who asks for ``Acme`` inside
         ``Acmegraph`` gets it, and the preview they are about to re-read shows
         exactly that.
+
+        **Case is ignored, because stage 6 ignores it.** The search used to be
+        exact while verification casefolds, so removing ``Mario Rossi`` left a
+        ``MARIO ROSSI`` in a header, verification found it, and the file was
+        refused again - the window's "Remove everywhere" on a survivor would have
+        gone round that loop. Each finding carries the text it actually covers,
+        so the report and a key file see the document's own spelling.
         """
         claimed: list[Span] = []
         # Longest first. Two requested values can nest - "Acme" inside "Acme
@@ -256,9 +268,11 @@ class Override:
         for item in sorted(self.remove, key=lambda item: -len(item.value)):
             if not item.value:
                 continue
-            start = text.find(item.value)
-            while start != -1:
-                span = Span(start, start + len(item.value))
+            pattern = _pattern(item.value)
+            match = pattern.search(text)
+            while match is not None:
+                start = match.start()
+                span = Span(start, match.end())
                 # Nested values: the longer one got here first (see above), and
                 # the shorter is not a second edit on the same characters.
                 if not any(span.overlaps(other) for other in claimed):
@@ -266,12 +280,22 @@ class Override:
                     yield Finding(
                         span=span,
                         entity=item.entity,
-                        text=item.value,
+                        text=match.group(0),
                         layer=Layer.HUMAN,
                         detector=item.detector,
                         confidence=1.0,
                     )
-                start = text.find(item.value, start + 1)
+                match = pattern.search(text, start + 1)
+
+
+def _pattern(value: str) -> re.Pattern[str]:
+    """A requested value as a case-insensitive literal.
+
+    ``re.IGNORECASE`` and not ``casefold``: casefolding can change a string's
+    length (``ß`` -> ``ss``), which would move every offset after it, while a
+    case-insensitive match always returns a span of the text as it is.
+    """
+    return re.compile(re.escape(value), re.IGNORECASE)
 
 
 def parse_override(keep: Sequence[dict] | None, remove: Sequence[dict] | None) -> Override:

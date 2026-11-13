@@ -13,6 +13,7 @@ import {
 	type Stage,
 	type RemovedValue,
 	type RestoreResult,
+	type ScrubOptions,
 	type ScrubResult,
 	type TesseractRefusal,
 	type Term,
@@ -138,6 +139,11 @@ export const session = $state({
 	 */
 	stage: null as Stage | null,
 	results: [] as ScrubResult[],
+	/**
+	 * Where the last scrub wrote, so "write this file anyway" lands beside the
+	 * copies the same run already produced rather than asking again.
+	 */
+	outputDir: null as string | null,
 	problem: null as string | null,
 
 	/** Entity types the user has chosen to leave alone, everywhere. */
@@ -755,6 +761,7 @@ export function clearFiles(): void {
 	session.keptSpans = {};
 	session.extraValues = {};
 	session.results = [];
+	session.outputDir = null;
 	session.keyFiles = {};
 	select(null);
 	session.step = 'file';
@@ -1109,6 +1116,89 @@ export function toggleCountry(code: string): void {
 	void reinspectAll();
 }
 
+/**
+ * Everything a scrub request carries besides the paths and the folder, in one
+ * place so that "write this file anyway" asks for exactly what the run it
+ * follows asked for - one option differing would make the two copies disagree.
+ */
+function scrubOptions(paths: string[], allowLeaks = false): ScrubOptions {
+	return {
+		keep: [...session.kept],
+		// Every file's decisions in one request, each carrying its own path.
+		// The engine scopes them per document, because a span is an offset
+		// into one extraction and would be stale anywhere else — see
+		// Override.for_path.
+		keepSpans: paths.flatMap((path) => session.keptSpans[path] ?? []),
+		remove: paths.flatMap((path) => session.extraValues[path] ?? []),
+		minConfidence: session.minConfidence,
+		countries: activeCountries(),
+		detectors: detectorSpec(),
+		placeholderLanguage: session.placeholderLanguage,
+		review: session.reviewModel || null,
+		reviewHost: session.reviewHost,
+		// Both or neither, which `toParams` enforces: the engine refuses a key
+		// file with no passphrase rather than quietly writing nothing.
+		map: session.keyWanted ? session.keyDir : null,
+		mapPassphrase: session.keyWanted ? session.keyPassphrase : null,
+		useTerms: termsInUse(),
+		allowLeaks
+	};
+}
+
+/**
+ * Add a value verification found still in the output to this file's removals.
+ *
+ * The same list the "also remove" box feeds, so it reaches the engine as a
+ * caller-named removal and is re-inspected at once: the preview the user goes
+ * back to must already show what the next scrub will do.
+ */
+export function removeSurvivor(path: string, value: string, entity: string): void {
+	const current = session.extraValues[path] ?? [];
+	if (current.some((item) => item.value === value)) return;
+	session.extraValues = { ...session.extraValues, [path]: [...current, { value, entity, path }] };
+	void loadInspection(path);
+}
+
+export function survivorQueued(path: string, value: string): boolean {
+	return (session.extraValues[path] ?? []).some((item) => item.value === value);
+}
+
+/**
+ * Why "write this file anyway" cannot run, or null. The key-file passphrase is
+ * forgotten when a scrub ends, deliberately, and writing without the key file
+ * the run asked for would be a different run than the one the user chose.
+ */
+export function writeAnywayBlocker(): 'passphrase' | null {
+	if (session.keyWanted && !session.keyPassphrase) return 'passphrase';
+	return null;
+}
+
+/**
+ * Re-run one refused file with `allow_leaks`, into the folder the run used.
+ *
+ * Only that file, and only on request: the engine still verifies, the result
+ * says what is left, and the window marks it "Not verified". Nothing about the
+ * default changes - a scrub that finds a survivor still writes nothing.
+ */
+export async function writeAnyway(path: string): Promise<void> {
+	if (!session.outputDir || writeAnywayBlocker()) return;
+	session.busy = 'scrub';
+	try {
+		const [result] = (await scrub([path], session.outputDir, scrubOptions([path], true))).results;
+		session.results = session.results.map((existing) =>
+			existing.path === path ? result : existing
+		);
+		if (result.key_file) session.keyFiles = { ...session.keyFiles, [path]: result.key_file };
+	} catch (error) {
+		fail(describe(error), codeOf(error));
+	} finally {
+		session.busy = null;
+		session.progress = null;
+		session.stage = null;
+		forgetSecrets();
+	}
+}
+
 export async function runScrub(): Promise<void> {
 	if (session.mode === 'text') return runScrubText();
 	const target = await open({
@@ -1121,29 +1211,9 @@ export async function runScrub(): Promise<void> {
 	session.busy = 'scrub';
 	session.problem = null;
 	session.results = [];
+	session.outputDir = target;
 	try {
-		session.results = (
-			await scrub(session.files, target, {
-				keep: [...session.kept],
-				// Every file's decisions in one request, each carrying its own path.
-				// The engine scopes them per document, because a span is an offset
-				// into one extraction and would be stale anywhere else — see
-				// Override.for_path.
-				keepSpans: session.files.flatMap((path) => session.keptSpans[path] ?? []),
-				remove: session.files.flatMap((path) => session.extraValues[path] ?? []),
-				minConfidence: session.minConfidence,
-				countries: activeCountries(),
-				detectors: detectorSpec(),
-				placeholderLanguage: session.placeholderLanguage,
-				review: session.reviewModel || null,
-				reviewHost: session.reviewHost,
-				// Both or neither, which `toParams` enforces: the engine refuses a key
-				// file with no passphrase rather than quietly writing nothing.
-				map: session.keyWanted ? session.keyDir : null,
-				mapPassphrase: session.keyWanted ? session.keyPassphrase : null,
-				useTerms: termsInUse()
-			})
-		).results;
+		session.results = (await scrub(session.files, target, scrubOptions(session.files))).results;
 
 		// Where each key went, collected here so the result screen has one place to
 		// read it from rather than reaching into each result.

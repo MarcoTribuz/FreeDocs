@@ -235,7 +235,14 @@ export interface Verification {
 	values_checked: number;
 	/** Too short to search for without matching ordinary text. */
 	values_too_short_to_check: number;
-	leaks: { entity: string; detector: string; occurrences: number }[];
+	/**
+	 * `start`/`end` locate one occurrence in the source extraction, in code
+	 * points: a position, never the value. `lib/leaks.ts` names the value from
+	 * the preview's own findings.
+	 */
+	leaks: { entity: string; detector: string; occurrences: number; start?: number; end?: number }[];
+	/** One-word prose values left inside longer words: reported, not a failure. */
+	inside_longer_words?: { entity: string; detector: string; occurrences: number }[];
 }
 
 /** The machine-readable summary. Counts and positions, never values. */

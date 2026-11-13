@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from ..base import HiddenItem
 from .docprops import (
+    blank_titles_of_parts,
     drop_custom_xml,
     drop_thumbnail,
     scrub_app_properties,
@@ -130,6 +131,7 @@ def scrub_docx_hidden(package: OoxmlPackage) -> list[HiddenItem]:
     removed.extend(drop_custom_xml(package))
     removed.extend(scrub_core_properties(package))
     removed.extend(scrub_app_properties(package))
+    removed.extend(blank_titles_of_parts(package, holds="the document title"))
 
     for part in _xml_body_parts(package):
         removed.extend(_scrub_revisions(package, part))

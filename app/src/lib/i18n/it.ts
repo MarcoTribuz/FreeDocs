@@ -247,6 +247,29 @@ export const it = {
 			one: 'Il risultato è stato riaperto e cercato: {n} valore non c’è più.',
 			other: 'Il risultato è stato riaperto e cercato: tutti i {n} valori non ci sono più.'
 		}),
+	leftTitle: ({ count }) =>
+		plural(L, count, {
+			one: '{n} valore è ancora nel risultato',
+			other: '{n} valori sono ancora nel risultato'
+		}),
+	leftHint: () =>
+		'La copia anonimizzata è stata riaperta e questi valori ci sono ancora. Rimuovili ovunque e ' +
+		'rilancia, oppure scrivi comunque il file e controllalo tu.',
+	leftValueUnknown: () => 'valore non presente nell’anteprima',
+	removeEverywhere: () => 'Rimuovi ovunque',
+	removeEverywhereAdded: () => 'Verrà rimosso',
+	backToReview: () => 'Torna alla revisione',
+	writeAnyway: () => 'Scrivi comunque questo file',
+	writeAnywayHint: () =>
+		'La copia conterrà ancora i valori qui sopra. Leggila prima di mandarla a qualcuno.',
+	writeAnywayNeedsPassphrase: () =>
+		'È stato chiesto un file chiave: reinserisci la passphrase nelle opzioni per scrivere il file.',
+	verificationFailed: () => 'Non verificato',
+	verificationFailedHint: ({ count }) =>
+		plural(L, count, {
+			one: 'Scritto su richiesta: {n} valore è ancora nel risultato.',
+			other: 'Scritto su richiesta: {n} valori sono ancora nel risultato.'
+		}),
 	openFolder: () => 'Apri la cartella',
 	scrubAgain: () => 'Ricomincia',
 

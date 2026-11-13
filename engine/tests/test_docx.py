@@ -20,11 +20,14 @@ pytest.importorskip("lxml", reason="lxml is required for Office formats")
 
 from lxml import etree
 
-from freedocs.core.findings import Span
+from freedocs.core.findings import EntityType, Span
+from freedocs.core.overrides import Override, RemovedValue
 from freedocs.core.stream import Edit
-from freedocs.formats.ooxml.common import AttributeLocator
+from freedocs.formats.ooxml import docprops
+from freedocs.formats.ooxml.common import AttributeLocator, valid_link_target
 from freedocs.formats.ooxml.docx import DOCUMENT, DocxHandler
 from freedocs.formats.router import handler_for
+from freedocs.verify import LeakDetected
 
 from .conftest import CANARIES, l1_scrubber
 from .docx_builder import (
@@ -281,7 +284,58 @@ def test_a_canary_in_a_hyperlink_target_does_not_survive(tmp_path: Path):
     path = make(tmp_path / "s.docx", hyperlink=("scrivi", f"mailto:{CANARIES['EMAIL']}"))
     result = l1_scrubber().scrub_file(path)
     assert not survives_anywhere(result.output, CANARIES["EMAIL"])
-    assert "[EMAIL_1]" in part_text(result.output, "word/_rels/document.xml.rels")
+    # Percent-encoded: a bracket is not legal in a URI, and Word refuses the file.
+    assert "mailto:%5BEMAIL_1%5D" in part_text(result.output, "word/_rels/document.xml.rels")
+
+
+def _targets(data: bytes) -> list[str]:
+    root = etree.fromstring(part_text(data, "word/_rels/document.xml.rels").encode("utf-8"))
+    return [rel.get("Target") for rel in root if rel.get("TargetMode") == "External"]
+
+
+#: RFC 3986's characters as written. Anything else and Word reports the file as
+#: holding unreadable content - verbatim what a real document did.
+_URI_SAFE = set(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&'()*+,;=%"
+)
+
+
+@pytest.mark.parametrize(
+    ("target", "value", "entity"),
+    [
+        (f"mailto:{CANARIES['EMAIL']}", None, None),
+        ("https://prod.nordwind-consulting.ch/wiki/page", "nordwind", EntityType.ORGANISATION),
+    ],
+)
+def test_a_redacted_link_target_is_still_a_valid_uri(tmp_path: Path, target, value, entity):
+    """``[ORGANISATION_1]`` in a link made Word ask to repair the document."""
+    path = make(tmp_path / "s.docx", hyperlink=("vedi", target))
+    overrides = Override(remove=(RemovedValue(value, entity),)) if value else Override()
+    result = l1_scrubber(overrides=overrides).scrub_file(path)
+    assert result.verify.ok, result.verify.summary()
+    for written in _targets(result.output):
+        assert set(written) <= _URI_SAFE, written
+        assert "[" not in written
+
+
+def test_a_redacted_web_link_points_nowhere(tmp_path: Path):
+    path = make(tmp_path / "s.docx", hyperlink=("vedi", "https://prod.nordwind-consulting.ch/x"))
+    overrides = Override(remove=(RemovedValue("nordwind", EntityType.ORGANISATION),))
+    [target] = _targets(l1_scrubber(overrides=overrides).scrub_file(path).output)
+    assert target.startswith("https://redacted.invalid/")
+
+
+def test_a_valid_target_is_returned_untouched():
+    """The sanitiser runs only on an edited target, and leaves a valid one alone."""
+    assert valid_link_target("https://example.org/a?b=c#d") == "https://example.org/a?b=c#d"
+    assert valid_link_target("mailto:[EMAIL_1]") == "mailto:%5BEMAIL_1%5D"
+
+
+def test_a_rewritten_target_keeps_the_placeholders_and_nothing_else():
+    """Encoding the whole address hid a missed value from stage 6 (``Gen%C3%A8ve``)."""
+    rewritten = valid_link_target("https://prod.[ORGANISATION_1]-ge.ch/Genève/Mario Rossi")
+    assert rewritten == "https://redacted.invalid/%5BORGANISATION_1%5D"
+    assert valid_link_target("mailto:a b [EMAIL_1]") == "mailto:%5BEMAIL_1%5D"
 
 
 @pytest.mark.leak
@@ -357,6 +411,62 @@ def test_metadata_values_do_not_survive(loaded: Path):
     output = l1_scrubber().scrub_file(loaded).output
     for value in ("Marco Tribuzio", "Giuseppe Conti", "mtribuzio", "Riservato.dotx"):
         assert not survives_anywhere(output, value), value
+
+
+def test_a_blanked_property_is_removed_not_left_empty(loaded: Path):
+    """``<TotalTime/>`` is an empty ``xsd:int``, which Word reports as unreadable.
+
+    Found on a real document: every part well-formed, and Word still offered to
+    repair the file until the metadata step was bisected out.
+    """
+    import io
+    import zipfile
+
+    output = l1_scrubber().scrub_file(loaded).output
+    with zipfile.ZipFile(io.BytesIO(output)) as archive:
+        app = archive.read("docProps/app.xml").decode()
+        core = archive.read("docProps/core.xml").decode()
+    assert "TotalTime" not in app
+    assert "creator" not in core and "lastModifiedBy" not in core
+
+
+@pytest.fixture
+def linked(tmp_path: Path) -> Path:
+    """A link in the body, and Word's second copy of it in ``docProps/app.xml``.
+
+    The cache also holds an address the body no longer carries - a link deleted
+    after the cache was written - which no detector reading the document can
+    see, so only dropping the cache whole removes it.
+    """
+    return make(
+        tmp_path / "linked.docx",
+        hyperlink=("scrivi al referente", f"mailto:{CANARIES['EMAIL']}"),
+        hlinks=(
+            f"mailto:{CANARIES['EMAIL']}",
+            "http://intranet.rossi-consulting.invalid/clienti/bianchi",
+        ),
+        hyperlink_base="\\\\fileserver\\rossi-consulting\\",
+    )
+
+
+@pytest.mark.leak
+def test_the_hyperlink_cache_does_not_survive(linked: Path):
+    """Found on a real document: every URL removed from the body was still here.
+
+    Stage 6 does not read ``docProps/``, so this was invisible to verification
+    and the scrub reported success.
+    """
+    output = l1_scrubber().scrub_file(linked).output
+    assert not survives_anywhere(output, CANARIES["EMAIL"])
+    assert not survives_anywhere(output, "rossi-consulting")
+    assert not survives_anywhere(output, "HLinks")
+
+
+def test_the_hyperlink_cache_is_inventoried_without_its_addresses(linked: Path):
+    removed = l1_scrubber().scrub_file(linked).hidden_removed
+    details = {item.kind: item.detail for item in removed}
+    assert details["hyperlink-cache"] == "2 cached hyperlink address(es)"
+    assert "hyperlink base" in details["extended-metadata"]
 
 
 def test_revision_save_ids_are_stripped(loaded: Path):
@@ -458,3 +568,42 @@ def test_an_edit_still_lands_when_it_touches_the_link_text():
     body = part_text(output, "word/document.xml")
     assert "[ORGANISATION_1]" in body
     assert "Malakoff" not in body
+
+
+# -- verification reads docProps ------------------------------------------------
+
+
+@pytest.mark.leak
+def test_verification_sees_a_value_left_in_docprops(linked: Path, monkeypatch):
+    """The HLinks bug, re-created: the cache survives and stage 6 must say so.
+
+    Before verification read ``docProps/``, this scrub reported success with
+    the address still in ``app.xml``.
+    """
+    monkeypatch.setattr(docprops, "drop_hyperlink_cache", lambda package: [])
+    with pytest.raises(LeakDetected):
+        l1_scrubber().scrub_file(linked)
+
+
+def test_the_program_that_wrote_the_file_is_not_a_leak(tmp_path: Path):
+    """``Microsoft Office Word`` names the producer, not anybody in the document."""
+    path = make(
+        tmp_path / "ms.docx",
+        paragraphs=["Contratto con Microsoft per la fornitura."],
+        application="Microsoft Office Word",
+    )
+    override = Override(remove=(RemovedValue("Microsoft", EntityType.ORGANISATION),))
+    result = l1_scrubber(overrides=override).scrub_file(path)
+    assert result.verify.ok, result.verify.summary()
+
+
+@pytest.mark.leak
+def test_the_title_cached_in_titles_of_parts_does_not_survive(tmp_path: Path):
+    """``dc:title`` was blanked and Word's second copy of it was not."""
+    path = make(tmp_path / "titled.docx", titles_of_parts=("Scheda cliente Bianchi Rossi",))
+    result = l1_scrubber().scrub_file(path)
+    assert result.verify.ok, result.verify.summary()
+    assert not survives_anywhere(result.output, "Bianchi Rossi")
+    kinds = {item.kind: item.detail for item in result.hidden_removed}
+    assert kinds["titles-of-parts"].startswith("1 cached title")
+    assert "slide" not in kinds["titles-of-parts"]  # a Word report names no slides

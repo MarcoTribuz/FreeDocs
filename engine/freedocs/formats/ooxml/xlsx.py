@@ -42,6 +42,7 @@ from .common import (
     add_relationship_targets,
     apply_ooxml_edits,
 )
+from .docprops import unextracted_properties_text
 from .xlsx_hidden import scrub_xlsx_hidden
 from .zip_part import NS, OoxmlPackage, qn
 
@@ -263,6 +264,9 @@ class XlsxHandler(FormatHandler):
             builder.add_filler("\n")
 
     # -- hidden content --------------------------------------------------------
+
+    def verification_extras(self, stream: TextStream) -> str:
+        return unextracted_properties_text(self.package, stream.anchors)
 
     def scrub_hidden(self) -> list[HiddenItem]:
         return scrub_xlsx_hidden(self.package)

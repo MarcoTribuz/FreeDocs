@@ -10,6 +10,7 @@ test cannot check.
 from __future__ import annotations
 
 import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -178,9 +179,13 @@ def test_the_comment_and_its_author_do_not_survive(source: Path, scrubbed: bytes
 
 @pytest.mark.leak
 def test_metadata_does_not_survive(scrubbed: bytes):
-    workbook = openpyxl.load_workbook(io.BytesIO(scrubbed))
-    assert not workbook.properties.creator
-    assert not workbook.properties.title
+    """Read the part, not openpyxl: it reports ``creator='openpyxl'`` when absent."""
+    with zipfile.ZipFile(io.BytesIO(scrubbed)) as archive:
+        core = archive.read("docProps/core.xml").decode()
+    assert "creator" not in core
+    assert "<dc:title>" not in core
+    assert not survives_anywhere(scrubbed, "Marco Tribuzio")
+    openpyxl.load_workbook(io.BytesIO(scrubbed))  # still opens
 
 
 def test_the_full_stack_also_removes_the_names(source: Path):

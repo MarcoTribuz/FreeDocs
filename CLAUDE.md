@@ -1157,6 +1157,41 @@ gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing
 A nearly-clean file is more dangerous than an obviously dirty one, because it
 gets sent.
 
+**Verification also reads what a handler does not extract.** It used to search
+only the stream, so `docProps/app.xml`'s `HLinks` — a second copy of every link
+address — sat in the output while stage 6 passed. `FormatHandler.verification_extras`
+hands over the rest, for stage 6 alone. The Office formats give all of
+`docProps/` — node text and tails, comments, attribute values — minus the
+**elements** the stream already anchors (a workbook anchors `TitlesOfParts`, and
+counting it twice would break a kept occurrence's allowance; excluding the whole
+part for it was the first version, and it went blind to `HLinks` beside it), and
+minus `Application`/`AppVersion`, which name the producer: a document naming
+Microsoft as a party would otherwise fail on the program that wrote it. A pptx
+splits anchors by owner and adds each embedded workbook's own `docProps/`, because
+both packages call the part `docProps/app.xml`. A part that does not parse is
+searched raw, never skipped. Not covered yet: attribute values inside an
+*extracted* part, such as an image's alt text in `document.xml`.
+
+**A one-word value inside a longer word is reported, not raised.** The search is
+a substring count and propagation matches whole words, so on a real French
+document the model's `Acteurs` and `Limité` (as PERSON) failed the scrub on
+`facteurs` and `limitée` — eleven ordinary words, nothing written, and the same
+on every ordinary file tried. `VerifyResult.embedded` carries them, the report
+counts them under `verification.inside_longer_words`, and `Embedded.describe()`
+puts a value-free sentence in `warnings`. It is narrow on purpose, because each
+occurrence it counts is one that does not fail the scrub: only PERSON,
+ORGANISATION and LOCATION, only a value of letters alone (so no identifier and no
+**multi-word** value — fused text, which is how `Malakoff Humanisconsulte` hid a
+company), and only where every joint reads as one word — two lowercase letters,
+or a word's own capital into lowercase (`Facteurs`); a digit (`rossi1985`),
+camel case (`MarioRossi`) and all capitals (`MARIOROSSI`) stay leaks. The
+exemption classifies the very occurrences the substring count found, in the same
+casefolded text, and exempts nothing when casefolding changed the length. The word boundary is propagation's, so `_` separates
+and `2022_swica_resume` is a whole-word `swica`. The accepted cost, pinned by a
+test: an all-lowercase username (`mrossi`) is a warning rather than a refusal. Scrapping a model finding that
+starts mid-word was considered and **not** done, for the fused-text reason — it
+would drop the real name the fusion produced.
+
 **Canaries must pass their real checksums.** A test value with a bad check digit
 is rejected by the validator, so nothing is detected, nothing leaks, and the leak
 test passes while proving nothing. `tests/conftest.py` holds verified values;
@@ -1540,6 +1575,13 @@ Four decisions, each of which has a failure it prevents:
   a suggestion, not a control. It is a layer purely so that `LAYER_PRECEDENCE`
   settles an overlap; it is not a detector and produces nothing without a caller
   supplying the decision.
+- **A removal ignores case, because stage 6 does.** It was an exact search while
+  verification casefolds, so removing `Mario Rossi` left `MARIO ROSSI` in a
+  header and the file was refused again — the window's "Remove everywhere" on a
+  survivor would have gone round that loop. `re.IGNORECASE`, not `casefold`,
+  so a span is always a span of the text as it is; each finding carries the
+  document's spelling. Still a substring instruction, so `Acteurs` also takes
+  the letters inside `facteurs`.
 - **A keep is a span, a removal is a value.** The window lists one row per
   occurrence, so "keep this one" is a range the caller already has — and it *must*
   be a range, because the same city is confidential in a party's address and not
@@ -1941,6 +1983,31 @@ not a newline: a link sits inside a sentence, and a break would stop
 `detect/addresses.py` assembling an address written around one. The walk is
 skipped entirely in a part with no link in it.
 
+**A redacted link target must still be a URI, or Word calls the file corrupt.**
+A placeholder written straight into a relationship target gave `mailto:[EMAIL_1]`
+and `https://prod.[ORGANISATION_2]-ge.ch/...`; square brackets are legal in a URI
+only around an IPv6 address, and a real document with sixteen redacted links
+opened with "Word found unreadable content" every time while every part was
+well-formed XML. `valid_link_target` runs on an *edited* target only and keeps
+**the placeholders and nothing else**: a `mailto:` keeps its scheme, anything else
+points under `https://redacted.invalid/`. The first version percent-encoded the
+whole edited address, which hid a missed value from stage 6 — `Genève` became
+`Gen%C3%A8ve`, `Mario Rossi` became `Mario%20Rossi`, and neither is what the
+search looks for. Dropping the rest also drops whatever no detector named, the
+right direction for a link nobody reads. The cost: `restore` does not put a
+link's address back, since the placeholder in it is encoded and matching is
+literal by design.
+
+**A metadata field is removed, never emptied.** `docprops.blank_fields` used to
+set `.text = None`, which left `<TotalTime/>` and `<cp:lastPrinted/>` — an empty
+`xsd:int` and an empty `xsd:dateTime`. Well-formed, schema-invalid, and Word
+calls the file "unreadable content". Found by bisecting a real document one
+hidden step at a time; `fd_structure`-style checks of well-formedness, broken
+relationships and dangling ids all passed it. Every field in those tables is
+optional, so absence is valid for all of them. Note for a test: openpyxl reports
+`creator='openpyxl'` when the element is absent, so read the part, not the
+library.
+
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.
 Only ever added, never removed.
@@ -2119,6 +2186,20 @@ path is in `localStorage` and comes back locked; the entries never leave the
 engine beyond the slice the editor shows. A finding from the list is told apart
 by `detector === 'terms'` (`isFromTerms`), not by its layer, which is `H` like
 the person's own.
+
+**A refused scrub is no longer a dead end, and the value still never rides the
+error.** Each leak in the refusal's `data.detail` and in the report carries
+`start`/`end` — one occurrence in the *source* extraction, in code points — and
+`lib/leaks.ts` names the value from the preview findings the window already holds
+at those offsets. Both sides are the engine's numbers, so the UTF-16 trap does not
+arise: nothing is sliced, two integers are compared. The result card lists what is
+left with "Remove everywhere" (feeds the same `extraValues` as the "also remove"
+box) and offers "Write this file anyway", which re-runs that one file with
+`allow_leaks` and the options of the run it follows (`scrubOptions`), and is then
+badged "Not verified" — never the green line. It is disabled when a key file was
+asked for and its passphrase has already been forgotten, because writing without
+the key file would be a different run than the one chosen. The default is
+unchanged: a survivor still writes nothing until somebody asks.
 
 **Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
 entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
