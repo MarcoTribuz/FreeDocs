@@ -7,6 +7,9 @@ workbook or a presentation, so they are handled once here.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
+
+from ...core.stream import Anchor
 from ..base import HiddenItem
 from .zip_part import OoxmlPackage, qn
 
@@ -163,30 +166,54 @@ def drop_matching(
 _PRODUCER_FIELDS = frozenset({qn("ep:Application"), qn("ep:AppVersion")})
 
 
-def unextracted_properties_text(package: OoxmlPackage, anchored_parts: set[str]) -> str:
-    """The text of every ``docProps/`` part the handler did not extract.
+def unextracted_properties_text(package: OoxmlPackage, anchors: Iterable[Anchor]) -> str:
+    """Everything in ``docProps/`` that ``anchors`` do not already cover.
 
-    For :meth:`FormatHandler.verification_extras`. Text nodes only: attribute
-    values here are schema URIs and identifiers, and a value hiding in one is
-    not how these parts are written. Parts already in the stream are skipped
-    (a workbook anchors ``TitlesOfParts`` to redact its sheet names), because
-    counting them twice would break a kept occurrence's allowance.
+    For :meth:`FormatHandler.verification_extras`, so it errs towards searching
+    too much: every node's text and tail, comments and processing instructions
+    included, and every attribute value. Markup and identifiers in the haystack
+    can only add matches, never hide one.
+
+    Exclusion is per **element**, not per part. A workbook anchors the sheet
+    names in ``TitlesOfParts`` and that text is already in the stream, so
+    counting it again would break the allowance a kept occurrence earns - but
+    skipping the whole of ``app.xml`` for it went blind to ``HLinks`` beside
+    them, the leak this exists for. ``anchors`` must be the ones that belong to
+    ``package``: a nested package's anchors name their own parts with the same
+    names.
+
+    The producer fields (``Application``, ``AppVersion``) are skipped; see
+    ``_PRODUCER_FIELDS``. A part that does not parse is searched raw.
     """
+    anchored_text: set[int] = set()
+    anchored_attributes: set[tuple[int, str]] = set()
+    for anchor in anchors:
+        if not anchor.part.startswith("docProps/"):
+            continue
+        locator = anchor.locator
+        element = getattr(locator, "element", None)
+        attribute = getattr(locator, "name", None)
+        if element is not None and isinstance(attribute, str):
+            anchored_attributes.add((id(element), attribute))
+        else:
+            anchored_text.add(id(locator))
+
     chunks: list[str] = []
     for name in package.matching("docProps/"):
-        if name in anchored_parts:
-            continue
         try:
             tree = package.tree(name)
         except Exception:
             # Searched raw rather than skipped: a part verification cannot parse
-            # is exactly the part it must not go blind to. Markup in the haystack
-            # can only add matches, never hide one.
+            # is exactly the part it must not go blind to.
             chunks.append(package.raw(name).decode("utf-8", errors="replace"))
             continue
-        for element in tree.iter():  # type: ignore[attr-defined]
-            if element.tag in _PRODUCER_FIELDS:
-                continue
-            if isinstance(element.tag, str) and element.text and element.text.strip():
-                chunks.append(element.text)
-    return "\n".join(chunks)
+        for node in tree.iter():  # type: ignore[attr-defined]
+            skip_text = node.tag in _PRODUCER_FIELDS or id(node) in anchored_text
+            if node.text and not skip_text:
+                chunks.append(node.text)
+            if node.tail:
+                chunks.append(node.tail)
+            for key, value in getattr(node, "attrib", {}).items():
+                if (id(node), key) not in anchored_attributes:
+                    chunks.append(value)
+    return "\n".join(chunk for chunk in chunks if chunk.strip())

@@ -266,7 +266,7 @@ class XlsxHandler(FormatHandler):
     # -- hidden content --------------------------------------------------------
 
     def verification_extras(self, stream: TextStream) -> str:
-        return unextracted_properties_text(self.package, {anchor.part for anchor in stream.anchors})
+        return unextracted_properties_text(self.package, stream.anchors)
 
     def scrub_hidden(self) -> list[HiddenItem]:
         return scrub_xlsx_hidden(self.package)

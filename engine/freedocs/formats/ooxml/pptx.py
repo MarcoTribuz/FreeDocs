@@ -194,7 +194,19 @@ class PptxHandler(FormatHandler):
     # -- hidden content --------------------------------------------------------
 
     def verification_extras(self, stream: TextStream) -> str:
-        return unextracted_properties_text(self.package, {anchor.part for anchor in stream.anchors})
+        """This package's ``docProps/`` and each embedded workbook's, apart.
+
+        Anchors are split by owner because a nested workbook names its parts
+        exactly as this package does - both have a ``docProps/app.xml`` - and
+        the nested workbook's anchors were read as excluding this package's
+        elements, or the other way round.
+        """
+        mine = [a for a in stream.anchors if id(a.locator) not in self._nested_locators]
+        chunks = [unextracted_properties_text(self.package, mine)]
+        for name, handler in self.nested_handlers().items():
+            theirs = [a for a in stream.anchors if self._nested_locators.get(id(a.locator)) == name]
+            chunks.append(unextracted_properties_text(handler.package, theirs))  # type: ignore[attr-defined]
+        return "\n".join(chunk for chunk in chunks if chunk)
 
     def scrub_hidden(self) -> list[HiddenItem]:
         removed = scrub_pptx_hidden(self.package)
