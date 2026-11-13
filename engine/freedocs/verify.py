@@ -115,10 +115,17 @@ class VerifyResult:
 
     def summary(self) -> str:
         if self.ok:
-            return (
+            line = (
                 f"no leak: {self.checked_values} distinct values checked against "
                 f"{self.output_chars} characters of output"
             )
+            # Said on the same line, because "no leak" read alone is taken to
+            # mean none of these strings is in the file - and inside a longer
+            # word some are, left there on purpose and worth a look.
+            inside = sum(item.occurrences for item in self.embedded)
+            if inside:
+                line += f"; {inside} occurrence(s) left inside longer words, see the warnings"
+            return line
         return f"{len(self.leaks)} value(s) survived the scrub"
 
 

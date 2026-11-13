@@ -82,7 +82,7 @@ def scrub_app_properties(package: OoxmlPackage) -> list[HiddenItem]:
     ]
 
 
-def blank_titles_of_parts(package: OoxmlPackage) -> list[HiddenItem]:
+def blank_titles_of_parts(package: OoxmlPackage, holds: str) -> list[HiddenItem]:
     """Empty ``TitlesOfParts`` in a document or a presentation.
 
     Office writes a table of contents of the package here. In a Word document
@@ -97,6 +97,10 @@ def blank_titles_of_parts(package: OoxmlPackage) -> list[HiddenItem]:
     counts in ``HeadingPairs``. **Not for workbooks**: there the entries are the
     sheet names, which ``XlsxHandler`` anchors and redacts in place so they
     stay in step with ``workbook.xml``.
+
+    ``holds`` says what the list holds in the caller's format, because the
+    report is read by somebody who has one document in front of them, and a
+    Word user told about slide titles reads that as a mistake.
     """
     part = "docProps/app.xml"
     if not package.has(part):
@@ -116,7 +120,7 @@ def blank_titles_of_parts(package: OoxmlPackage) -> list[HiddenItem]:
         HiddenItem(
             part=part,
             kind="titles-of-parts",
-            detail=f"{blanked} cached title(s): document title, slide titles, fonts, themes",
+            detail=f"{blanked} cached title(s): {holds}",
         )
     ]
 

@@ -606,3 +606,4 @@ def test_the_title_cached_in_titles_of_parts_does_not_survive(tmp_path: Path):
     assert not survives_anywhere(result.output, "Bianchi Rossi")
     kinds = {item.kind: item.detail for item in result.hidden_removed}
     assert kinds["titles-of-parts"].startswith("1 cached title")
+    assert "slide" not in kinds["titles-of-parts"]  # a Word report names no slides
