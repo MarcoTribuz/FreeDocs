@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from ..base import HiddenItem
 from .docprops import (
+    blank_titles_of_parts,
     drop_custom_xml,
     drop_matching,
     drop_thumbnail,
@@ -61,6 +62,7 @@ def scrub_pptx_hidden(package: OoxmlPackage) -> list[HiddenItem]:
     removed.extend(drop_custom_xml(package))
     removed.extend(scrub_core_properties(package))
     removed.extend(scrub_app_properties(package))
+    removed.extend(blank_titles_of_parts(package))
 
     removed.extend(_report_hidden_slides(package))
     removed.extend(_report_offscreen_shapes(package))

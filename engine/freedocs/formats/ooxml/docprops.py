@@ -75,6 +75,45 @@ def scrub_app_properties(package: OoxmlPackage) -> list[HiddenItem]:
     ]
 
 
+def blank_titles_of_parts(package: OoxmlPackage) -> list[HiddenItem]:
+    """Empty ``TitlesOfParts`` in a document or a presentation.
+
+    Office writes a table of contents of the package here. In a Word document
+    it is the title - the one ``dc:title`` already blanks in ``core.xml``, so
+    leaving this copy undid that. In a presentation it is every slide title,
+    beside the fonts and theme names, so a client named in a heading survived
+    the redaction of the slide it heads.
+
+    Blanked rather than redacted, because nothing here is content a reader sees:
+    Office rebuilds the list on the next save. The entries are emptied rather
+    than removed so the vector still agrees with its own ``size`` and with the
+    counts in ``HeadingPairs``. **Not for workbooks**: there the entries are the
+    sheet names, which ``XlsxHandler`` anchors and redacts in place so they
+    stay in step with ``workbook.xml``.
+    """
+    part = "docProps/app.xml"
+    if not package.has(part):
+        return []
+    tree = package.tree(part)
+    blanked = 0
+    for titles in tree.iter(qn("ep:TitlesOfParts")):  # type: ignore[attr-defined]
+        for tag in ("vt:lpstr", "vt:lpwstr"):
+            for entry in titles.iter(qn(tag)):
+                if entry.text:
+                    entry.text = None
+                    blanked += 1
+    if not blanked:
+        return []
+    package.mark_dirty(part)
+    return [
+        HiddenItem(
+            part=part,
+            kind="titles-of-parts",
+            detail=f"{blanked} cached title(s): document title, slide titles, fonts, themes",
+        )
+    ]
+
+
 def drop_hyperlink_cache(package: OoxmlPackage) -> list[HiddenItem]:
     """Remove ``HLinks``, Office's second copy of every hyperlink target.
 

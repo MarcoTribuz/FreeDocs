@@ -23,6 +23,10 @@ redacted, and named in the report.
   verification, which reads the parts a handler extracts, never looked. The cache
   is dropped whole (Office rebuilds it on the next save) and the base is blanked.
   This applies to all three Office formats.
+- **The title, twice.** `TitlesOfParts` in `docProps/app.xml` holds the document
+  title that `core.xml` already had blanked. In a presentation it holds every
+  slide title too. Its entries are emptied in documents and presentations;
+  workbooks keep theirs, which are the sheet names and are redacted in place.
 - **`<w:instrText>`** holds a HYPERLINK field's target.
 - **Comments are separate parts**, and `people.xml` maps each commenter to a name
   and usually an email.

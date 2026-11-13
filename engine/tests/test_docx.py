@@ -527,3 +527,14 @@ def test_the_program_that_wrote_the_file_is_not_a_leak(tmp_path: Path):
     override = Override(remove=(RemovedValue("Microsoft", EntityType.ORGANISATION),))
     result = l1_scrubber(overrides=override).scrub_file(path)
     assert result.verify.ok, result.verify.summary()
+
+
+@pytest.mark.leak
+def test_the_title_cached_in_titles_of_parts_does_not_survive(tmp_path: Path):
+    """``dc:title`` was blanked and Word's second copy of it was not."""
+    path = make(tmp_path / "titled.docx", titles_of_parts=("Scheda cliente Bianchi Rossi",))
+    result = l1_scrubber().scrub_file(path)
+    assert result.verify.ok, result.verify.summary()
+    assert not survives_anywhere(result.output, "Bianchi Rossi")
+    kinds = {item.kind: item.detail for item in result.hidden_removed}
+    assert kinds["titles-of-parts"].startswith("1 cached title")

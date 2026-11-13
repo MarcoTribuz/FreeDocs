@@ -119,6 +119,8 @@ class DocxSpec:
     hlinks: tuple[str, ...] = ()
     #: The producer line Word writes; empty means no element, as most fixtures.
     application: str = ""
+    #: What Word writes in ``TitlesOfParts``: for a document, its title.
+    titles_of_parts: tuple[str, ...] = ()
     hyperlink_base: str = ""
     #: Blankable so a genuinely clean document can be built for the tests.
     revision: str = "7"
@@ -238,6 +240,12 @@ def _app_extra(spec: DocxSpec) -> str:
     out = []
     if spec.application:
         out.append(f"<Application>{_escape(spec.application)}</Application>")
+    if spec.titles_of_parts:
+        entries = "".join(f"<vt:lpstr>{_escape(t)}</vt:lpstr>" for t in spec.titles_of_parts)
+        out.append(
+            f'<TitlesOfParts><vt:vector size="{len(spec.titles_of_parts)}" baseType="lpstr">'
+            f"{entries}</vt:vector></TitlesOfParts>"
+        )
     if spec.hyperlink_base:
         out.append(f"<HyperlinkBase>{_escape(spec.hyperlink_base)}</HyperlinkBase>")
     if spec.hlinks:
