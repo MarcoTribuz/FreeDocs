@@ -17,6 +17,12 @@ redacted, and named in the report.
 - **Hyperlink targets live outside the body.** The visible link text is in
   `document.xml`; `mailto:mario.rossi@example.com` is in `document.xml.rels`.
   Redacting what you can read leaves the address behind.
+- **And a third copy in `docProps/app.xml`.** `HLinks` caches every link's address
+  again, beside a `HyperlinkBase` that is usually a server path. On a real
+  document every URL the scrub removed from the body was still there — and
+  verification, which reads the parts a handler extracts, never looked. The cache
+  is dropped whole (Office rebuilds it on the next save) and the base is blanked.
+  This applies to all three Office formats.
 - **`<w:instrText>`** holds a HYPERLINK field's target.
 - **Comments are separate parts**, and `people.xml` maps each commenter to a name
   and usually an email.
