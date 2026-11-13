@@ -591,7 +591,14 @@ class Scrubber:
             # Read from the live handler, not from the extraction snapshot: a
             # handler warns during write-back too, and those are the warnings
             # that say a placeholder did not fit or a sheet was renamed.
-            warnings=[*handler.warnings, *inspection.notes],
+            warnings=[
+                *handler.warnings,
+                *inspection.notes,
+                # Value-free by construction, so safe for the report: a value
+                # left inside longer words is a decision stage 6 made, and an
+                # unannounced one would read as "gone from the document".
+                *(item.describe() for item in verify.embedded),
+            ],
             review=self._review(verify, plan),
             suppressed=inspection.suppressed,
             unmatched=inspection.unmatched,

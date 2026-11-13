@@ -23,7 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.findings import Finding
+from .core.findings import EntityType, Finding
 from .formats.base import FormatHandler
 
 #: Values shorter than this are not searched for. A two-character original would
@@ -52,6 +52,12 @@ class Leak:
     #: the message cannot be read as "the override did not work": with an
     #: allowance in play the failure is the *excess*, not the presence.
     allowed: int = 0
+    #: Where one occurrence of this value was found in the *source* extraction,
+    #: in code points. A position, not a value: it lets a caller that already
+    #: holds the preview findings say which value this is without the error
+    #: having to carry it. -1 when built without a finding.
+    start: int = -1
+    end: int = -1
 
     def describe(self) -> str:
         if self.allowed:
@@ -67,6 +73,29 @@ class Leak:
 
 
 @dataclass(frozen=True)
+class Embedded:
+    """A removed one-word value that is still in the output inside longer words.
+
+    Reported, never raised: see :func:`verify_output` for why this is the one
+    kind of survivor that does not fail a scrub. :meth:`describe` is value-free
+    for the reason :class:`Leak`'s is - this sentence reaches the report.
+    """
+
+    entity: str
+    text: str
+    detector: str
+    occurrences: int
+
+    def describe(self) -> str:
+        return (
+            f"a {self.entity} value found by {self.detector} was removed wherever it "
+            f"stands as a word, and still appears {self.occurrences}x inside longer "
+            f"words, where it was left; check those words if the value could be "
+            f"part of a username, a file name or a code"
+        )
+
+
+@dataclass(frozen=True)
 class VerifyResult:
     leaks: tuple[Leak, ...]
     checked_values: int
@@ -77,6 +106,8 @@ class VerifyResult:
     #: second OCR pass over every page, which is seconds per page for a result
     #: this function already has in hand.
     extracted: str = ""
+    #: One-word values surviving only inside longer words. Not leaks; reported.
+    embedded: tuple[Embedded, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -131,6 +162,23 @@ def verify_output(
 
     Nothing here infers an allowance. It is granted only by a caller naming the
     occurrence, which is the difference between a verified decision and a hole.
+
+    **A one-word value inside a longer word is reported, not raised.** The search
+    is a substring count, while propagation - the pass that reaches a value's
+    other occurrences - matches whole words only. So on a real French document
+    the model called ``Acteurs`` and ``Limité`` people, every standalone
+    occurrence was removed, and the scrub then failed on ``facteurs`` and
+    ``limitée``: eleven occurrences of ordinary words, nothing written, and the
+    same thing on every ordinary file tried. Removing those would be wrong
+    (``f[PERSON_1]``), and refusing the file left nothing to act on.
+
+    The cost is stated, not hidden: a short name inside a username or a file
+    name (``mrossi``) is now a warning rather than a refusal. A value of **more
+    than one word** keeps the old rule, because a multi-word value inside a word
+    is not a collision with the language - it is two words the extraction fused,
+    which is how ``Malakoff Humanisconsulte`` hid a company name, and that is a
+    leak. Whole-word occurrences use the boundary propagation uses: ``_`` is a
+    separator, so ``2022_swica_resume`` is still a whole-word ``swica``.
     """
     allowance: Counter[str] = Counter(value.casefold() for value in kept)
     handler = handler_cls(output_path, output_bytes)
@@ -142,6 +190,7 @@ def verify_output(
     haystack = stream.text.casefold()
 
     leaks: list[Leak] = []
+    embedded: list[Embedded] = []
     checked = 0
     skipped = 0
     for (entity, needle), finding in _distinct_values(removed).items():
@@ -150,6 +199,11 @@ def verify_output(
             continue
         checked += 1
         occurrences = haystack.count(needle)
+        # One search, classified per occurrence: `inside` counts positions that
+        # are themselves among the `occurrences` just counted, so the exemption
+        # can never subtract something it did not look at.
+        inside = _language_collisions(stream.text, haystack, needle, finding.entity)
+        occurrences -= inside
         permitted = allowance.get(needle, 0)
         if occurrences > permitted:
             leaks.append(
@@ -159,6 +213,17 @@ def verify_output(
                     detector=finding.detector,
                     occurrences=occurrences,
                     allowed=permitted,
+                    start=finding.span.start,
+                    end=finding.span.end,
+                )
+            )
+        if inside:
+            embedded.append(
+                Embedded(
+                    entity=entity,
+                    text=finding.text,
+                    detector=finding.detector,
+                    occurrences=inside,
                 )
             )
     return VerifyResult(
@@ -167,4 +232,72 @@ def verify_output(
         skipped_short=skipped,
         output_chars=len(stream.text),
         extracted=stream.text,
+        embedded=tuple(embedded),
     )
+
+
+#: The types a model nominates from prose, where a value can also be part of an
+#: ordinary word. Everything else - an IBAN, an email, a national number - has a
+#: shape, and that shape fused into longer text is still the identifier.
+_PROSE_TYPES = frozenset({EntityType.PERSON, EntityType.ORGANISATION, EntityType.LOCATION})
+
+
+def _language_collisions(text: str, haystack: str, needle: str, entity: EntityType) -> int:
+    """Occurrences of ``needle`` in ``haystack`` that are part of an ordinary word.
+
+    Narrow by construction, because every occurrence counted here is one that
+    does not fail the scrub:
+
+    - only the prose types, and only a value made of letters alone - so no
+      identifier, no multi-word value (fused text, the ``Humanisconsulte``
+      case) and nothing with a digit or punctuation in it;
+    - the occurrences are the ones ``str.count`` counted, found the same way, in
+      the same casefolded text; when casefolding changed the text's length
+      (``ß`` -> ``ss``) the positions no longer line up with the original's case
+      and nothing is exempted;
+    - an occurrence with no letter or digit either side is a whole word and is
+      not counted; the boundary is propagation's, so ``_`` separates and
+      ``2022_swica_resume`` holds a whole-word ``swica``;
+    - every joint must read as one word: two lowercase letters, or a capital
+      that starts the word followed by a lowercase one. A digit (``rossi1985``),
+      lowercase into uppercase (``MarioRossi``) and all capitals
+      (``MARIOROSSI``) are fusion and stay leaks.
+
+    What remains is ``facteurs``, ``personnel``, ``limitée``, ``Facteurs``. The
+    stated cost is an all-lowercase username such as ``mrossi``.
+    """
+    if entity not in _PROSE_TYPES or not needle.isalpha():
+        return 0
+    if len(haystack) != len(text):
+        return 0
+    count = 0
+    start = haystack.find(needle)
+    while start != -1:
+        end = start + len(needle)
+        joined_before = start > 0 and haystack[start - 1].isalnum()
+        joined_after = end < len(haystack) and haystack[end].isalnum()
+        if (
+            (joined_before or joined_after)
+            and (not joined_before or _one_word_before(text, start))
+            and (not joined_after or _one_word_after(text, end))
+        ):
+            count += 1
+        start = haystack.find(needle, end)
+    return count
+
+
+def _one_word_before(text: str, start: int) -> bool:
+    """The value continues a word on its left, and the joint reads as one word."""
+    left, first = text[start - 1], text[start]
+    if not (left.isalpha() and first.isalpha() and first.islower()):
+        return False
+    if left.islower():
+        return True
+    # A capital is allowed only as the word's own first letter: `Facteurs`.
+    return left.isupper() and (start == 1 or not text[start - 2].isalnum())
+
+
+def _one_word_after(text: str, end: int) -> bool:
+    """The value continues into a word on its right, all lowercase at the joint."""
+    last, right = text[end - 1], text[end]
+    return last.isalpha() and right.isalpha() and last.islower() and right.islower()

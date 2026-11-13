@@ -313,6 +313,22 @@ export interface Messages {
 	// ---- the result --------------------------------------------------------
 	verificationPassed(): string;
 	verificationPassedHint(a: { checked: number }): string;
+	/**
+	 * Verification found values still in the output. On a refused file nothing was
+	 * written; on a file written anyway the badge replaces "Verified".
+	 */
+	leftTitle(a: { count: number }): string;
+	leftHint(): string;
+	/** A survivor whose value the preview no longer holds: named by type only. */
+	leftValueUnknown(): string;
+	removeEverywhere(): string;
+	removeEverywhereAdded(): string;
+	backToReview(): string;
+	writeAnyway(): string;
+	writeAnywayHint(): string;
+	writeAnywayNeedsPassphrase(): string;
+	verificationFailed(): string;
+	verificationFailedHint(a: { count: number }): string;
 	openFolder(): string;
 	scrubAgain(): string;
 

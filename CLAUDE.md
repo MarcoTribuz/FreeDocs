@@ -1157,6 +1157,26 @@ gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing
 A nearly-clean file is more dangerous than an obviously dirty one, because it
 gets sent.
 
+**A one-word value inside a longer word is reported, not raised.** The search is
+a substring count and propagation matches whole words, so on a real French
+document the model's `Acteurs` and `Limité` (as PERSON) failed the scrub on
+`facteurs` and `limitée` — eleven ordinary words, nothing written, and the same
+on every ordinary file tried. `VerifyResult.embedded` carries them, the report
+counts them under `verification.inside_longer_words`, and `Embedded.describe()`
+puts a value-free sentence in `warnings`. It is narrow on purpose, because each
+occurrence it counts is one that does not fail the scrub: only PERSON,
+ORGANISATION and LOCATION, only a value of letters alone (so no identifier and no
+**multi-word** value — fused text, which is how `Malakoff Humanisconsulte` hid a
+company), and only where every joint reads as one word — two lowercase letters,
+or a word's own capital into lowercase (`Facteurs`); a digit (`rossi1985`),
+camel case (`MarioRossi`) and all capitals (`MARIOROSSI`) stay leaks. The
+exemption classifies the very occurrences the substring count found, in the same
+casefolded text, and exempts nothing when casefolding changed the length. The word boundary is propagation's, so `_` separates
+and `2022_swica_resume` is a whole-word `swica`. The accepted cost, pinned by a
+test: an all-lowercase username (`mrossi`) is a warning rather than a refusal. Scrapping a model finding that
+starts mid-word was considered and **not** done, for the fused-text reason — it
+would drop the real name the fusion produced.
+
 **Canaries must pass their real checksums.** A test value with a bad check digit
 is rejected by the validator, so nothing is detected, nothing leaks, and the leak
 test passes while proving nothing. `tests/conftest.py` holds verified values;
@@ -2119,6 +2139,20 @@ path is in `localStorage` and comes back locked; the entries never leave the
 engine beyond the slice the editor shows. A finding from the list is told apart
 by `detector === 'terms'` (`isFromTerms`), not by its layer, which is `H` like
 the person's own.
+
+**A refused scrub is no longer a dead end, and the value still never rides the
+error.** Each leak in the refusal's `data.detail` and in the report carries
+`start`/`end` — one occurrence in the *source* extraction, in code points — and
+`lib/leaks.ts` names the value from the preview findings the window already holds
+at those offsets. Both sides are the engine's numbers, so the UTF-16 trap does not
+arise: nothing is sliced, two integers are compared. The result card lists what is
+left with "Remove everywhere" (feeds the same `extraValues` as the "also remove"
+box) and offers "Write this file anyway", which re-runs that one file with
+`allow_leaks` and the options of the run it follows (`scrubOptions`), and is then
+badged "Not verified" — never the green line. It is disabled when a key file was
+asked for and its passphrase has already been forgotten, because writing without
+the key file would be a different run than the one chosen. The default is
+unchanged: a survivor still writes nothing until somebody asks.
 
 **Restore returns no offsets, deliberately.** `RestoreResult` carries placeholders,
 entity names and counts. That is what keeps the UTF-16-versus-code-point trap out
