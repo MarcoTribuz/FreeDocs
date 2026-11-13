@@ -1167,8 +1167,11 @@ puts a value-free sentence in `warnings`. It is narrow on purpose, because each
 occurrence it counts is one that does not fail the scrub: only PERSON,
 ORGANISATION and LOCATION, only a value of letters alone (so no identifier and no
 **multi-word** value — fused text, which is how `Malakoff Humanisconsulte` hid a
-company), and not where the joint touches a digit (`rossi1985`) or goes lowercase
-to uppercase (`MarioRossi`). The word boundary is propagation's, so `_` separates
+company), and only where every joint reads as one word — two lowercase letters,
+or a word's own capital into lowercase (`Facteurs`); a digit (`rossi1985`),
+camel case (`MarioRossi`) and all capitals (`MARIOROSSI`) stay leaks. The
+exemption classifies the very occurrences the substring count found, in the same
+casefolded text, and exempts nothing when casefolding changed the length. The word boundary is propagation's, so `_` separates
 and `2022_swica_resume` is a whole-word `swica`. The accepted cost, pinned by a
 test: an all-lowercase username (`mrossi`) is a warning rather than a refusal. Scrapping a model finding that
 starts mid-word was considered and **not** done, for the fused-text reason — it

@@ -18,7 +18,6 @@ satisfies the first and fails the second, and only the pair catches it.
 
 from __future__ import annotations
 
-import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -194,10 +193,10 @@ def verify_output(
             continue
         checked += 1
         occurrences = haystack.count(needle)
-        # Never more than the substring count: the exemption may only subtract
-        # what it positively classified, so a disagreement between the two
-        # searches can make the check stricter and never looser.
-        inside = min(_language_collisions(stream.text, finding), occurrences)
+        # One search, classified per occurrence: `inside` counts positions that
+        # are themselves among the `occurrences` just counted, so the exemption
+        # can never subtract something it did not look at.
+        inside = _language_collisions(stream.text, haystack, needle, finding.entity)
         occurrences -= inside
         permitted = allowance.get(needle, 0)
         if occurrences > permitted:
@@ -235,8 +234,8 @@ def verify_output(
 _PROSE_TYPES = frozenset({EntityType.PERSON, EntityType.ORGANISATION, EntityType.LOCATION})
 
 
-def _language_collisions(text: str, finding: Finding) -> int:
-    """Occurrences of the value that are part of an ordinary longer word.
+def _language_collisions(text: str, haystack: str, needle: str, entity: EntityType) -> int:
+    """Occurrences of ``needle`` in ``haystack`` that are part of an ordinary word.
 
     Narrow by construction, because every occurrence counted here is one that
     does not fail the scrub:
@@ -244,39 +243,53 @@ def _language_collisions(text: str, finding: Finding) -> int:
     - only the prose types, and only a value made of letters alone - so no
       identifier, no multi-word value (fused text, the ``Humanisconsulte``
       case) and nothing with a digit or punctuation in it;
+    - the occurrences are the ones ``str.count`` counted, found the same way, in
+      the same casefolded text; when casefolding changed the text's length
+      (``ß`` -> ``ss``) the positions no longer line up with the original's case
+      and nothing is exempted;
     - an occurrence with no letter or digit either side is a whole word and is
       not counted; the boundary is propagation's, so ``_`` separates and
       ``2022_swica_resume`` holds a whole-word ``swica``;
-    - a joint touching a digit (``rossi1985``) or a lowercase letter followed by
-      an uppercase one (``MarioRossi``) is fusion, not language, and is not
-      counted either.
+    - every joint must read as one word: two lowercase letters, or a capital
+      that starts the word followed by a lowercase one. A digit (``rossi1985``),
+      lowercase into uppercase (``MarioRossi``) and all capitals
+      (``MARIOROSSI``) are fusion and stay leaks.
 
-    What remains is a value continuing into lowercase letters, or capitalised at
-    the start of one: ``facteurs``, ``personnel``, ``limitée``, ``Facteurs``. The
+    What remains is ``facteurs``, ``personnel``, ``limitée``, ``Facteurs``. The
     stated cost is an all-lowercase username such as ``mrossi``.
     """
-    value = finding.text.strip()
-    if finding.entity not in _PROSE_TYPES or not value.isalpha():
+    if entity not in _PROSE_TYPES or not needle.isalpha():
+        return 0
+    if len(haystack) != len(text):
         return 0
     count = 0
-    for match in re.finditer(re.escape(value), text, re.IGNORECASE):
-        start, end = match.span()
-        before = text[start - 1] if start else ""
-        after = text[end] if end < len(text) else ""
-        joined_before = before.isalnum()
-        joined_after = after.isalnum()
-        if not (joined_before or joined_after):
-            continue
-        if joined_before and _fused(before, text[start]):
-            continue
-        if joined_after and _fused(text[end - 1], after):
-            continue
-        count += 1
+    start = haystack.find(needle)
+    while start != -1:
+        end = start + len(needle)
+        joined_before = start > 0 and haystack[start - 1].isalnum()
+        joined_after = end < len(haystack) and haystack[end].isalnum()
+        if (
+            (joined_before or joined_after)
+            and (not joined_before or _one_word_before(text, start))
+            and (not joined_after or _one_word_after(text, end))
+        ):
+            count += 1
+        start = haystack.find(needle, end)
     return count
 
 
-def _fused(left: str, right: str) -> bool:
-    """Whether two adjacent characters look like two tokens run together."""
-    if left.isdigit() or right.isdigit():
+def _one_word_before(text: str, start: int) -> bool:
+    """The value continues a word on its left, and the joint reads as one word."""
+    left, first = text[start - 1], text[start]
+    if not (left.isalpha() and first.isalpha() and first.islower()):
+        return False
+    if left.islower():
         return True
-    return left.islower() and right.isupper()
+    # A capital is allowed only as the word's own first letter: `Facteurs`.
+    return left.isupper() and (start == 1 or not text[start - 2].isalnum())
+
+
+def _one_word_after(text: str, end: int) -> bool:
+    """The value continues into a word on its right, all lowercase at the joint."""
+    last, right = text[end - 1], text[end]
+    return last.isalpha() and right.isalpha() and last.islower() and right.islower()

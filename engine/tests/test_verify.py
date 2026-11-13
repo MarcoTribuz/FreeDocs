@@ -150,3 +150,21 @@ def test_an_all_lowercase_username_is_the_stated_cost():
     result = verify("utente mrossi attivo", "Rossi")
     assert result.ok
     assert result.embedded[0].occurrences == 1
+
+
+def test_all_capitals_are_fusion_not_language():
+    result = verify("account MARIOROSSI attivo", "Rossi")
+    assert not result.ok
+
+
+def test_the_exemption_never_counts_what_the_search_did_not():
+    """A padded value is searched as given, so the exemption is too.
+
+    Both counts used to come from different searches - the substring count on
+    the value as given, the exemption on it stripped - so the second could
+    subtract occurrences the first never counted.
+    """
+    result = verify_with("Les facteurs, Acteurs.", [person(" Acteurs")])
+    assert not result.ok
+    assert result.leaks[0].occurrences == 1
+    assert result.embedded == ()
