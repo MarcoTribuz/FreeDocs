@@ -23,6 +23,22 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.5.0 — 2026-11-13
+
+- **The result screen says what it found in the reader's language.** Hidden
+  content used to be listed one line per package part in engine English
+  (`customXml/item3.xml — custom-xml-store: ...`); it is now grouped by kind,
+  in Italian, German, French or English, with the per-part detail behind a
+  toggle. A removed value left inside a longer word is shown as the word and
+  where it is — a header, a footnote, a PDF page, a slide, a sheet — instead
+  of "a PERSON value found by gliner2:person ... still appears 7x inside longer
+  words". The JSON report is unchanged: it still counts and names no word.
+- **Every release carries `SHA256SUMS` and a CycloneDX SBOM per platform
+  again.** They were built on every tagged run but attached only by hand, so
+  1.4.1 shipped without them (they have since been added to it). A workflow
+  job now attaches them, after checking every hash the build recorded against
+  the digest GitHub computed on the uploaded file.
+
 ## 1.4.1 — 2026-11-13
 
 1.4.0 was tagged and never published: this release replaces it, and
