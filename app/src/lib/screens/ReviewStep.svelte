@@ -27,6 +27,7 @@
 	import DocumentText from './DocumentText.svelte';
 	import FindingDetail from './FindingDetail.svelte';
 	import FindingsTable from './FindingsTable.svelte';
+	import HiddenList from './HiddenList.svelte';
 
 	const m = $derived(i18n.m);
 
@@ -237,18 +238,13 @@
 		     so the only place to learn that a thumbnail or a comment was going was
 		     the result page — after the decision had been made.
 
-		     `lang="en"` on the list: `kind` is a closed vocabulary and `detail` is
-		     an engine f-string, and the window's rule is that enum-shaped things
-		     get real words while sentences are quoted. Neither is a value, which
-		     is the engine's own contract for this type and what makes showing it
-		     here reasonable at all. -->
+		     `kind` is a closed vocabulary, so HiddenList gives it real words and
+		     groups it; `detail` is an engine f-string and is quoted behind a
+		     toggle. Neither is a value, which is the engine's own contract for
+		     this type and what makes showing it here reasonable at all. -->
 		<Card padding="tight">
 			<h4>{m.hiddenPendingTitle()}</h4>
-			<ul class="hidden-list" lang="en">
-				{#each inspection.hidden as item (item.part + item.kind + item.detail)}
-					<li><span class="mono">{item.part}</span> — {item.kind}: {item.detail}</li>
-				{/each}
-			</ul>
+			<HiddenList items={inspection.hidden} />
 		</Card>
 	{/if}
 
@@ -265,20 +261,6 @@
 	.terms-used {
 		font-size: var(--text-sm);
 		color: var(--text-2);
-	}
-
-	.hidden-list {
-		list-style: none;
-		margin: var(--space-2) 0 0;
-		padding: 0;
-		display: grid;
-		gap: var(--space-1);
-		font-size: var(--text-sm);
-		color: var(--text-2);
-	}
-
-	.hidden-list li {
-		line-height: 1.5;
 	}
 
 	.head {

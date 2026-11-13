@@ -35,10 +35,11 @@ on:
 # PyInstaller cannot cross-compile — so an Intel bundle needs an Intel machine,
 # paid for or self-hosted. Until there is one, x86_64 macOS is untested rather
 # than quietly built from the wrong architecture.
-# Read-only by default. The one job here needs more - `tauri-action` opens a
-# draft release on a tag - so it raises `contents: write` on itself, which is
-# the point of declaring the floor here: the elevated scope is visible at the
-# job that uses it instead of being the silent default for everything.
+# Read-only by default. Two jobs need more - `tauri-action` opens a draft
+# release on a tag, `provenance` attaches the manifest to it - so each raises
+# `contents: write` on itself, which is the point of declaring the floor here:
+# the elevated scope is visible at the job that uses it instead of being the
+# silent default for everything.
 permissions:
   contents: read
 
@@ -203,7 +204,7 @@ jobs:
           # found or created" after the whole bundle, which is how v1.0.1 got
           # no release. Nothing reads it on a branch build.
           releaseName: FreeDocs ${{ github.ref_name }}
-          releaseBody: "See CHANGELOG.md for what changed. Every installer carries a build attestation: gh attestation verify <file> -R MarcoTribuz/FreeDocs --source-ref refs/tags/${{ github.ref_name }}"
+          releaseBody: "See CHANGELOG.md for what changed. SHA256SUMS and a CycloneDX SBOM per platform are attached. Every installer carries a build attestation: gh attestation verify <file> -R MarcoTribuz/FreeDocs --source-ref refs/tags/${{ github.ref_name }}"
           releaseDraft: true
 
       # A signed statement that each installer came out of this workflow, at
@@ -371,3 +372,34 @@ jobs:
           # One per job, like the portable bundle: absent means the step above
           # found no artifact to describe, which is a broken build.
           if-no-files-found: error
+
+  # -- the same, on the release page ------------------------------------------
+  #
+  # The step above put `SHA256SUMS` and the SBOMs into workflow artifacts and
+  # nowhere else, so from v1.4.1 the release carried installers and nothing to
+  # check them against; v1.0.2 to v1.2.0 had both only because they were
+  # attached by hand. One job after all three platforms, because each bundle
+  # job holds a third of the manifest, and `needs` skips it when any platform
+  # failed: a SHA256SUMS covering two thirds of the downloads reads as covering
+  # all of them. `publish_provenance.py` also checks every build-side hash
+  # against the digest GitHub computed on the uploaded asset, and refuses on a
+  # disagreement. Tags only — a branch build has no release to attach to.
+  provenance:
+    needs: bundle
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    # `contents: write` to upload release assets, `actions: read` to download
+    # this run's artifacts. Nothing else.
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Collect each platform's manifest
+        run: gh run download "${{ github.run_id }}" -R "${{ github.repository }}" -p 'freedocs-provenance-*' -D provenance
+
+      - name: Attach SHA256SUMS and SBOMs to the release
+        run: python3 scripts/publish_provenance.py --tag "${{ github.ref_name }}" --repo "${{ github.repository }}" --artifacts provenance

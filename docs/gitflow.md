@@ -96,8 +96,10 @@ git branch -d release/0.2.0
 
 Pushing `v0.2.0` is what makes the installers, through the `v*` trigger in
 `.github/workflows/app.yml`, which opens a **draft** release holding them. The
-checksums and SBOMs each platform uploads as artifacts are merged and attached
-by hand, and the draft is published by the maintainer. Run the same workflow on
+`provenance` job then merges each platform's checksums and SBOMs, checks every
+build-side hash against the digest GitHub computed on the uploaded asset, and
+attaches `SHA256SUMS` and the SBOMs to the draft (`scripts/publish_provenance.py`,
+which also repairs a release by hand). The draft is published by the maintainer. Run the same workflow on
 the release branch with `workflow_dispatch` before tagging: a release tag cannot
 be moved, so a build that fails on it costs a version number, which is how 1.0.1
 was spent.

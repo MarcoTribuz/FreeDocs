@@ -125,6 +125,9 @@ class RestoreResult:
     #: replaces.
     warnings: list[str] = field(default_factory=list)
     output_chars: int = 0
+    #: Placeholders that stood for a value written more than one way; the count
+    #: behind the key map's sentence in ``warnings``.
+    respelled: int = 0
 
     @property
     def ok(self) -> bool:
@@ -238,6 +241,7 @@ class Restorer:
             # warnings that say a value did not fit are emitted during write-back.
             warnings=[*handler.warnings, *self.key_map.warnings()],
             output_chars=output_chars,
+            respelled=self.key_map.respelled,
         )
 
     def _match(self, text: str) -> tuple[list[Edit], tuple[Restored, ...], tuple[str, ...]]:

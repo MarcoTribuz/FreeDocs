@@ -157,6 +157,26 @@ export const it = {
 	},
 	hiddenRemovedTitle: () => 'Contenuto nascosto rimosso',
 	hiddenPendingTitle: () => 'Contenuto nascosto che verrà rimosso',
+	hiddenParts: ({ count }) =>
+		plural(L, count, {
+			one: 'in {n} parte del file',
+			other: 'in {n} parti del file'
+		}),
+	hiddenDetailsShow: () => 'Mostra i dettagli tecnici',
+	hiddenDetailsHide: () => 'Nascondi i dettagli tecnici',
+	hiddenDetailsNote: () => 'I dettagli sono scritti dal motore, in inglese.',
+	insideWordsTitle: () => 'Da controllare: rimasto dentro parole più lunghe',
+	insideWordsLead: ({ value, count }) =>
+		plural(L, count, {
+			one: `«${value}»: tolto dove compare da solo, ma resta dentro {n} parola più lunga.`,
+			other: `«${value}»: tolto dove compare da solo, ma resta dentro {n} parole più lunghe.`
+		}),
+	insideWordsHint: () => 'Di solito sono parole normali (come «facteurs» per «Acteurs») e vanno bene così. Controllale solo se il valore potrebbe far parte di un nome utente, di un nome di file o di un codice: in quel caso aggiungilo a «Rimuovi anche» e rifai la pulizia.',
+	keyRespelled: ({ count }) =>
+		plural(L, count, {
+			one: '{n} valore era scritto in modi diversi (maiuscole o spazi): il ripristino userà la prima forma trovata nel documento.',
+			other: '{n} valori erano scritti in modi diversi (maiuscole o spazi): il ripristino userà la prima forma trovata nel documento.'
+		}),
 	nothingWritten: () => 'Non è stato scritto nulla.',
 
 	announceValuesFound: ({ file, count }) =>
@@ -544,5 +564,59 @@ export const it = {
 		surrogate: () => 'verrà sostituito',
 		report: () => 'segnalato, non rimosso',
 		keep: () => 'lasciato invariato'
+	},
+	hiddenKind: {
+		metadata: () => 'Proprietà del documento (autore, ultimo editor, date, titolo)',
+		'extended-metadata': () => 'Proprietà estese (azienda, modello, tempo di modifica)',
+		'custom-properties': () => 'Proprietà personalizzate',
+		'xmp-metadata': () => 'Metadati XMP',
+		'titles-of-parts': () => 'Titolo salvato in copia nelle proprietà',
+		'hyperlink-cache': () => 'Copia nascosta degli indirizzi dei link',
+		'page-thumbnail': () => 'Miniatura della prima pagina',
+		'custom-xml-store': () => 'Dati dietro i campi del modulo',
+		'printer-settings': () => 'Impostazioni della stampante',
+		'macro-project': () => 'Macro',
+		'data-connections': () => 'Connessioni a dati esterni',
+		comments: () => 'Commenti',
+		'comment-anchors': () => 'Segni dei commenti nel testo',
+		'comment-ids': () => 'Identificativi dei commenti',
+		'comment-metadata': () => 'Dati aggiuntivi dei commenti',
+		'comment-shapes': () => 'Riquadri dei commenti',
+		'comment-threading': () => 'Risposte ai commenti',
+		'commenter-directory': () => 'Elenco di chi ha commentato',
+		'revision-markup': () => 'Modifiche di formattazione registrate, con l\'autore',
+		'revision-save-ids': () => 'Tracce delle sessioni di modifica',
+		'revision-save-id-table': () => 'Registro delle sessioni di modifica',
+		'tracked-deletions': () => 'Testo cancellato con le revisioni attive',
+		'tracked-insertions': () => 'Testo inserito con le revisioni attive (accettato, autore e data tolti)',
+		'hidden-cells': () => 'Righe e colonne nascoste (contenuto ripulito)',
+		'hidden-sheet': () => 'Fogli nascosti',
+		'hidden-slide': () => 'Diapositive nascoste',
+		'offscreen-shape': () => 'Oggetti fuori dalla diapositiva',
+		'pivot-cache': () => 'Copia dei dati delle tabelle pivot (ripulita)',
+		'external-link-cache': () => 'Copia dei dati di file collegati (ripulita)',
+		annotations: () => 'Annotazioni e note',
+		'embedded-files': () => 'File allegati',
+		'form-fields': () => 'Valori dei campi del modulo',
+		'form-widgets': () => 'Campi del modulo',
+		'optional-content-layers': () => 'Livelli nascosti (lasciati: da controllare a mano)',
+		outline: () => 'Segnalibri'
+	},
+
+	region: {
+		body: () => 'testo',
+		header: () => 'intestazione',
+		footer: () => 'piè di pagina',
+		footnote: () => 'nota a piè di pagina',
+		endnote: () => 'nota di chiusura',
+		comment: () => 'commento',
+		link: () => 'indirizzo di un link',
+		metadata: () => 'proprietà del documento',
+		sheet: ({ number }) => (number ? `foglio ${number}` : 'foglio'),
+		chart: () => 'grafico',
+		slide: ({ number }) => (number ? `diapositiva ${number}` : 'diapositiva'),
+		notes: ({ number }) => (number ? `note della diapositiva ${number}` : 'note del relatore'),
+		page: ({ number }) => (number ? `pagina ${number}` : 'pagina'),
+		other: () => 'altra parte del file'
 	}
 } satisfies Messages;
