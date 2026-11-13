@@ -160,6 +160,16 @@ def build_report(result: ScrubResult, *, key_file: bool = False) -> dict[str, An
                 }
                 for leak in result.verify.leaks
             ],
+            # Survivors stage 6 judged to be ordinary words rather than the value
+            # (see `verify_output`). Counted here and named in `warnings`.
+            "inside_longer_words": [
+                {
+                    "entity": item.entity,
+                    "detector": item.detector,
+                    "occurrences": item.occurrences,
+                }
+                for item in result.verify.embedded
+            ],
         },
         # A fact about the run, so it belongs beside the other run facts rather
         # than only in the prose below.

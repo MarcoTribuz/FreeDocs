@@ -135,20 +135,20 @@ def test_a_lowercase_copy_of_a_confirmed_name_is_removed(tmp_path: Path):
 # ── The allowance is a count, not an exemption ───────────────────────────────
 
 
-def test_an_occurrence_nobody_suppressed_is_still_a_leak(tmp_path: Path):
+def test_an_occurrence_nobody_suppressed_is_not_covered_by_the_allowance(tmp_path: Path):
     """The half that makes the allowance safe.
 
     One occurrence is a declared decision; the second is one nothing accounted
     for, and the allowance must not stretch to cover it.
 
-    Built from the asymmetry that is still open rather than a stubbed miss.
-    Propagation refuses to reach inside a longer word - `Sion` is not in
-    `Sionne`, the river it stands on, exactly as `Zug` is not in `Zugang` - while
-    stage 6 counts substrings. This construction has been rewritten twice as
-    other cases were closed: the underscore in a filename now propagates, and a
-    lowercase common noun is no longer a LOCATION at all. Whatever the right
-    answer for what remains, it must not be "permitted because a clause mention
-    was suppressed".
+    Built from the asymmetry that is still open rather than a stubbed miss:
+    propagation refuses to reach inside a longer word - `Sion` is not in
+    `Sionne`, the river it stands on - while stage 6 counts substrings. Stage 6
+    now reports a one-word value inside a longer word rather than failing on it
+    (see `verify_output`), so this asserts the other half of the same rule: the
+    river is reported as *its own* survivor, and is not quietly absorbed by the
+    allowance the suppressed clause mention earned. The whole-word count is
+    pinned in `test_verify.py::test_the_allowance_counts_whole_word_occurrences`.
     """
     text = (
         "Bureau a Sion.\n"
@@ -157,10 +157,9 @@ def test_an_occurrence_nobody_suppressed_is_still_a_leak(tmp_path: Path):
     )
     scrubber = scrubber_for("Sion", EntityType.LOCATION, strict=False)
     result = scrubber.scrub_file(source(tmp_path, text))
-    assert not result.verify.ok
-    leak = result.verify.leaks[0]
-    assert leak.occurrences == 2
-    assert leak.allowed == 1
+    assert result.verify.ok, result.verify.summary()
+    assert [item.occurrences for item in result.verify.embedded] == [1]
+    assert "Sionne" in result.output.decode("utf-8")
 
 
 def test_nothing_suppressed_grants_nothing(tmp_path: Path):

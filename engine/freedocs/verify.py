@@ -18,6 +18,7 @@ satisfies the first and fails the second, and only the pair catches it.
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -67,6 +68,29 @@ class Leak:
 
 
 @dataclass(frozen=True)
+class Embedded:
+    """A removed one-word value that is still in the output inside longer words.
+
+    Reported, never raised: see :func:`verify_output` for why this is the one
+    kind of survivor that does not fail a scrub. :meth:`describe` is value-free
+    for the reason :class:`Leak`'s is - this sentence reaches the report.
+    """
+
+    entity: str
+    text: str
+    detector: str
+    occurrences: int
+
+    def describe(self) -> str:
+        return (
+            f"a {self.entity} value found by {self.detector} was removed wherever it "
+            f"stands as a word, and still appears {self.occurrences}x inside longer "
+            f"words, where it was left; check those words if the value could be "
+            f"part of a username, a file name or a code"
+        )
+
+
+@dataclass(frozen=True)
 class VerifyResult:
     leaks: tuple[Leak, ...]
     checked_values: int
@@ -77,6 +101,8 @@ class VerifyResult:
     #: second OCR pass over every page, which is seconds per page for a result
     #: this function already has in hand.
     extracted: str = ""
+    #: One-word values surviving only inside longer words. Not leaks; reported.
+    embedded: tuple[Embedded, ...] = ()
 
     @property
     def ok(self) -> bool:
@@ -131,6 +157,23 @@ def verify_output(
 
     Nothing here infers an allowance. It is granted only by a caller naming the
     occurrence, which is the difference between a verified decision and a hole.
+
+    **A one-word value inside a longer word is reported, not raised.** The search
+    is a substring count, while propagation - the pass that reaches a value's
+    other occurrences - matches whole words only. So on a real French document
+    the model called ``Acteurs`` and ``Limité`` people, every standalone
+    occurrence was removed, and the scrub then failed on ``facteurs`` and
+    ``limitée``: eleven occurrences of ordinary words, nothing written, and the
+    same thing on every ordinary file tried. Removing those would be wrong
+    (``f[PERSON_1]``), and refusing the file left nothing to act on.
+
+    The cost is stated, not hidden: a short name inside a username or a file
+    name (``mrossi``) is now a warning rather than a refusal. A value of **more
+    than one word** keeps the old rule, because a multi-word value inside a word
+    is not a collision with the language - it is two words the extraction fused,
+    which is how ``Malakoff Humanisconsulte`` hid a company name, and that is a
+    leak. Whole-word occurrences use the boundary propagation uses: ``_`` is a
+    separator, so ``2022_swica_resume`` is still a whole-word ``swica``.
     """
     allowance: Counter[str] = Counter(value.casefold() for value in kept)
     handler = handler_cls(output_path, output_bytes)
@@ -142,6 +185,7 @@ def verify_output(
     haystack = stream.text.casefold()
 
     leaks: list[Leak] = []
+    embedded: list[Embedded] = []
     checked = 0
     skipped = 0
     for (entity, needle), finding in _distinct_values(removed).items():
@@ -150,6 +194,11 @@ def verify_output(
             continue
         checked += 1
         occurrences = haystack.count(needle)
+        inside = occurrences - _whole_word_count(haystack, needle)
+        if inside and _is_one_word(needle):
+            occurrences -= inside
+        else:
+            inside = 0
         permitted = allowance.get(needle, 0)
         if occurrences > permitted:
             leaks.append(
@@ -161,10 +210,37 @@ def verify_output(
                     allowed=permitted,
                 )
             )
+        if inside:
+            embedded.append(
+                Embedded(
+                    entity=entity,
+                    text=finding.text,
+                    detector=finding.detector,
+                    occurrences=inside,
+                )
+            )
     return VerifyResult(
         leaks=tuple(leaks),
         checked_values=checked,
         skipped_short=skipped,
         output_chars=len(stream.text),
         extracted=stream.text,
+        embedded=tuple(embedded),
     )
+
+
+def _whole_word_count(haystack: str, needle: str) -> int:
+    """Occurrences with no letter or digit either side; ``_`` separates.
+
+    The boundary is :func:`freedocs.detect.propagate.value_occurrences`'s, so
+    what verification calls a word is what propagation could have reached.
+    Counted with a lookahead so overlapping matches count as ``str.count``'s
+    non-overlapping ones would not: the subtraction must never go negative.
+    """
+    pattern = re.compile(rf"(?<![^\W_])(?={re.escape(needle)}(?![^\W_]))")
+    whole = len(pattern.findall(haystack))
+    return min(whole, haystack.count(needle))
+
+
+def _is_one_word(value: str) -> bool:
+    return not any(char.isspace() for char in value.strip())

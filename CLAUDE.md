@@ -1157,6 +1157,21 @@ gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing
 A nearly-clean file is more dangerous than an obviously dirty one, because it
 gets sent.
 
+**A one-word value inside a longer word is reported, not raised.** The search is
+a substring count and propagation matches whole words, so on a real French
+document the model's `Acteurs` and `Limité` (as PERSON) failed the scrub on
+`facteurs` and `limitée` — eleven ordinary words, nothing written, and the same
+on every ordinary file tried. `VerifyResult.embedded` carries them, the report
+counts them under `verification.inside_longer_words`, and `Embedded.describe()`
+puts a value-free sentence in `warnings`. Two limits keep it narrow. A
+**multi-word** value inside a word stays a leak: that is fused text, which is how
+`Malakoff Humanisconsulte` hid a company, not a collision with the language. And
+the word boundary is propagation's, so `_` separates and `2022_swica_resume` is a
+whole-word `swica`. The accepted cost: a short name inside a username
+(`mrossi`) is now a warning rather than a refusal. Scrapping a model finding that
+starts mid-word was considered and **not** done, for the fused-text reason — it
+would drop the real name the fusion produced.
+
 **Canaries must pass their real checksums.** A test value with a bad check digit
 is rejected by the validator, so nothing is detected, nothing leaks, and the leak
 test passes while proving nothing. `tests/conftest.py` holds verified values;
