@@ -148,3 +148,20 @@ class FormatHandler(ABC):
         Default is a no-op: for most formats one reading is the reading.
         """
         return None
+
+    def verification_extras(self, stream: TextStream) -> str:
+        """Text in the output that ``extract`` does not read, for stage 6 alone.
+
+        Verification searches what a handler extracts, so anything else in the
+        container is invisible to it. ``docProps/app.xml`` held a second copy of
+        every hyperlink address on a real document, the scrub had removed each
+        one from the body, and verification passed. This hook is where a format
+        hands over the rest - text nothing is meant to edit and nothing should
+        have left a value in.
+
+        Only parts ``stream`` does not already anchor: an anchored part is
+        already in the search, and counting it twice would break the per-value
+        allowance a kept occurrence earns. Never fed to detection or write-back.
+        Default is empty: a plain-text file has no rest.
+        """
+        return ""

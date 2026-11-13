@@ -28,6 +28,7 @@ from ...core.errors import MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from ..base import FormatHandler, HiddenItem
 from .common import add_relationship_targets, apply_ooxml_edits
+from .docprops import unextracted_properties_text
 from .docx_hidden import scrub_docx_hidden
 from .zip_part import OoxmlPackage, qn
 
@@ -158,6 +159,9 @@ class DocxHandler(FormatHandler):
         return builder.build()
 
     # -- hidden content --------------------------------------------------------
+
+    def verification_extras(self, stream: TextStream) -> str:
+        return unextracted_properties_text(self.package, {anchor.part for anchor in stream.anchors})
 
     def scrub_hidden(self) -> list[HiddenItem]:
         return scrub_docx_hidden(self.package)

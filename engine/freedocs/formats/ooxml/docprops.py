@@ -155,3 +155,38 @@ def drop_matching(
         if name.startswith(prefixes) and package.drop(name):
             out.append(HiddenItem(part=name, kind=kind, detail=detail))
     return out
+
+
+#: Producer identity rather than document content. ``Microsoft Office Word`` is
+#: in nearly every file, and a document that names Microsoft as a party would
+#: otherwise fail verification on the program that wrote it.
+_PRODUCER_FIELDS = frozenset({qn("ep:Application"), qn("ep:AppVersion")})
+
+
+def unextracted_properties_text(package: OoxmlPackage, anchored_parts: set[str]) -> str:
+    """The text of every ``docProps/`` part the handler did not extract.
+
+    For :meth:`FormatHandler.verification_extras`. Text nodes only: attribute
+    values here are schema URIs and identifiers, and a value hiding in one is
+    not how these parts are written. Parts already in the stream are skipped
+    (a workbook anchors ``TitlesOfParts`` to redact its sheet names), because
+    counting them twice would break a kept occurrence's allowance.
+    """
+    chunks: list[str] = []
+    for name in package.matching("docProps/"):
+        if name in anchored_parts:
+            continue
+        try:
+            tree = package.tree(name)
+        except Exception:
+            # Searched raw rather than skipped: a part verification cannot parse
+            # is exactly the part it must not go blind to. Markup in the haystack
+            # can only add matches, never hide one.
+            chunks.append(package.raw(name).decode("utf-8", errors="replace"))
+            continue
+        for element in tree.iter():  # type: ignore[attr-defined]
+            if element.tag in _PRODUCER_FIELDS:
+                continue
+            if isinstance(element.tag, str) and element.text and element.text.strip():
+                chunks.append(element.text)
+    return "\n".join(chunks)

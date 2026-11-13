@@ -31,6 +31,7 @@ from ...core.errors import InputTooLarge, MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
 from ..base import FormatHandler, HiddenItem
 from .common import add_attribute, add_relationship_targets, apply_ooxml_edits
+from .docprops import unextracted_properties_text
 from .pptx_hidden import scrub_pptx_hidden
 from .xlsx import XlsxHandler
 from .zip_part import NS, OoxmlPackage, qn
@@ -191,6 +192,9 @@ class PptxHandler(FormatHandler):
                 builder.add_filler("\n")
 
     # -- hidden content --------------------------------------------------------
+
+    def verification_extras(self, stream: TextStream) -> str:
+        return unextracted_properties_text(self.package, {anchor.part for anchor in stream.anchors})
 
     def scrub_hidden(self) -> list[HiddenItem]:
         removed = scrub_pptx_hidden(self.package)

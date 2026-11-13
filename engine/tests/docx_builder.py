@@ -117,6 +117,8 @@ class DocxSpec:
     #: Empty by default: most fixtures have no links, and Word writes no
     #: ``HLinks`` element then.
     hlinks: tuple[str, ...] = ()
+    #: The producer line Word writes; empty means no element, as most fixtures.
+    application: str = ""
     hyperlink_base: str = ""
     #: Blankable so a genuinely clean document can be built for the tests.
     revision: str = "7"
@@ -234,6 +236,8 @@ def _document_rels(spec: DocxSpec) -> str:
 def _app_extra(spec: DocxSpec) -> str:
     """``HyperlinkBase`` and ``HLinks`` as Word writes them: six variants a link."""
     out = []
+    if spec.application:
+        out.append(f"<Application>{_escape(spec.application)}</Application>")
     if spec.hyperlink_base:
         out.append(f"<HyperlinkBase>{_escape(spec.hyperlink_base)}</HyperlinkBase>")
     if spec.hlinks:
