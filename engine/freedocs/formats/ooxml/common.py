@@ -12,6 +12,7 @@ are exactly the places a reader never looks.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from urllib.parse import quote
@@ -74,6 +75,10 @@ _URI_CHARACTERS = frozenset(
 REDACTED_LINK = "https://redacted.invalid/"
 
 
+#: What a placeholder looks like once written: one bracketed token, no spaces.
+_PLACEHOLDER = re.compile(r"\[[^\[\]\s]+\]")
+
+
 def valid_link_target(value: str) -> str:
     """Make a redacted relationship target a URI Word will accept.
 
@@ -83,19 +88,25 @@ def valid_link_target(value: str) -> str:
     and a real document with sixteen redacted links opened with "Word found
     unreadable content" every time - while the file itself was well-formed.
 
-    A ``mailto:`` keeps its scheme with the rest percent-encoded, which RFC 6068
-    allows in an address. Everything else is re-pointed under ``REDACTED_LINK``
-    with the redacted text encoded in the path: encoding it into the *host*
-    would also be valid on paper, and is what strict parsers refuse.
+    The rewritten target keeps **the placeholders and nothing else** of the
+    original. The first version percent-encoded the whole edited address, and
+    that hid from stage 6 anything the edit had missed: ``Genève`` left in the
+    path became ``Gen%C3%A8ve`` and a two-word name became ``Mario%20Rossi``,
+    neither of which a search for the value finds. Dropping the rest also drops
+    whatever no detector named - the direction to err in for a link nobody sees.
 
-    Only called on a target an edit changed, and a target that is already a
-    valid URI is returned untouched.
+    A ``mailto:`` keeps its scheme; anything else points under ``REDACTED_LINK``,
+    whose ``.invalid`` domain never resolves. The placeholder path is encoded
+    because the brackets must be, and it is the only text the encoding touches.
+    Only called on a target an edit changed; an already-valid one is returned
+    as it is.
     """
     if all(char in _URI_CHARACTERS for char in value):
         return value
+    tokens = "/".join(quote(token, safe="") for token in _PLACEHOLDER.findall(value))
     if value.lower().startswith("mailto:"):
-        return "mailto:" + quote(value[len("mailto:") :], safe="@.-_~")
-    return REDACTED_LINK + quote(value, safe="")
+        return "mailto:" + (tokens or "redacted@redacted.invalid")
+    return REDACTED_LINK + tokens
 
 
 def add_relationship_targets(

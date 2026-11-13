@@ -331,6 +331,13 @@ def test_a_valid_target_is_returned_untouched():
     assert valid_link_target("mailto:[EMAIL_1]") == "mailto:%5BEMAIL_1%5D"
 
 
+def test_a_rewritten_target_keeps_the_placeholders_and_nothing_else():
+    """Encoding the whole address hid a missed value from stage 6 (``Gen%C3%A8ve``)."""
+    rewritten = valid_link_target("https://prod.[ORGANISATION_1]-ge.ch/Genève/Mario Rossi")
+    assert rewritten == "https://redacted.invalid/%5BORGANISATION_1%5D"
+    assert valid_link_target("mailto:a b [EMAIL_1]") == "mailto:%5BEMAIL_1%5D"
+
+
 @pytest.mark.leak
 def test_a_canary_in_a_text_box_does_not_survive(tmp_path: Path):
     path = make(tmp_path / "s.docx", textbox=f"UID {CANARIES['CH_UID']}")
