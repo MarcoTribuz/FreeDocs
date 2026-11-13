@@ -61,6 +61,14 @@ def test_a_one_word_value_inside_longer_words_is_reported_not_raised():
     assert [(item.entity, item.occurrences) for item in result.embedded] == [("PERSON", 2)]
 
 
+def test_the_summary_does_not_say_no_leak_alone_when_words_were_left():
+    """Read alone, "no leak" means none of the strings is in the file."""
+    summary = verify("La grille des facteurs 3P.", "Acteurs").summary()
+    assert summary.startswith("no leak:")
+    assert "1 occurrence(s) left inside longer words" in summary
+    assert "inside" not in verify("Rien ici.", "Acteurs").summary()
+
+
 def test_a_whole_word_survivor_is_still_a_leak():
     result = verify("Les Acteurs et les facteurs.", "Acteurs")
     assert not result.ok

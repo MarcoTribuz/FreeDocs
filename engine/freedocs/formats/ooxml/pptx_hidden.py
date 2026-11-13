@@ -62,7 +62,7 @@ def scrub_pptx_hidden(package: OoxmlPackage) -> list[HiddenItem]:
     removed.extend(drop_custom_xml(package))
     removed.extend(scrub_core_properties(package))
     removed.extend(scrub_app_properties(package))
-    removed.extend(blank_titles_of_parts(package))
+    removed.extend(blank_titles_of_parts(package, holds="slide titles, fonts, themes"))
 
     removed.extend(_report_hidden_slides(package))
     removed.extend(_report_offscreen_shapes(package))
