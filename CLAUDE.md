@@ -1163,12 +1163,14 @@ document the model's `Acteurs` and `Limité` (as PERSON) failed the scrub on
 `facteurs` and `limitée` — eleven ordinary words, nothing written, and the same
 on every ordinary file tried. `VerifyResult.embedded` carries them, the report
 counts them under `verification.inside_longer_words`, and `Embedded.describe()`
-puts a value-free sentence in `warnings`. Two limits keep it narrow. A
-**multi-word** value inside a word stays a leak: that is fused text, which is how
-`Malakoff Humanisconsulte` hid a company, not a collision with the language. And
-the word boundary is propagation's, so `_` separates and `2022_swica_resume` is a
-whole-word `swica`. The accepted cost: a short name inside a username
-(`mrossi`) is now a warning rather than a refusal. Scrapping a model finding that
+puts a value-free sentence in `warnings`. It is narrow on purpose, because each
+occurrence it counts is one that does not fail the scrub: only PERSON,
+ORGANISATION and LOCATION, only a value of letters alone (so no identifier and no
+**multi-word** value — fused text, which is how `Malakoff Humanisconsulte` hid a
+company), and not where the joint touches a digit (`rossi1985`) or goes lowercase
+to uppercase (`MarioRossi`). The word boundary is propagation's, so `_` separates
+and `2022_swica_resume` is a whole-word `swica`. The accepted cost, pinned by a
+test: an all-lowercase username (`mrossi`) is a warning rather than a refusal. Scrapping a model finding that
 starts mid-word was considered and **not** done, for the fused-text reason — it
 would drop the real name the fusion produced.
 

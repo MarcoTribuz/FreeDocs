@@ -31,12 +31,26 @@ def person(text: str) -> Finding:
     )
 
 
+def found(text: str, entity: EntityType) -> Finding:
+    return Finding(
+        span=Span(0, len(text)),
+        entity=entity,
+        text=text,
+        layer=Layer.VALIDATOR,
+        detector="stub",
+    )
+
+
 def verify(output: str, *values: str, kept: tuple[str, ...] = ()):
+    return verify_with(output, [person(value) for value in values], kept=kept)
+
+
+def verify_with(output: str, findings: list[Finding], kept: tuple[str, ...] = ()):
     return verify_output(
         PlainTextHandler,
         Path("out.txt"),
         output.encode("utf-8"),
-        [person(value) for value in values],
+        findings,
         kept=kept,
     )
 
@@ -98,3 +112,41 @@ def test_a_scrub_with_only_embedded_survivors_writes_and_says_so(tmp_path: Path)
     ]
     assert any("inside longer words" in warning for warning in report["warnings"])
     assert "acteurs" not in str(report).casefold().replace("facteurs", "")
+
+
+def test_a_capitalised_word_at_a_sentence_start_is_still_language():
+    result = verify("Facteurs de risque. Les facteurs.", "Acteurs")
+    assert result.ok
+    assert result.embedded[0].occurrences == 2
+
+
+def test_an_identifier_fused_into_longer_text_is_still_a_leak():
+    """The exemption is for prose. An IBAN run into a word is the IBAN."""
+    iban = "CH9300762011623852957"
+    result = verify_with(f"ref {iban}X fin", [found(iban, EntityType.IBAN)])
+    assert not result.ok
+    assert result.embedded == ()
+
+
+def test_an_email_fused_into_longer_text_is_still_a_leak():
+    email = "mario.rossi@example.com"
+    result = verify_with(f"contatto:{email}x", [found(email, EntityType.EMAIL)])
+    assert not result.ok
+
+
+def test_a_name_joined_to_digits_is_fusion_not_language():
+    result = verify("utente rossi1985 attivo", "Rossi")
+    assert not result.ok
+    assert result.embedded == ()
+
+
+def test_camel_case_is_fusion_not_language():
+    result = verify("account MarioRossi attivo", "Rossi")
+    assert not result.ok
+
+
+def test_an_all_lowercase_username_is_the_stated_cost():
+    """Pinned so the trade cannot widen or narrow without someone deciding to."""
+    result = verify("utente mrossi attivo", "Rossi")
+    assert result.ok
+    assert result.embedded[0].occurrences == 1

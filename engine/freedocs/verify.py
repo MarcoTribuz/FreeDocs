@@ -24,7 +24,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from .core.findings import Finding
+from .core.findings import EntityType, Finding
 from .formats.base import FormatHandler
 
 #: Values shorter than this are not searched for. A two-character original would
@@ -194,11 +194,11 @@ def verify_output(
             continue
         checked += 1
         occurrences = haystack.count(needle)
-        inside = occurrences - _whole_word_count(haystack, needle)
-        if inside and _is_one_word(needle):
-            occurrences -= inside
-        else:
-            inside = 0
+        # Never more than the substring count: the exemption may only subtract
+        # what it positively classified, so a disagreement between the two
+        # searches can make the check stricter and never looser.
+        inside = min(_language_collisions(stream.text, finding), occurrences)
+        occurrences -= inside
         permitted = allowance.get(needle, 0)
         if occurrences > permitted:
             leaks.append(
@@ -229,18 +229,54 @@ def verify_output(
     )
 
 
-def _whole_word_count(haystack: str, needle: str) -> int:
-    """Occurrences with no letter or digit either side; ``_`` separates.
+#: The types a model nominates from prose, where a value can also be part of an
+#: ordinary word. Everything else - an IBAN, an email, a national number - has a
+#: shape, and that shape fused into longer text is still the identifier.
+_PROSE_TYPES = frozenset({EntityType.PERSON, EntityType.ORGANISATION, EntityType.LOCATION})
 
-    The boundary is :func:`freedocs.detect.propagate.value_occurrences`'s, so
-    what verification calls a word is what propagation could have reached.
-    Counted with a lookahead so overlapping matches count as ``str.count``'s
-    non-overlapping ones would not: the subtraction must never go negative.
+
+def _language_collisions(text: str, finding: Finding) -> int:
+    """Occurrences of the value that are part of an ordinary longer word.
+
+    Narrow by construction, because every occurrence counted here is one that
+    does not fail the scrub:
+
+    - only the prose types, and only a value made of letters alone - so no
+      identifier, no multi-word value (fused text, the ``Humanisconsulte``
+      case) and nothing with a digit or punctuation in it;
+    - an occurrence with no letter or digit either side is a whole word and is
+      not counted; the boundary is propagation's, so ``_`` separates and
+      ``2022_swica_resume`` holds a whole-word ``swica``;
+    - a joint touching a digit (``rossi1985``) or a lowercase letter followed by
+      an uppercase one (``MarioRossi``) is fusion, not language, and is not
+      counted either.
+
+    What remains is a value continuing into lowercase letters, or capitalised at
+    the start of one: ``facteurs``, ``personnel``, ``limitée``, ``Facteurs``. The
+    stated cost is an all-lowercase username such as ``mrossi``.
     """
-    pattern = re.compile(rf"(?<![^\W_])(?={re.escape(needle)}(?![^\W_]))")
-    whole = len(pattern.findall(haystack))
-    return min(whole, haystack.count(needle))
+    value = finding.text.strip()
+    if finding.entity not in _PROSE_TYPES or not value.isalpha():
+        return 0
+    count = 0
+    for match in re.finditer(re.escape(value), text, re.IGNORECASE):
+        start, end = match.span()
+        before = text[start - 1] if start else ""
+        after = text[end] if end < len(text) else ""
+        joined_before = before.isalnum()
+        joined_after = after.isalnum()
+        if not (joined_before or joined_after):
+            continue
+        if joined_before and _fused(before, text[start]):
+            continue
+        if joined_after and _fused(text[end - 1], after):
+            continue
+        count += 1
+    return count
 
 
-def _is_one_word(value: str) -> bool:
-    return not any(char.isspace() for char in value.strip())
+def _fused(left: str, right: str) -> bool:
+    """Whether two adjacent characters look like two tokens run together."""
+    if left.isdigit() or right.isdigit():
+        return True
+    return left.islower() and right.isupper()
