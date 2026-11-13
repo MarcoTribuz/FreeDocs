@@ -23,6 +23,10 @@ redacted, and named in the report.
   verification, which reads the parts a handler extracts, never looked. The cache
   is dropped whole (Office rebuilds it on the next save) and the base is blanked.
   This applies to all three Office formats.
+- **The title, twice.** `TitlesOfParts` in `docProps/app.xml` holds the document
+  title that `core.xml` already had blanked. In a presentation it holds every
+  slide title too. Its entries are emptied in documents and presentations;
+  workbooks keep theirs, which are the sheet names and are redacted in place.
 - **`<w:instrText>`** holds a HYPERLINK field's target.
 - **Comments are separate parts**, and `people.xml` maps each commenter to a name
   and usually an email.
@@ -33,6 +37,10 @@ redacted, and named in the report.
   documents to the same author.
 - **Metadata** names the author, the last editor, the company, the manager, and
   the local template path — which contains a username.
+  Those fields are removed, not emptied: `TotalTime` is an integer and
+  `lastPrinted` a date, an empty one is not a valid value of either, and Word
+  reported a scrubbed file as "unreadable content" for exactly that while every
+  part was well-formed XML.
 
 Relationship targets reach the pipeline as ordinary anchors through
 `AttributeLocator` rather than being pattern-matched in the handler: the

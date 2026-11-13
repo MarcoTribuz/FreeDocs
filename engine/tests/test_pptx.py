@@ -313,3 +313,38 @@ def test_an_on_canvas_deck_reports_no_offscreen_shapes(tmp_path: Path):
     path = build_deck(tmp_path / "pulito.pptx", chart=False, off_canvas=False)
     kinds = {item.kind for item in l1_scrubber().scrub_file(path).hidden_removed}
     assert "offscreen-shape" not in kinds
+
+
+@pytest.mark.leak
+def test_slide_titles_cached_in_app_xml_do_not_survive(source: Path, tmp_path: Path):
+    """PowerPoint lists every slide title in ``TitlesOfParts``; python-pptx does not.
+
+    Written into the deck by hand, the way PowerPoint saves it, because the
+    builder's template carries no such list.
+    """
+    marked = tmp_path / "titled.pptx"
+    titles = (
+        b'<TitlesOfParts><vt:vector size="2" baseType="lpstr">'
+        b"<vt:lpstr>Office Theme</vt:lpstr><vt:lpstr>Offerta per Nordwind Holding</vt:lpstr>"
+        b"</vt:vector></TitlesOfParts></Properties>"
+    )
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(marked, "w") as target:
+        for item in original.infolist():
+            data = original.read(item.filename)
+            if item.filename == "docProps/app.xml":
+                if b"xmlns:vt=" not in data:
+                    data = data.replace(
+                        b"<Properties ",
+                        b'<Properties xmlns:vt="http://schemas.openxmlformats.org/'
+                        b'officeDocument/2006/docPropsVTypes" ',
+                        1,
+                    )
+                data = data.replace(b"</Properties>", titles)
+                assert b"Nordwind" in data, "the fixture's app.xml changed shape"
+            target.writestr(item, data)
+
+    result = l1_scrubber().scrub_file(marked)
+    with zipfile.ZipFile(io.BytesIO(result.output)) as archive:
+        app = archive.read("docProps/app.xml").decode("utf-8")
+    assert "Nordwind" not in app
+    assert "titles-of-parts" in {item.kind for item in result.hidden_removed}

@@ -13,12 +13,11 @@ from __future__ import annotations
 from pathlib import Path
 
 from freedocs.core.findings import EntityType, Finding, Layer, Span
-from freedocs.core.overrides import Override, RemovedValue
+from freedocs.detect.registry import DetectorRegistry
 from freedocs.formats.plaintext import PlainTextHandler
+from freedocs.pipeline import Scrubber
 from freedocs.report import build_report
 from freedocs.verify import verify_output
-
-from .conftest import l1_scrubber
 
 
 def person(text: str) -> Finding:
@@ -96,19 +95,30 @@ def test_the_warning_quotes_no_value():
     assert "PERSON" in sentence
 
 
+class _OnlyTheWholeWord:
+    """A detector that finds ``Acteurs`` where it stands alone, as the model did.
+
+    Not a removal override: those are substring instructions and would take the
+    letters inside ``facteurs`` too, which is not the case being tested.
+    """
+
+    def detect(self, text: str):
+        return [person("Acteurs")]
+
+
 def test_a_scrub_with_only_embedded_survivors_writes_and_says_so(tmp_path: Path):
     """End to end: the file is written, the warning reaches the report value-free."""
     source = tmp_path / "note.txt"
     source.write_bytes(b"Acteurs : voir la grille des facteurs.\n")
-    override = Override(remove=(RemovedValue("Acteurs", EntityType.PERSON),))
-    result = l1_scrubber(overrides=override).scrub_file(source)
+    registry = DetectorRegistry(detectors=[_OnlyTheWholeWord()])
+    result = Scrubber(registry=registry).scrub_file(source)
 
     assert result.verify.ok
     assert b"Acteurs" not in result.output
     assert b"facteurs" in result.output
     report = build_report(result)
     assert report["verification"]["inside_longer_words"] == [
-        {"entity": "PERSON", "detector": result.verify.embedded[0].detector, "occurrences": 1}
+        {"entity": "PERSON", "detector": "gliner2:person", "occurrences": 1}
     ]
     assert any("inside longer words" in warning for warning in report["warnings"])
     assert "acteurs" not in str(report).casefold().replace("facteurs", "")

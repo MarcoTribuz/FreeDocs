@@ -48,16 +48,23 @@ APP_FIELDS: tuple[tuple[str, str], ...] = (
 def blank_fields(
     package: OoxmlPackage, part: str, fields: tuple[tuple[str, str], ...], kind: str
 ) -> list[HiddenItem]:
-    """Empty the named elements, reporting which of them held anything."""
+    """Remove the named elements, reporting which of them held anything.
+
+    Removed, not emptied. Several are typed — ``cp:lastPrinted`` is an
+    ``xsd:dateTime``, ``ep:TotalTime`` an ``xsd:int`` — and an empty one is not
+    a valid value of either: Word called a real scrubbed document "unreadable
+    content" for exactly that, while every part was well-formed XML. Every
+    field here is optional in its schema, so absence is valid for all of them.
+    """
     if not package.has(part):
         return []
     tree = package.tree(part)
     populated: list[str] = []
     for tag, label in fields:
-        for element in tree.iter(qn(tag)):  # type: ignore[attr-defined]
+        for element in list(tree.iter(qn(tag))):  # type: ignore[attr-defined]
             if element.text:
                 populated.append(label)
-                element.text = None
+                element.getparent().remove(element)
     if not populated:
         return []
     package.mark_dirty(part)
@@ -72,6 +79,45 @@ def scrub_app_properties(package: OoxmlPackage) -> list[HiddenItem]:
     return [
         *blank_fields(package, "docProps/app.xml", APP_FIELDS, "extended-metadata"),
         *drop_hyperlink_cache(package),
+    ]
+
+
+def blank_titles_of_parts(package: OoxmlPackage) -> list[HiddenItem]:
+    """Empty ``TitlesOfParts`` in a document or a presentation.
+
+    Office writes a table of contents of the package here. In a Word document
+    it is the title - the one ``dc:title`` already blanks in ``core.xml``, so
+    leaving this copy undid that. In a presentation it is every slide title,
+    beside the fonts and theme names, so a client named in a heading survived
+    the redaction of the slide it heads.
+
+    Blanked rather than redacted, because nothing here is content a reader sees:
+    Office rebuilds the list on the next save. The entries are emptied rather
+    than removed so the vector still agrees with its own ``size`` and with the
+    counts in ``HeadingPairs``. **Not for workbooks**: there the entries are the
+    sheet names, which ``XlsxHandler`` anchors and redacts in place so they
+    stay in step with ``workbook.xml``.
+    """
+    part = "docProps/app.xml"
+    if not package.has(part):
+        return []
+    tree = package.tree(part)
+    blanked = 0
+    for titles in tree.iter(qn("ep:TitlesOfParts")):  # type: ignore[attr-defined]
+        for tag in ("vt:lpstr", "vt:lpwstr"):
+            for entry in titles.iter(qn(tag)):
+                if entry.text:
+                    entry.text = None
+                    blanked += 1
+    if not blanked:
+        return []
+    package.mark_dirty(part)
+    return [
+        HiddenItem(
+            part=part,
+            kind="titles-of-parts",
+            detail=f"{blanked} cached title(s): document title, slide titles, fonts, themes",
+        )
     ]
 
 

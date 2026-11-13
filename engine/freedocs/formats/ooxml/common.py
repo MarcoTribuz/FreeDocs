@@ -12,8 +12,10 @@ are exactly the places a reader never looks.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from urllib.parse import quote
 
 from ...core.stream import AnchorEdit, TextStreamBuilder, apply_anchor_edits
 from .zip_part import NS, OoxmlPackage
@@ -62,6 +64,51 @@ def add_attribute(
     builder.add_filler(separator)
 
 
+#: Characters RFC 3986 allows in a URI as written. Anything else - ``[`` and
+#: ``]`` above all, which every placeholder contains - makes the target invalid.
+_URI_CHARACTERS = frozenset(
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#@!$&'()*+,;=%"
+)
+
+#: Where a redacted link points. ``.invalid`` is reserved and never resolves, so
+#: a reader who clicks it reaches nothing - least of all the original address.
+REDACTED_LINK = "https://redacted.invalid/"
+
+
+#: What a placeholder looks like once written: one bracketed token, no spaces.
+_PLACEHOLDER = re.compile(r"\[[^\[\]\s]+\]")
+
+
+def valid_link_target(value: str) -> str:
+    """Make a redacted relationship target a URI Word will accept.
+
+    A placeholder written straight into a link gave ``mailto:[EMAIL_1]`` and
+    ``https://prod.[ORGANISATION_2]-ge.ch/...``. Square brackets are legal in a
+    URI only around an IPv6 address, Word parses relationship targets strictly,
+    and a real document with sixteen redacted links opened with "Word found
+    unreadable content" every time - while the file itself was well-formed.
+
+    The rewritten target keeps **the placeholders and nothing else** of the
+    original. The first version percent-encoded the whole edited address, and
+    that hid from stage 6 anything the edit had missed: ``Genève`` left in the
+    path became ``Gen%C3%A8ve`` and a two-word name became ``Mario%20Rossi``,
+    neither of which a search for the value finds. Dropping the rest also drops
+    whatever no detector named - the direction to err in for a link nobody sees.
+
+    A ``mailto:`` keeps its scheme; anything else points under ``REDACTED_LINK``,
+    whose ``.invalid`` domain never resolves. The placeholder path is encoded
+    because the brackets must be, and it is the only text the encoding touches.
+    Only called on a target an edit changed; an already-valid one is returned
+    as it is.
+    """
+    if all(char in _URI_CHARACTERS for char in value):
+        return value
+    tokens = "/".join(quote(token, safe="") for token in _PLACEHOLDER.findall(value))
+    if value.lower().startswith("mailto:"):
+        return "mailto:" + (tokens or "redacted@redacted.invalid")
+    return REDACTED_LINK + tokens
+
+
 def add_relationship_targets(
     package: OoxmlPackage, builder: TextStreamBuilder, prefix: str
 ) -> None:
@@ -76,7 +123,7 @@ def add_relationship_targets(
         for relationship in tree.iter(RELATIONSHIP_TAG):  # type: ignore[attr-defined]
             if relationship.get("TargetMode") != "External":
                 continue
-            add_attribute(builder, relationship, "Target", part=part)
+            add_attribute(builder, relationship, "Target", part=part, sanitise=valid_link_target)
 
 
 def apply_ooxml_edits(package: OoxmlPackage, edits: Iterable[AnchorEdit]) -> None:

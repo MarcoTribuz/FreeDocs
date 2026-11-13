@@ -1575,6 +1575,13 @@ Four decisions, each of which has a failure it prevents:
   a suggestion, not a control. It is a layer purely so that `LAYER_PRECEDENCE`
   settles an overlap; it is not a detector and produces nothing without a caller
   supplying the decision.
+- **A removal ignores case, because stage 6 does.** It was an exact search while
+  verification casefolds, so removing `Mario Rossi` left `MARIO ROSSI` in a
+  header and the file was refused again — the window's "Remove everywhere" on a
+  survivor would have gone round that loop. `re.IGNORECASE`, not `casefold`,
+  so a span is always a span of the text as it is; each finding carries the
+  document's spelling. Still a substring instruction, so `Acteurs` also takes
+  the letters inside `facteurs`.
 - **A keep is a span, a removal is a value.** The window lists one row per
   occurrence, so "keep this one" is a range the caller already has — and it *must*
   be a range, because the same city is confidential in a party's address and not
@@ -1975,6 +1982,31 @@ from the element because `iter()` is a flat pass and reports no exit. A space an
 not a newline: a link sits inside a sentence, and a break would stop
 `detect/addresses.py` assembling an address written around one. The walk is
 skipped entirely in a part with no link in it.
+
+**A redacted link target must still be a URI, or Word calls the file corrupt.**
+A placeholder written straight into a relationship target gave `mailto:[EMAIL_1]`
+and `https://prod.[ORGANISATION_2]-ge.ch/...`; square brackets are legal in a URI
+only around an IPv6 address, and a real document with sixteen redacted links
+opened with "Word found unreadable content" every time while every part was
+well-formed XML. `valid_link_target` runs on an *edited* target only and keeps
+**the placeholders and nothing else**: a `mailto:` keeps its scheme, anything else
+points under `https://redacted.invalid/`. The first version percent-encoded the
+whole edited address, which hid a missed value from stage 6 — `Genève` became
+`Gen%C3%A8ve`, `Mario Rossi` became `Mario%20Rossi`, and neither is what the
+search looks for. Dropping the rest also drops whatever no detector named, the
+right direction for a link nobody reads. The cost: `restore` does not put a
+link's address back, since the placeholder in it is encoded and matching is
+literal by design.
+
+**A metadata field is removed, never emptied.** `docprops.blank_fields` used to
+set `.text = None`, which left `<TotalTime/>` and `<cp:lastPrinted/>` — an empty
+`xsd:int` and an empty `xsd:dateTime`. Well-formed, schema-invalid, and Word
+calls the file "unreadable content". Found by bisecting a real document one
+hidden step at a time; `fd_structure`-style checks of well-formedness, broken
+relationships and dangling ids all passed it. Every field in those tables is
+optional, so absence is valid for all of them. Note for a test: openpyxl reports
+`creator='openpyxl'` when the element is absent, so read the part, not the
+library.
 
 **`xml:space="preserve"` is not optional.** When a replacement gains leading or
 trailing whitespace it must be set, or Word eats the space and the words fuse.
