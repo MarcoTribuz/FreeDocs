@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from freedocs.core.findings import EntityType, Finding, Layer, Span
 from freedocs.detect.registry import DetectorRegistry
 from freedocs.formats.plaintext import PlainTextHandler
@@ -67,6 +69,38 @@ def test_the_summary_does_not_say_no_leak_alone_when_words_were_left():
     assert summary.startswith("no leak:")
     assert "1 occurrence(s) left inside longer words" in summary
     assert "inside" not in verify("Rien ici.", "Acteurs").summary()
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "Écrire à mrossi@acme.invalid pour la suite.",
+        "Le dossier est sous /home/mrossi/contrats.",
+        r"Voir C:\Users\mrossi\Documents\offre.docx",
+        "Profil sur intranet.acme.invalid/~mrossi",
+        "Connexion ftp:mrossi depuis le poste.",
+        "Contact: mario.mrossi pour le suivi.",
+    ],
+)
+def test_a_username_inside_an_address_is_still_a_leak(output: str):
+    """Where a username identifies somebody, the inside-a-word exemption stops."""
+    result = verify(output, "Rossi")
+    assert not result.ok
+    assert result.embedded == ()
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "La grille des facteurs.",
+        "Facteurs: voir annexe.",
+        "Les facteurs, puis les facteurs; enfin (facteurs).",
+        "« facteurs »",
+    ],
+)
+def test_sentence_punctuation_does_not_make_prose_an_address(output: str):
+    result = verify(output, "Acteurs")
+    assert result.ok, result.leaks
 
 
 def test_a_whole_word_survivor_is_still_a_leak():
