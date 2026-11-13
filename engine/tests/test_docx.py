@@ -20,11 +20,14 @@ pytest.importorskip("lxml", reason="lxml is required for Office formats")
 
 from lxml import etree
 
-from freedocs.core.findings import Span
+from freedocs.core.findings import EntityType, Span
+from freedocs.core.overrides import Override, RemovedValue
 from freedocs.core.stream import Edit
+from freedocs.formats.ooxml import docprops
 from freedocs.formats.ooxml.common import AttributeLocator
 from freedocs.formats.ooxml.docx import DOCUMENT, DocxHandler
 from freedocs.formats.router import handler_for
+from freedocs.verify import LeakDetected
 
 from .conftest import CANARIES, l1_scrubber
 from .docx_builder import (
@@ -497,3 +500,30 @@ def test_an_edit_still_lands_when_it_touches_the_link_text():
     body = part_text(output, "word/document.xml")
     assert "[ORGANISATION_1]" in body
     assert "Malakoff" not in body
+
+
+# -- verification reads docProps ------------------------------------------------
+
+
+@pytest.mark.leak
+def test_verification_sees_a_value_left_in_docprops(linked: Path, monkeypatch):
+    """The HLinks bug, re-created: the cache survives and stage 6 must say so.
+
+    Before verification read ``docProps/``, this scrub reported success with
+    the address still in ``app.xml``.
+    """
+    monkeypatch.setattr(docprops, "drop_hyperlink_cache", lambda package: [])
+    with pytest.raises(LeakDetected):
+        l1_scrubber().scrub_file(linked)
+
+
+def test_the_program_that_wrote_the_file_is_not_a_leak(tmp_path: Path):
+    """``Microsoft Office Word`` names the producer, not anybody in the document."""
+    path = make(
+        tmp_path / "ms.docx",
+        paragraphs=["Contratto con Microsoft per la fornitura."],
+        application="Microsoft Office Word",
+    )
+    override = Override(remove=(RemovedValue("Microsoft", EntityType.ORGANISATION),))
+    result = l1_scrubber(overrides=override).scrub_file(path)
+    assert result.verify.ok, result.verify.summary()

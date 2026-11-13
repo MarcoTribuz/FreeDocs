@@ -1157,6 +1157,21 @@ gone. In strict mode a survivor raises `LeakDetected` and the CLI writes nothing
 A nearly-clean file is more dangerous than an obviously dirty one, because it
 gets sent.
 
+**Verification also reads what a handler does not extract.** It used to search
+only the stream, so `docProps/app.xml`'s `HLinks` — a second copy of every link
+address — sat in the output while stage 6 passed. `FormatHandler.verification_extras`
+hands over the rest, for stage 6 alone. The Office formats give all of
+`docProps/` — node text and tails, comments, attribute values — minus the
+**elements** the stream already anchors (a workbook anchors `TitlesOfParts`, and
+counting it twice would break a kept occurrence's allowance; excluding the whole
+part for it was the first version, and it went blind to `HLinks` beside it), and
+minus `Application`/`AppVersion`, which name the producer: a document naming
+Microsoft as a party would otherwise fail on the program that wrote it. A pptx
+splits anchors by owner and adds each embedded workbook's own `docProps/`, because
+both packages call the part `docProps/app.xml`. A part that does not parse is
+searched raw, never skipped. Not covered yet: attribute values inside an
+*extracted* part, such as an image's alt text in `document.xml`.
+
 **A one-word value inside a longer word is reported, not raised.** The search is
 a substring count and propagation matches whole words, so on a real French
 document the model's `Acteurs` and `Limité` (as PERSON) failed the scrub on

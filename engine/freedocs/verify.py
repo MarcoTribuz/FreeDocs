@@ -187,7 +187,13 @@ def verify_output(
     # question has changed from "what is in this file" to "did anything survive".
     handler.harden_for_verification()
     stream = handler.extract()
-    haystack = stream.text.casefold()
+    # What the stream holds plus what the handler does not extract at all
+    # (`FormatHandler.verification_extras`): searched here, and nowhere else.
+    searched = stream.text
+    extras = handler.verification_extras(stream)
+    if extras:
+        searched = f"{stream.text}\n{extras}"
+    haystack = searched.casefold()
 
     leaks: list[Leak] = []
     embedded: list[Embedded] = []
@@ -202,7 +208,7 @@ def verify_output(
         # One search, classified per occurrence: `inside` counts positions that
         # are themselves among the `occurrences` just counted, so the exemption
         # can never subtract something it did not look at.
-        inside = _language_collisions(stream.text, haystack, needle, finding.entity)
+        inside = _language_collisions(searched, haystack, needle, finding.entity)
         occurrences -= inside
         permitted = allowance.get(needle, 0)
         if occurrences > permitted:
