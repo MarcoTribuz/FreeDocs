@@ -1188,7 +1188,12 @@ camel case (`MarioRossi`) and all capitals (`MARIOROSSI`) stay leaks. The
 exemption classifies the very occurrences the substring count found, in the same
 casefolded text, and exempts nothing when casefolding changed the length. The word boundary is propagation's, so `_` separates
 and `2022_swica_resume` is a whole-word `swica`. The accepted cost, pinned by a
-test: an all-lowercase username (`mrossi`) is a warning rather than a refusal. Scrapping a model finding that
+test: an all-lowercase username (`mrossi`) standing alone in prose is a warning
+rather than a refusal. Inside an address it is not: an occurrence whose run of
+non-space text holds `@`, `/`, `\`, or a dot or colon between two characters is
+refused the exemption (`_inside_an_address`), because `mrossi@acme.ch` and
+`/home/mrossi` are where a username names somebody, and no prose word the rule
+exists for is written that way. Raised by a security review after 1.4.0 shipped. Scrapping a model finding that
 starts mid-word was considered and **not** done, for the fused-text reason — it
 would drop the real name the fusion produced.
 

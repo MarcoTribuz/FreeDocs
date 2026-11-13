@@ -276,8 +276,16 @@ def _language_collisions(text: str, haystack: str, needle: str, entity: EntityTy
       lowercase into uppercase (``MarioRossi``) and all capitals
       (``MARIOROSSI``) are fusion and stay leaks.
 
+    - the token holding the word must not be an address: an ``@``, a slash, a
+      backslash, or a dot or colon between two characters anywhere in the
+      surrounding run of non-space text refuses it. That is where a username
+      identifies somebody - ``mrossi@acme.ch``, ``/home/mrossi``,
+      ``C:\\Users\\mrossi`` - and no prose word the exemption exists for is
+      written that way.
+
     What remains is ``facteurs``, ``personnel``, ``limitée``, ``Facteurs``. The
-    stated cost is an all-lowercase username such as ``mrossi``.
+    stated cost is an all-lowercase username standing alone in prose, such as
+    ``mrossi``.
     """
     if entity not in _PROSE_TYPES or not needle.isalpha():
         return 0
@@ -293,10 +301,41 @@ def _language_collisions(text: str, haystack: str, needle: str, entity: EntityTy
             (joined_before or joined_after)
             and (not joined_before or _one_word_before(text, start))
             and (not joined_after or _one_word_after(text, end))
+            and not _inside_an_address(haystack, start, end)
         ):
             count += 1
         start = haystack.find(needle, end)
     return count
+
+
+_ADDRESS_MARKS = frozenset("@/\\")
+#: Address separators only between two characters: ``facteurs.`` and
+#: ``Personnel:`` end a sentence or a heading, ``acme.ch`` and ``ftp:x`` do not.
+_INNER_MARKS = frozenset(".:")
+
+
+def _inside_an_address(text: str, start: int, end: int) -> bool:
+    """The occurrence sits in an email, a URL or a path rather than in prose.
+
+    Read over the whole run of non-space characters around it, because the
+    mark that makes it an address is rarely next to the value: in
+    ``mario.mrossi@acme.ch`` the ``@`` is after it, in a path the slash is
+    before it. A dot or a colon counts only between two characters, so the
+    full stop ending ``facteurs.`` does not make a sentence an address.
+    """
+    left = start
+    while left > 0 and not text[left - 1].isspace():
+        left -= 1
+    right = end
+    while right < len(text) and not text[right].isspace():
+        right += 1
+    token = text[left:right].rstrip(".,;:!?)»\"'")
+    if any(mark in token for mark in _ADDRESS_MARKS):
+        return True
+    return any(
+        token[i] in _INNER_MARKS and token[i - 1].isalnum() and token[i + 1].isalnum()
+        for i in range(1, len(token) - 1)
+    )
 
 
 def _one_word_before(text: str, start: int) -> bool:
