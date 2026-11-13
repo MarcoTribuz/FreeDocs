@@ -35,7 +35,7 @@ from pathlib import Path
 
 from ...core.errors import MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
-from ..base import FormatHandler, HiddenItem
+from ..base import FormatHandler, HiddenItem, Region
 from .common import (
     AttributeLocator,
     add_attribute,
@@ -43,6 +43,7 @@ from .common import (
     apply_ooxml_edits,
 )
 from .docprops import unextracted_properties_text
+from .regions import ooxml_region, ordered_parts
 from .xlsx_hidden import scrub_xlsx_hidden
 from .zip_part import NS, OoxmlPackage, qn
 
@@ -267,6 +268,14 @@ class XlsxHandler(FormatHandler):
 
     def verification_extras(self, stream: TextStream) -> str:
         return unextracted_properties_text(self.package, stream.anchors)
+
+    def region_of(self, part: str) -> Region:
+        region = ooxml_region(part)
+        if region.kind != "sheet":
+            return region
+        if not hasattr(self, "_sheet_order"):
+            self._sheet_order = ordered_parts(self.package, WORKBOOK, qn("s:sheet"))
+        return Region("sheet", self._sheet_order.get(part))
 
     def scrub_hidden(self) -> list[HiddenItem]:
         return scrub_xlsx_hidden(self.package)

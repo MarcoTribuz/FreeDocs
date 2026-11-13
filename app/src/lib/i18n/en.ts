@@ -158,6 +158,26 @@ export const en = {
 	},
 	hiddenRemovedTitle: () => 'Hidden content removed',
 	hiddenPendingTitle: () => 'Hidden content that will be removed',
+	hiddenParts: ({ count }) =>
+		plural(L, count, {
+			one: 'in {n} part of the file',
+			other: 'in {n} parts of the file'
+		}),
+	hiddenDetailsShow: () => 'Show technical details',
+	hiddenDetailsHide: () => 'Hide technical details',
+	hiddenDetailsNote: () => 'The details are written by the engine.',
+	insideWordsTitle: () => 'To check: left inside longer words',
+	insideWordsLead: ({ value, count }) =>
+		plural(L, count, {
+			one: `“${value}”: removed where it stands alone, but still inside {n} longer word.`,
+			other: `“${value}”: removed where it stands alone, but still inside {n} longer words.`
+		}),
+	insideWordsHint: () => 'These are usually ordinary words (like “factors” for “Actors”) and are fine as they are. Check them only if the value could be part of a username, a file name or a code: if so, add it to “Also remove” and scrub again.',
+	keyRespelled: ({ count }) =>
+		plural(L, count, {
+			one: '{n} value was written in more than one way (case or spacing): a restore will use the first form found in the document.',
+			other: '{n} values were written in more than one way (case or spacing): a restore will use the first form found in the document.'
+		}),
 	nothingWritten: () => 'Nothing was written.',
 
 	announceValuesFound: ({ file, count }) =>
@@ -546,5 +566,59 @@ export const en = {
 		surrogate: () => 'will be replaced',
 		report: () => 'flagged, not removed',
 		keep: () => 'left alone'
+	},
+	hiddenKind: {
+		metadata: () => 'Document properties (author, last editor, dates, title)',
+		'extended-metadata': () => 'Extended properties (company, template, editing time)',
+		'custom-properties': () => 'Custom properties',
+		'xmp-metadata': () => 'XMP metadata',
+		'titles-of-parts': () => 'Title kept as a copy in the properties',
+		'hyperlink-cache': () => 'Hidden copy of the link addresses',
+		'page-thumbnail': () => 'Thumbnail of the first page',
+		'custom-xml-store': () => 'Data behind the form fields',
+		'printer-settings': () => 'Printer settings',
+		'macro-project': () => 'Macros',
+		'data-connections': () => 'Connections to external data',
+		comments: () => 'Comments',
+		'comment-anchors': () => 'Comment marks in the text',
+		'comment-ids': () => 'Comment identifiers',
+		'comment-metadata': () => 'Extra comment data',
+		'comment-shapes': () => 'Comment boxes',
+		'comment-threading': () => 'Comment replies',
+		'commenter-directory': () => 'List of commenters',
+		'revision-markup': () => 'Recorded formatting changes, with their author',
+		'revision-save-ids': () => 'Traces of editing sessions',
+		'revision-save-id-table': () => 'Log of editing sessions',
+		'tracked-deletions': () => 'Text deleted with tracked changes on',
+		'tracked-insertions': () => 'Text inserted with tracked changes on (accepted, author and date removed)',
+		'hidden-cells': () => 'Hidden rows and columns (content cleaned)',
+		'hidden-sheet': () => 'Hidden sheets',
+		'hidden-slide': () => 'Hidden slides',
+		'offscreen-shape': () => 'Objects off the slide',
+		'pivot-cache': () => 'Copy of the pivot table data (cleaned)',
+		'external-link-cache': () => 'Copy of linked file data (cleaned)',
+		annotations: () => 'Annotations and notes',
+		'embedded-files': () => 'Attached files',
+		'form-fields': () => 'Form field values',
+		'form-widgets': () => 'Form fields',
+		'optional-content-layers': () => 'Hidden layers (left in place: check by hand)',
+		outline: () => 'Bookmarks'
+	},
+
+	region: {
+		body: () => 'text',
+		header: () => 'header',
+		footer: () => 'footer',
+		footnote: () => 'footnote',
+		endnote: () => 'endnote',
+		comment: () => 'comment',
+		link: () => 'link address',
+		metadata: () => 'document properties',
+		sheet: ({ number }) => (number ? `sheet ${number}` : 'sheet'),
+		chart: () => 'chart',
+		slide: ({ number }) => (number ? `slide ${number}` : 'slide'),
+		notes: ({ number }) => (number ? `notes of slide ${number}` : 'speaker notes'),
+		page: ({ number }) => (number ? `page ${number}` : 'page'),
+		other: () => 'another part of the file'
 	}
 } satisfies Messages;

@@ -26,10 +26,11 @@ from pathlib import Path
 
 from ...core.errors import MalformedDocument
 from ...core.stream import AnchorEdit, TextStream, TextStreamBuilder
-from ..base import FormatHandler, HiddenItem
+from ..base import FormatHandler, HiddenItem, Region
 from .common import add_relationship_targets, apply_ooxml_edits
 from .docprops import unextracted_properties_text
 from .docx_hidden import scrub_docx_hidden
+from .regions import ooxml_region
 from .zip_part import OoxmlPackage, qn
 
 #: The part holding the document body.
@@ -162,6 +163,10 @@ class DocxHandler(FormatHandler):
 
     def verification_extras(self, stream: TextStream) -> str:
         return unextracted_properties_text(self.package, stream.anchors)
+
+    def region_of(self, part: str) -> Region:
+        # No numbers: a Word document has no pages until Word lays it out.
+        return ooxml_region(part)
 
     def scrub_hidden(self) -> list[HiddenItem]:
         return scrub_docx_hidden(self.package)

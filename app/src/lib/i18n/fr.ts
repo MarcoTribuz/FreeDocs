@@ -165,6 +165,26 @@ export const fr = {
 	},
 	hiddenRemovedTitle: () => 'Contenu caché supprimé',
 	hiddenPendingTitle: () => 'Contenu caché qui sera supprimé',
+	hiddenParts: ({ count }) =>
+		plural(L, count, {
+			one: 'dans {n} partie du fichier',
+			other: 'dans {n} parties du fichier'
+		}),
+	hiddenDetailsShow: () => 'Afficher les détails techniques',
+	hiddenDetailsHide: () => 'Masquer les détails techniques',
+	hiddenDetailsNote: () => 'Les détails sont rédigés par le moteur, en anglais.',
+	insideWordsTitle: () => 'À vérifier : resté à l’intérieur de mots plus longs',
+	insideWordsLead: ({ value, count }) =>
+		plural(L, count, {
+			one: `« ${value} » : retiré là où il est seul, mais encore présent dans {n} mot plus long.`,
+			other: `« ${value} » : retiré là où il est seul, mais encore présent dans {n} mots plus longs.`
+		}),
+	insideWordsHint: () => 'Ce sont en général des mots ordinaires (comme « facteurs » pour « Acteurs ») qui peuvent rester. Vérifiez-les seulement si la valeur pourrait faire partie d’un nom d’utilisateur, d’un nom de fichier ou d’un code : dans ce cas, ajoutez-la à « Retirer aussi » et relancez le nettoyage.',
+	keyRespelled: ({ count }) =>
+		plural(L, count, {
+			one: '{n} valeur était écrite de plusieurs façons (majuscules ou espaces) : la restauration utilisera la première forme trouvée dans le document.',
+			other: '{n} valeurs étaient écrites de plusieurs façons (majuscules ou espaces) : la restauration utilisera la première forme trouvée dans le document.'
+		}),
 	nothingWritten: () => "Rien n'a été écrit.",
 
 	announceValuesFound: ({ file, count }) =>
@@ -554,5 +574,59 @@ export const fr = {
 		surrogate: () => 'sera remplacé',
 		report: () => 'signalé, non supprimé',
 		keep: () => 'laissé tel quel'
+	},
+	hiddenKind: {
+		metadata: () => 'Propriétés du document (auteur, dernier éditeur, dates, titre)',
+		'extended-metadata': () => 'Propriétés étendues (société, modèle, durée d’édition)',
+		'custom-properties': () => 'Propriétés personnalisées',
+		'xmp-metadata': () => 'Métadonnées XMP',
+		'titles-of-parts': () => 'Titre conservé en copie dans les propriétés',
+		'hyperlink-cache': () => 'Copie cachée des adresses des liens',
+		'page-thumbnail': () => 'Miniature de la première page',
+		'custom-xml-store': () => 'Données derrière les champs du formulaire',
+		'printer-settings': () => 'Paramètres d’imprimante',
+		'macro-project': () => 'Macros',
+		'data-connections': () => 'Connexions à des données externes',
+		comments: () => 'Commentaires',
+		'comment-anchors': () => 'Marques de commentaire dans le texte',
+		'comment-ids': () => 'Identifiants des commentaires',
+		'comment-metadata': () => 'Données supplémentaires des commentaires',
+		'comment-shapes': () => 'Bulles de commentaire',
+		'comment-threading': () => 'Réponses aux commentaires',
+		'commenter-directory': () => 'Liste des personnes ayant commenté',
+		'revision-markup': () => 'Modifications de mise en forme enregistrées, avec leur auteur',
+		'revision-save-ids': () => 'Traces des sessions d’édition',
+		'revision-save-id-table': () => 'Journal des sessions d’édition',
+		'tracked-deletions': () => 'Texte supprimé avec le suivi des modifications',
+		'tracked-insertions': () => 'Texte inséré avec le suivi des modifications (accepté, auteur et date retirés)',
+		'hidden-cells': () => 'Lignes et colonnes masquées (contenu nettoyé)',
+		'hidden-sheet': () => 'Feuilles masquées',
+		'hidden-slide': () => 'Diapositives masquées',
+		'offscreen-shape': () => 'Objets hors de la diapositive',
+		'pivot-cache': () => 'Copie des données des tableaux croisés (nettoyée)',
+		'external-link-cache': () => 'Copie des données de fichiers liés (nettoyée)',
+		annotations: () => 'Annotations et notes',
+		'embedded-files': () => 'Fichiers joints',
+		'form-fields': () => 'Valeurs des champs du formulaire',
+		'form-widgets': () => 'Champs du formulaire',
+		'optional-content-layers': () => 'Calques masqués (laissés : à vérifier à la main)',
+		outline: () => 'Signets'
+	},
+
+	region: {
+		body: () => 'texte',
+		header: () => 'en-tête',
+		footer: () => 'pied de page',
+		footnote: () => 'note de bas de page',
+		endnote: () => 'note de fin',
+		comment: () => 'commentaire',
+		link: () => 'adresse d’un lien',
+		metadata: () => 'propriétés du document',
+		sheet: ({ number }) => (number ? `feuille ${number}` : 'feuille'),
+		chart: () => 'graphique',
+		slide: ({ number }) => (number ? `diapositive ${number}` : 'diapositive'),
+		notes: ({ number }) => (number ? `notes de la diapositive ${number}` : 'notes du présentateur'),
+		page: ({ number }) => (number ? `page ${number}` : 'page'),
+		other: () => 'autre partie du fichier'
 	}
 } satisfies Messages;

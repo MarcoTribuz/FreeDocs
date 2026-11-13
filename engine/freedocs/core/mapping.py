@@ -147,20 +147,35 @@ class KeyMap:
     def by_placeholder(self) -> dict[str, MapEntry]:
         return {entry.placeholder: entry for entry in self.entries}
 
+    @property
+    def respelled(self) -> int:
+        """How many placeholders stood for a value written more than one way.
+
+        The count behind :meth:`warnings`, for a caller that says it in its own
+        words - the window translates it rather than quoting the sentence.
+        """
+        return sum(1 for entry in self.entries if entry.variants > 1)
+
     def warnings(self) -> list[str]:
         """What this key file cannot fully undo, stated when it is written.
 
         Said at write time as well as at restore time, because the person who
         chooses to keep a key file is the person who should know its limit.
         """
-        lossy = [entry for entry in self.entries if entry.variants > 1]
-        if not lossy:
-            return []
-        return [
-            f"{len(lossy)} placeholder(s) stood for a value written more than one "
-            "way (differing case or spacing); a restore writes the first spelling "
-            "seen in the source document, not each original form"
-        ]
+        return [respelled_note(self.respelled)] if self.respelled else []
+
+
+def respelled_note(count: int) -> str:
+    """The sentence :meth:`KeyMap.warnings` says, so a caller can find it again.
+
+    The pipe sends the window the count instead, and drops this exact sentence
+    from its ``warnings`` so the window does not say the same thing twice.
+    """
+    return (
+        f"{count} placeholder(s) stood for a value written more than one "
+        "way (differing case or spacing); a restore writes the first spelling "
+        "seen in the source document, not each original form"
+    )
 
 
 def mapping_unavailable_reason() -> str | None:

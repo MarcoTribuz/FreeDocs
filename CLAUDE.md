@@ -553,6 +553,26 @@ is four chances to ship a build that quietly finds less. The rule is **if it cam
 from an enum, translate it; if it came from an f-string, quote it** — entity
 names, actions, stage names and country codes get real words, sentences do not.
 
+**Two sentences became data so the window could say them, and the report did
+not change.** On a real document the result screen quoted 31 lines of
+`customXml/item3.xml — custom-xml-store: ...` and three copies of "a PERSON value
+found by gliner2:person ... still appears 7x inside longer words", which nobody
+outside this repository can read. `HiddenItem.kind` is now a closed set
+(`HIDDEN_KINDS` in `formats/base.py`, refused at construction) and the window
+groups it per kind with real words, the per-part English behind a toggle. The
+inside-a-word case reaches the pipe as `inside_words` — the value, each whole
+word it was left in, and a `Region` — and the matching English sentence is
+dropped from the response's `warnings` so it is not said twice; `report.py`
+still counts and still names no word. `Region` (`FormatHandler.region_of`) names
+a part the way a reader would and carries a number only where the reader can
+find it: a PDF page, a slide by its position in `sldIdLst` (a moved slide keeps
+its file name), a sheet by its tab. **Never a Word page** — the file has none
+until Word lays it out. The key map's "N placeholder(s) stood for a value
+written more than one way" became `key_respelled` / `respelled` the same way,
+found again by `respelled_note`. `tests/test_readable.py` pins both vocabularies
+against the four catalogues, because nothing on the TypeScript side can see the
+engine's list.
+
 **Plurals go through `Intl.PluralRules`.** French puts zero in the singular and
 the other three do not, which is measured in `plural.test.ts` — that single fact
 is why the `(s)` suffix the old window used was wrong rather than merely ugly.
