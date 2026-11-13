@@ -23,6 +23,57 @@ one bundle and move together), the Python API inside `freedocs`, and detection
 quality. A new model or rule that finds more is a minor version even though it
 changes what a scrub removes; every figure comes from `freedocs benchmark`.
 
+## 1.4.0 — 2026-11-13
+
+Word documents. Every change below was found on one real French document, and
+a scrub now removes more from an Office file than under 1.3, so this is a minor
+version.
+
+- **A scrubbed Word file no longer opens as "unreadable content".** The scrub
+  emptied the metadata fields it cleans instead of removing them, and two of
+  them, the total editing time and the last-printed date, must hold a number
+  and a date. Word refused the empty ones and offered to repair the file. They
+  are now removed, which is valid for every field cleaned. This affected Word,
+  Excel and PowerPoint files that carried either field.
+- **Hyperlink addresses no longer survive in the file's properties.** Office
+  keeps a second copy of every link address in `docProps/app.xml`. On the
+  document behind this release, every address removed from the text was still
+  there, 35 of them, and the check after the scrub did not look. That copy is
+  now dropped (Office rebuilds it on the next save), and the base address
+  relative links resolve against is blanked.
+- **The check after the scrub reads all of the file's properties.** It used to
+  search only what was extracted for detection, so anything else in
+  `docProps/` was never compared against the removed values. The program that
+  wrote the file (`Microsoft Word`) is not searched, so a document naming
+  Microsoft as a party does not fail on its own producer.
+- **The title cached for the table of contents is cleared** in Word documents
+  and presentations. It repeated the title the metadata cleanup had already
+  removed, and in a presentation it lists every slide title.
+- **A redacted link still opens.** A placeholder written into a link address
+  made it invalid, and Word reported the whole file as damaged. A rewritten
+  address now keeps only its placeholders: `mailto:` keeps its scheme, and
+  anything else points under `https://redacted.invalid/`. The cost: `restore`
+  no longer puts a link's address back.
+- **A name inside an ordinary word no longer refuses the scrub.** The model
+  sometimes takes an ordinary word for a name (`Acteurs`, `Limité`), and the
+  check then found it inside `facteurs` and `limitée` and wrote nothing. Such
+  occurrences are now counted in the report and named in a warning, and the
+  check line says how many there are. Only names, organisations and places made
+  of letters alone qualify, and only where the join reads as one word. Digits,
+  `MarioRossi` and `MARIOROSSI` are still leaks. The accepted cost: an
+  all-lowercase username such as `mrossi` is a warning rather than a refusal.
+- **A refused scrub is no longer a dead end in the window.** The result screen
+  lists what was left, with a button to remove it everywhere and run again, or
+  to write that one file anyway, marked "Not verified".
+- **A value you ask to remove is removed whatever its capitalisation.** Asking
+  for `Mario Rossi` left `MARIO ROSSI` in a header, and the check after the
+  scrub, which ignores case, then refused the file.
+- **Dependencies with open security advisories were updated**: certifi,
+  filelock and setuptools in the engine, and Pillow, vite and vitest among the
+  development tools. On the Python 3.10 floor, filelock and Pillow stay on the
+  previous release, because the fixed versions need Python 3.11. Every bundle is
+  built on 3.12.
+
 ## 1.3.0 — 2026-10-20
 
 A scrub finds more in PDFs, so this is a minor version: the same document can
