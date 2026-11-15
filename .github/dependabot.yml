@@ -101,6 +101,12 @@ updates:
       # dependency's own name, so `vite` does not stand for `@sveltejs/*`.
       - dependency-name: "@sveltejs/vite-plugin-svelte"
         update-types: ["version-update:semver-major"]
+      # Added after #39 opened `adapter-static 3 -> 4`. An adapter major tracks a
+      # Kit major — 4.0.0 declares `peer @sveltejs/kit ^3` — so it cannot install
+      # while Kit stays on 2, and `npm ci` fails with ERESOLVE before anything is
+      # tested. It moves together with Kit 3, deliberately, or not at all.
+      - dependency-name: "@sveltejs/adapter-static"
+        update-types: ["version-update:semver-major"]
 
   # The Tauri shell. Worth watching for `tauri` itself, which is the only crate
   # here we chose; the rest of the tree came with it.
